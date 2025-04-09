@@ -10,12 +10,19 @@ import { useCart } from '../context/CartContext';
 const ProductDetails = () => {
   const { productId } = useParams();
   const navigate = useNavigate();
-  const { product, loading, error } = useProduct(productId);
+  const { product: rawProduct, loading, error } = useProduct(productId);
   const { addToCart } = useCart();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
+  // Format product data
+  const product = rawProduct ? {
+    ...rawProduct,
+    id: rawProduct._id, // Convert _id to id
+    images: rawProduct.images.map(img => `http://localhost:5000${img}`), // Add full URL
+  } : null;
+
   if (loading) return <LoadingSpinner fullScreen />;
-  if (error) return <div className="text-center py-12 text-red-600">Error loading product</div>;
+  if (error) return <div className="text-center py-12 text-red-600">Error loading product: {error}</div>;
   if (!product) return <div className="text-center py-12">Product not found</div>;
 
   const handlePrevImage = () => {
@@ -69,11 +76,12 @@ const ProductDetails = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Image Carousel */}
         <div className="relative animate-slideInLeft">
-          <div className="relative h-96 bg-gray-100 rounded-lg overflow-hidden transition-all duration-300 hover:shadow-xl">
+          <div className="relative h-96 bg-gray-100 rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl">
             <img
               src={product.images[currentImageIndex]}
               alt={product.title}
               className="w-full h-full object-contain transition-opacity duration-300"
+              onError={(e) => e.target.src = "/placeholder-product.png"}
             />
             
             {/* Navigation Arrows */}
@@ -110,6 +118,7 @@ const ProductDetails = () => {
                     src={img}
                     alt={`Thumbnail ${index + 1}`}
                     className="w-full h-full object-cover"
+                    onError={(e) => e.target.src = "/placeholder-product.png"}
                   />
                 </button>
               ))}
@@ -136,21 +145,18 @@ const ProductDetails = () => {
           </div>
 
           <div className="mb-6">
-            <span className="text-2xl font-bold text-gray-900">${product.price.toFixed(2)}</span>
-            {product.originalPrice && (
-              <span className="ml-2 text-lg text-gray-500 line-through">${product.originalPrice.toFixed(2)}</span>
-            )}
+            <span className="text-2xl font-bold text-gray-900">PKR {product.price.toFixed(2)}</span>
+            {/* Remove originalPrice as it's not in schema */}
           </div>
 
           <div className="prose text-gray-600 mb-6">
             <p>{product.description}</p>
-            
-            {product.highlights && (
+            {product.categories && product.categories.length > 0 && (
               <div className="mt-4">
-                <h3 className="font-semibold text-gray-900">Highlights:</h3>
+                <h3 className="font-semibold text-gray-900">Categories:</h3>
                 <ul className="list-disc pl-5">
-                  {product.highlights.map((highlight, index) => (
-                    <li key={index}>{highlight}</li>
+                  {product.categories.map((cat, index) => (
+                    <li key={index}>{cat.name}</li>
                   ))}
                 </ul>
               </div>

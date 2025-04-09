@@ -9,7 +9,7 @@ import {
   FiPieChart,
   FiSettings
 } from 'react-icons/fi';
-import { History, ImagePlus, ShoppingBasket } from 'lucide-react';
+import { History, ImagePlus, ListChecks, ShoppingBasket } from 'lucide-react';
 
 const Sidebar = () => {
   const [isExpanded, setIsExpanded] = useState(true);
@@ -21,6 +21,7 @@ const Sidebar = () => {
       items: [
         { path: '/admin', icon: FiHome, label: 'Dashboard' },
         { path: '/admin/performance', icon: FiTrendingUp, label: 'Performance' },
+        { path: '/admin/category', icon: ListChecks, label: 'Categories' },
       ]
     },
     
