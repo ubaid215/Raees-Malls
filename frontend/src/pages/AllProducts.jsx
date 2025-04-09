@@ -12,15 +12,21 @@ const AllProducts = () => {
     const loadProducts = async () => {
       try {
         const { data } = await getProducts({ page: 1, limit: 12 });
-        console.log("Loaded products for AllProducts:", data); // Debug
-        setProducts(data);
+        console.log("Loaded products for AllProducts:", data);
+        // Map data to match ProductCard expectations
+        const formattedProducts = data.map(product => ({
+          ...product,
+          id: product._id, // Convert _id to id
+          images: product.images.map(img => `http://localhost:5000${img}`), // Add full URL
+        }));
+        setProducts(formattedProducts);
       } catch (err) {
         setError(err.message);
       } finally {
         setLoading(false);
       }
     };
-  
+
     loadProducts();
   }, []);
 
@@ -43,16 +49,13 @@ const AllProducts = () => {
   return (
     <div className="bg-white">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-
-        {/********* Page header ***********/}
-
+        {/* Page header */}
         <div className="py-8">
           <h1 className="text-3xl font-bold text-gray-900">All Products</h1>
           <p className="mt-2 text-gray-600">Browse our full collection</p>
         </div>
 
-        {/*********** Product grid ************/}
-
+        {/* Product grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-12">
           {products.map((product) => (
             <ProductCard key={product.id} product={product} />

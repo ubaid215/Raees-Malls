@@ -3,18 +3,14 @@ import { Link } from 'react-router-dom';
 import Button from '../core/Button';
 import Card from '../core/Card';
 
-const ProductCard = ({ product }) => {
+const ProductCard = ({ product, buttonBelowPrice = false }) => {
+  const getImageUrl = () => {
+    if (product.images && product.images[0] && typeof product.images[0] === 'string') {
+      return product.images[0];
+    }
+    return '/placeholder-product.png';
+  };
 
-const getImageUrl = () => {
-  if (product.images && product.images[0] && typeof product.images[0] === 'string') {
-    console.log("ProductCard image URL:", product.images[0]); // Debug
-    return product.images[0];
-  }
-  console.log("ProductCard: No valid image, using placeholder"); // Debug
-  return '/placeholder-product.png';
-};
-
-  // Get variant name (using 'name' instead of 'color')
   const getVariantDisplay = () => {
     if (!product.variants || product.variants.length === 0) {
       return 'No variants';
@@ -25,7 +21,6 @@ const getImageUrl = () => {
     return product.variants[0]?.name || 'Default';
   };
 
-  // Get price (in PKR to match ProductForm)
   const getPriceDisplay = () => {
     if (!product.variants || product.variants.length === 0) {
       return `PKR ${Number(product.price || 0).toFixed(2)}`;
@@ -38,8 +33,8 @@ const getImageUrl = () => {
   };
 
   return (
-    <Card className="group hover:shadow-md transition-shadow">
-      {/********* Product Image ************/}
+    <Card className="group hover:shadow-md transition-shadow h-full flex flex-col">
+      {/* Product Image */}
       <Link to={`/products/${product.id}`} className="block">
         <div className="aspect-square bg-gray-100 overflow-hidden rounded-t-lg">
           <img
@@ -51,39 +46,59 @@ const getImageUrl = () => {
         </div>
       </Link>
 
-      {/*********** Product Info **************/}
-      <div className="p-4">
-        <Link to={`/products/${product.id}`} className="block">
-          <h3 className="text-lg font-medium text-gray-900 mb-1 hover:text-red-600 transition-colors">
-            {product.title || 'Untitled Product'}
-          </h3>
-          <p className="text-sm text-gray-600 line-clamp-2 mb-2">
-            {product.description || 'No description available'}
-          </p>
-        </Link>
+      {/* Product Info */}
+      <div className="p-4 flex flex-col flex-grow">
+        <div className="flex-grow">
+          <Link to={`/products/${product.id}`} className="block">
+            <h3 className="text-lg font-medium text-gray-900 mb-1 hover:text-red-600 transition-colors line-clamp-2">
+              {product.title || 'Untitled Product'}
+            </h3>
+            <p className="text-sm text-gray-600 line-clamp-2 mb-2">
+              {product.description || 'No description available'}
+            </p>
+          </Link>
 
-        {/************** Variants **************/}
-        <div className="flex items-center text-sm text-gray-500 mb-2">
-          <span>{getVariantDisplay()}</span>
+          {/* Variants */}
+          <div className="flex items-center text-sm text-gray-500 mb-2">
+            <span>{getVariantDisplay()}</span>
+          </div>
         </div>
 
-        {/*********** Price & Action ***************/}
-        <div className="flex items-center justify-between">
-          <p className="text-lg font-medium text-gray-900">
-            {getPriceDisplay()}
-          </p>
-          <Button
-            variant="primary"
-            size="small"
-            onClick={(e) => {
-              e.preventDefault();
-              // TODO: Implement add to cart functionality
-              console.log(`Added ${product.title} to cart`);
-            }}
-          >
-            Add to Cart
-          </Button>
-        </div>
+        {/* Price & Button */}
+        {buttonBelowPrice ? (
+          <div className="mt-auto">
+            <p className="text-lg font-medium text-gray-900 mb-3">
+              {getPriceDisplay()}
+            </p>
+            <Button
+              variant="primary"
+              size="small"
+              className="w-full"
+              onClick={(e) => {
+                e.preventDefault();
+                console.log(`Added ${product.title} to cart`);
+              }}
+            >
+              Add to Cart
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between mt-auto">
+            <p className="text-lg font-medium text-gray-900">
+              {getPriceDisplay()}
+            </p>
+            <Button
+              variant="primary"
+              size="small"
+              onClick={(e) => {
+                e.preventDefault();
+                console.log(`Added ${product.title} to cart`);
+              }}
+            >
+              Add to Cart
+            </Button>
+          </div>
+        )}
       </div>
     </Card>
   );

@@ -2,14 +2,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import HeroSlider from '../components/shared/HeroSlider';
 import FeaturedProducts from '../pages/FeaturedProducts'; 
+import CategorySection from '../components/shared/CategorySection';
+import RecentProducts from '../components/shared/RecentProducts';
 
 const HomePage = () => {
-  const categories = [
-    { id: 1, name: 'Electronics', image: '/placeholder-category.jpg' },
-    { id: 2, name: 'Clothing', image: '/placeholder-category.jpg' },
-    { id: 3, name: 'Home & Kitchen', image: '/placeholder-category.jpg' },
-    { id: 4, name: 'Beauty', image: '/placeholder-category.jpg' },
-  ];
 
   return (
     <div className="bg-white">
@@ -19,9 +15,6 @@ const HomePage = () => {
       {/* Featured Products */}
       <section className="py-16">
         <div className="container mx-auto px-4">
-          <h2 className="text-3xl font-bold text-center mb-12 animate-fadeIn">
-            Featured Products
-          </h2>
           <FeaturedProducts />
           <div className="text-center mt-12 animate-fadeIn">
             <Link
@@ -34,36 +27,15 @@ const HomePage = () => {
         </div>
       </section>
 
-      {/* Categories Section */}
+      {/********** Recent Products Section ***********/ }
+      <section className='bg-gray-50'>
+        <RecentProducts/>
+      </section>
+
+      {/********* Categories Section ************/}
       <section className="py-16 bg-gray-50">
         <div className="container mx-auto px-4">
-          <h2 className="text-3xl font-bold text-center mb-12 animate-fadeIn">
-            Shop by Category
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-            {categories.map((category, index) => (
-              <Link
-                key={category.id}
-                to={`/categories/${category.id}`}
-                className="group animate-fadeIn"
-                style={{ animationDelay: `${index * 100}ms` }}
-              >
-                <div className="relative overflow-hidden rounded-lg h-48">
-                  <img
-                    src={category.image}
-                    alt={category.name}
-                    className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
-                    onError={(e) => {
-                      e.target.src = '/placeholder-category.jpg';
-                    }}
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black to-transparent flex items-end p-4">
-                    <h3 className="text-white text-xl font-medium">{category.name}</h3>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <CategorySection />
         </div>
       </section>
 

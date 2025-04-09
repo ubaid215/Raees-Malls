@@ -1,24 +1,54 @@
 import React, { useState, useEffect } from "react";
-import PropTypes from "prop-types";
+import { getProducts } from "../services/productAPI";
 import LoadingSpinner from "../components/core/LoadingSpinner";
+import { Link } from "react-router-dom"; // Added for navigation to product details
 
-const FeaturedProducts = ({ products = [] }) => {
-  const [loading, setLoading] = useState(true);
+const FeaturedProducts = () => {
   const [featuredProducts, setFeaturedProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Filter featured products
-    const filteredProducts = products.filter(
-      (product) => product.isFeatured === true
-    );
-    setFeaturedProducts(filteredProducts);
-    setLoading(false);
-  }, [products]);
+    const fetchFeaturedProducts = async () => {
+      try {
+        setLoading(true);
+        // Fetch products with isFeatured: true
+        const { data } = await getProducts({ 
+          page: 1, 
+          limit: 12, 
+          search: '', // No search term
+          isFeatured: true // Add filter for featured products
+        });
+        console.log("Fetched featured products:", data);
+        // Format data to match component expectations
+        const formattedProducts = data.map(product => ({
+          ...product,
+          id: product._id, // Convert _id to id
+          images: product.images.map(img => `http://localhost:5000${img}`), // Full image URLs
+        }));
+        setFeaturedProducts(formattedProducts);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchFeaturedProducts();
+  }, []); // Empty dependency array means it fetches once on mount
 
   if (loading) {
     return (
       <div className="flex justify-center py-8">
         <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8 text-red-600">
+        Error loading featured products: {error}
       </div>
     );
   }
@@ -40,16 +70,12 @@ const FeaturedProducts = ({ products = [] }) => {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {featuredProducts.map((product) => (
             <div
-              key={product._id || product.title}
+              key={product.id} // Use id instead of _id
               className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300"
             >
               <div className="relative h-48">
                 <img
-                  src={
-                    product.images?.[0]?.url ||
-                    product.images?.[0] ||
-                    "/placeholder-product.png"
-                  }
+                  src={product.images[0] || "/placeholder-product.png"}
                   alt={product.title}
                   className="w-full h-full object-cover"
                   onError={(e) => {
@@ -75,9 +101,11 @@ const FeaturedProducts = ({ products = [] }) => {
                     {product.stock > 0 ? "In Stock" : "Out of Stock"}
                   </span>
                 </div>
-                <button className="mt-4 w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors duration-200">
-                  View Details
-                </button>
+                <Link to={`/products/${product.id}`}>
+                  <button className="mt-4 w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors duration-200">
+                    View Details
+                  </button>
+                </Link>
               </div>
             </div>
           ))}
@@ -85,25 +113,6 @@ const FeaturedProducts = ({ products = [] }) => {
       </div>
     </section>
   );
-};
-
-FeaturedProducts.propTypes = {
-  products: PropTypes.arrayOf(
-    PropTypes.shape({
-      _id: PropTypes.string,
-      title: PropTypes.string.isRequired,
-      description: PropTypes.string,
-      price: PropTypes.number.isRequired,
-      stock: PropTypes.number,
-      images: PropTypes.arrayOf(
-        PropTypes.oneOfType([
-          PropTypes.string,
-          PropTypes.shape({ url: PropTypes.string }),
-        ])
-      ),
-      isFeatured: PropTypes.bool,
-    })
-  ),
 };
 
 export default FeaturedProducts;

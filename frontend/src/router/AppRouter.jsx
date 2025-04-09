@@ -10,6 +10,9 @@ import HeroSliderAdmin from '../admin/components/HeroSliderAdmin';
 import HeroSlider from '../components/shared/HeroSlider';
 import CheckoutPage from '../pages/CheckoutPage';
 import FeaturedProducts from '../pages/FeaturedProducts';
+import CategoryManager from '../admin/components/CategoryManager';
+import CategorySection from '../components/shared/CategorySection';
+import RecentProducts from '../components/shared/RecentProducts';
 
 // Lazy load your pages
 const HomePage = lazy(() => import('../pages/HomePage'));
@@ -32,6 +35,8 @@ const AppRouter = () => {
           <Route index element={<HomePage />} />
           <Route path="products" element={<AllProducts />} />
           <Route path="hero-slider" element={<HeroSlider />} />
+          <Route path="categories" element={<CategorySection />} />
+          <Route path="recent-products" element={<RecentProducts />} />
           <Route path="checkout" element={<CheckoutPage />} />
           <Route path="featured-products" element={<FeaturedProducts />} />
           <Route path="products/:productId" element={<ProductDetails />} /> 
@@ -46,6 +51,7 @@ const AppRouter = () => {
           <Route path="add-products" element={<AddProductPage />} />
           <Route path="hero-slider" element={<HeroSliderAdmin />} />
           <Route path="edit-product/:id" element={<EditProductPage />}/>
+          <Route path="category" element={<CategoryManager />}/>
           <Route path="orders" element={<OrderManagment />} />
           <Route path="orders-history" element={<OrdersHistory />} />
         </Route>

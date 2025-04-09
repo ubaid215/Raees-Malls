@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import React, {
   lazy,
   memo,
@@ -8,10 +9,12 @@ import React, {
 } from "react";
 import { FiUpload, FiTrash2, FiPlus, FiMinus } from "react-icons/fi";
 import PropTypes from "prop-types";
+import axios from "axios";
 import Button from "../../components/core/Button";
 import Input from "../../components/core/Input";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
+import { getCategories } from "../../services/productAPI";
 
 const ImageUploader = lazy(() => import("./ImageUploader"));
 const SEOEditor = lazy(() => import("./SEOEditor"));
@@ -47,8 +50,7 @@ class ErrorBoundary extends React.Component {
 const ProductForm = memo(
   ({
     initialData = null,
-    onSubmit = () =>
-      Promise.reject(new Error("onSubmit function not provided")),
+    onSubmit = () => Promise.resolve(),
     isSubmitting = false,
   }) => {
     const [product, setProduct] = useState({
@@ -57,25 +59,39 @@ const ProductForm = memo(
       price: 0,
       stock: 0,
       images: [],
-      categories: [],
       variants: [],
+      isFeatured: false,
       seo: {
         title: "",
         description: "",
         keywords: "",
         slug: "",
       },
-      isFeatured: false, // Already present
+      categories: [],
     });
 
+    const [categories, setCategories] = useState([]);
     const [errors, setErrors] = useState({});
     const [isLoading, setIsLoading] = useState(true);
-    const [imageUrls, setImageUrls] = useState({});
+    const [imagePreviews, setImagePreviews] = useState({});
 
-    // Initialize form with initialData
+    const API_URL = "http://localhost:5000/api/products";
+
+    // Fetch categories and initialize form data
     useEffect(() => {
+      const fetchCategories = async () => {
+        try {
+          const fetchedCategories = await getCategories();
+          setCategories(fetchedCategories);
+        } catch (error) {
+          console.error("Error fetching categories:", error);
+          setErrors({ categories: "Failed to load categories" });
+        }
+      };
+
+      fetchCategories();
+
       if (initialData) {
-        console.log("Initial data images:", initialData.images); // Debug
         try {
           const validatedData = {
             title: initialData.title || "",
@@ -83,13 +99,14 @@ const ProductForm = memo(
             price: Number(initialData.price) || 0,
             stock: Number(initialData.stock) || 0,
             images: Array.isArray(initialData.images) ? initialData.images : [],
-            categories: Array.isArray(initialData.categories)
-              ? initialData.categories
-              : [],
             variants: Array.isArray(initialData.variants)
-              ? initialData.variants
+              ? initialData.variants.map((v) => ({
+                  size: v.size || "",
+                  color: v.color || "",
+                  stock: Number(v.stock) || 0,
+                }))
               : [],
-            isFeatured: initialData.isFeatured || false, // Already present
+            isFeatured: initialData.isFeatured || false,
             seo:
               initialData.seo && typeof initialData.seo === "object"
                 ? {
@@ -104,20 +121,17 @@ const ProductForm = memo(
                     keywords: "",
                     slug: "",
                   },
+            categories: Array.isArray(initialData.categories)
+              ? initialData.categories
+              : [],
           };
 
-          const initialImageUrls = {};
+          const initialImagePreviews = {};
           validatedData.images.forEach((img, index) => {
-            if (typeof img === "string") {
-              initialImageUrls[index] = img;
-            } else if (img?.url) {
-              initialImageUrls[index] = img.url;
-            }
+            initialImagePreviews[index] = img;
           });
-          setImageUrls(initialImageUrls);
-
+          setImagePreviews(initialImagePreviews);
           setProduct(validatedData);
-          console.log("Set product images:", validatedData.images); // Debug
         } catch (error) {
           console.error("Error parsing initial data:", error);
         }
@@ -125,67 +139,28 @@ const ProductForm = memo(
       setIsLoading(false);
     }, [initialData]);
 
-    // Clean up blob URLs when component unmounts
     useEffect(() => {
       return () => {
-        Object.values(imageUrls).forEach((url) => {
-          try {
-            if (url && url.startsWith("blob:")) {
-              URL.revokeObjectURL(url);
-            }
-          } catch (e) {
-            console.error("Error revoking URL:", e);
+        Object.values(imagePreviews).forEach((url) => {
+          if (url && url.startsWith("blob:")) {
+            URL.revokeObjectURL(url);
           }
         });
       };
-    }, [imageUrls]);
+    }, [imagePreviews]);
 
-    const getImageUrl = useCallback((image, index) => {
-      console.log("Processing image in ProductForm:", image); // Debug
-      if (!image) {
-        console.log("Image is null, returning placeholder");
-        return "/placeholder-product.png";
+    const getImagePreview = useCallback((image, index) => {
+      if (!image) return "/placeholder-product.png";
+      if (typeof image === "string") {
+        return image.startsWith("/uploads/") || image.startsWith("http")
+          ? image
+          : "/placeholder-product.png";
       }
-
-      try {
-        if (typeof image === "string") {
-          if (
-            image.startsWith("data:image/") ||
-            image.startsWith("blob:") ||
-            image.startsWith("http") ||
-            image.startsWith("/images/")
-          ) {
-            console.log("Image is valid string, returning:", image);
-            return image;
-          } else {
-            console.log("Image string is invalid:", image);
-            return "/placeholder-product.png";
-          }
-        }
-
-        if (image instanceof Blob || image instanceof File) {
-          if (imageUrls[index]) {
-            console.log("Image is Blob/File, using existing URL:", imageUrls[index]);
-            return imageUrls[index];
-          }
-
-          const url = URL.createObjectURL(image);
-          setImageUrls((prev) => ({ ...prev, [index]: url }));
-          console.log("Image is Blob/File, created new URL:", url);
-          return url;
-        }
-
-        if (image?.url && typeof image.url === "string") {
-          console.log("Image has URL property:", image.url);
-          return image.url;
-        }
-      } catch (e) {
-        console.error("Error processing image URL:", e);
+      if (image instanceof File) {
+        return imagePreviews[index] || URL.createObjectURL(image);
       }
-
-      console.log("Falling back to placeholder");
       return "/placeholder-product.png";
-    }, [imageUrls]);
+    }, [imagePreviews]);
 
     const handleChange = useCallback((e) => {
       const { name, value } = e.target;
@@ -200,30 +175,32 @@ const ProductForm = memo(
       }));
     }, []);
 
-    const handleImageUpload = useCallback((files) => {
-      setProduct((prev) => ({
-        ...prev,
-        images: [...prev.images, ...files].slice(0, 10),
-      }));
+    const handleCategoryChange = useCallback((selectedCategories) => {
+      setProduct((prev) => ({ ...prev, categories: selectedCategories }));
     }, []);
 
-    const handleRemoveImage = useCallback((index) => {
-      setProduct((prev) => {
-        const newImages = prev.images.filter((_, i) => i !== index);
-        return { ...prev, images: newImages };
+    const handleImageUpload = useCallback((files) => {
+      const newImages = [...product.images, ...files].slice(0, 5);
+      setProduct((prev) => ({ ...prev, images: newImages }));
+      const newPreviews = {};
+      files.forEach((file, i) => {
+        newPreviews[product.images.length + i] = URL.createObjectURL(file);
       });
+      setImagePreviews((prev) => ({ ...prev, ...newPreviews }));
+    }, [product.images]);
 
-      setImageUrls((prev) => {
-        const newUrls = { ...prev };
-        if (newUrls[index]?.startsWith("blob:")) {
-          try {
-            URL.revokeObjectURL(newUrls[index]);
-          } catch (e) {
-            console.error("Error revoking URL:", e);
-          }
+    const handleRemoveImage = useCallback((index) => {
+      setProduct((prev) => ({
+        ...prev,
+        images: prev.images.filter((_, i) => i !== index),
+      }));
+      setImagePreviews((prev) => {
+        const newPreviews = { ...prev };
+        if (newPreviews[index]?.startsWith("blob:")) {
+          URL.revokeObjectURL(newPreviews[index]);
         }
-        delete newUrls[index];
-        return newUrls;
+        delete newPreviews[index];
+        return newPreviews;
       });
     }, []);
 
@@ -238,7 +215,7 @@ const ProductForm = memo(
     const addVariant = useCallback(() => {
       setProduct((prev) => ({
         ...prev,
-        variants: [...prev.variants, { name: "", price: 0, stock: 0 }],
+        variants: [...prev.variants, { size: "", color: "", stock: 0 }],
       }));
     }, []);
 
@@ -247,10 +224,6 @@ const ProductForm = memo(
         ...prev,
         variants: prev.variants.filter((_, i) => i !== index),
       }));
-    }, []);
-
-    const handleCategoryChange = useCallback((categories) => {
-      setProduct((prev) => ({ ...prev, categories }));
     }, []);
 
     const handleFeaturedChange = useCallback((e) => {
@@ -263,17 +236,24 @@ const ProductForm = memo(
     const validate = useCallback(() => {
       const newErrors = {};
       if (!product.title.trim()) newErrors.title = "Title is required";
+      if (!product.description.trim())
+        newErrors.description = "Description is required";
       if (!product.price || product.price <= 0)
         newErrors.price = "Valid price is required";
+      if (product.stock === undefined || product.stock < 0)
+        newErrors.stock = "Valid stock quantity is required";
       if (product.images.length === 0)
         newErrors.images = "At least one image is required";
+      if (!product.seo.title.trim())
+        newErrors["seo.title"] = "SEO title is required";
+      if (!product.seo.slug.trim())
+        newErrors["seo.slug"] = "SEO slug is required";
+      if (product.categories.length === 0)
+        newErrors.categories = "At least one category is required";
 
       product.variants.forEach((variant, index) => {
-        if (!variant.name.trim()) {
-          newErrors[`variants.${index}.name`] = "Variant name is required";
-        }
-        if (!variant.price || variant.price <= 0) {
-          newErrors[`variants.${index}.price`] = "Valid price is required";
+        if (!variant.size?.trim() && !variant.color?.trim()) {
+          newErrors[`variants.${index}`] = "Size or color is required";
         }
       });
 
@@ -284,19 +264,68 @@ const ProductForm = memo(
     const handleSubmit = useCallback(
       async (e) => {
         e.preventDefault();
-        if (validate()) {
-          try {
-            await onSubmit(product);
-          } catch (error) {
-            console.error("Submission error:", error);
-            setErrors({
-              submit: error.message || "Failed to submit product",
-            });
+        if (!validate()) return;
+    
+        const formData = new FormData();
+        formData.append('title', product.title || '');
+        formData.append('description', product.description || '');
+        formData.append('price', product.price ? parseFloat(product.price) : 0);
+        formData.append('stock', product.stock ? parseInt(product.stock) : 0);
+        formData.append('isFeatured', product.isFeatured ? 'true' : 'false');
+        formData.append('variants', JSON.stringify(product.variants || []));
+        // Ensure seo has required fields or provide defaults
+        const seoData = {
+          slug: product.seo?.slug || product.title.toLowerCase().replace(/\s+/g, '-'), // Default slug
+          title: product.seo?.title || product.title, // Default SEO title
+          description: product.seo?.description || product.description || '',
+        };
+        formData.append('seo', JSON.stringify(seoData));
+        formData.append(
+          'categories',
+          JSON.stringify(product.categories.map((cat) => cat._id).filter(Boolean))
+        );
+    
+        product.images.forEach((image) => {
+          if (image instanceof File) {
+            formData.append('images', image);
           }
+        });
+    
+        try {
+          let response;
+          if (initialData?._id) {
+            response = await axios.put(`${API_URL}/${initialData._id}`, formData);
+          } else {
+            response = await axios.post(API_URL, formData);
+          }
+    
+          if (response.data.success) {
+            await onSubmit(response.data.data);
+            setProduct({
+              title: '',
+              description: '',
+              price: '',
+              stock: '',
+              isFeatured: false,
+              variants: [],
+              seo: { slug: '', title: '', description: '' }, // Reset with structure
+              categories: [],
+              images: [],
+            });
+            setErrors({});
+          } else {
+            throw new Error(response.data.error || 'Unknown error');
+          }
+        } catch (error) {
+          console.error('API error:', error);
+          setErrors({
+            submit: error.response?.data?.error || error.message || 'Failed to submit product',
+          });
         }
       },
-      [validate, onSubmit, product]
+      [product, initialData, onSubmit, validate, setProduct, setErrors]
     );
+
 
     if (isLoading) {
       return (
@@ -341,6 +370,8 @@ const ProductForm = memo(
               onChange={handleChange}
               as="textarea"
               rows={4}
+              error={errors.description}
+              required
             />
 
             <div className="grid grid-cols-2 gap-4">
@@ -362,26 +393,12 @@ const ProductForm = memo(
                 type="number"
                 value={product.stock}
                 onChange={handleChange}
+                error={errors.stock}
                 min="0"
+                required
               />
             </div>
 
-            <Suspense fallback={<LoadingSkeleton type="text" count={3} />}>
-              <ErrorBoundary>
-                <CategorySelector
-                  selected={product.categories}
-                  onChange={handleCategoryChange}
-                  categories={[
-                    { _id: "1", name: "Electronics" },
-                    { _id: "2", name: "Clothing" },
-                    { _id: "3", name: "Home & Garden" },
-                    { _id: "4", name: "Sports" },
-                  ]}
-                />
-              </ErrorBoundary>
-            </Suspense>
-
-            {/* Added Featured Product Checkbox */}
             <div className="space-y-2">
               <h2 className="text-lg font-semibold">Display Settings</h2>
               <label className="flex items-center space-x-2">
@@ -393,7 +410,7 @@ const ProductForm = memo(
                   className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
                 <span className="text-sm text-gray-700">
-                  Feature this product in the Featured Products section
+                  Feature this product
                 </span>
               </label>
             </div>
@@ -413,39 +430,36 @@ const ProductForm = memo(
               <ErrorBoundary>
                 <ImageUploader
                   onUpload={handleImageUpload}
-                  maxFiles={10}
-                  accept="image/*"
+                  maxFiles={5}
+                  accept="image/jpeg,image/jpg,image/png"
                 />
               </ErrorBoundary>
             </Suspense>
 
             <div className="grid grid-cols-3 gap-2">
-              {product.images.map((image, index) => {
-                const imageUrl = getImageUrl(image, index);
-                return (
-                  <div key={index} className="relative group">
-                    <div className="h-24 w-full bg-gray-100 rounded border border-soft-gray flex items-center justify-center overflow-hidden">
-                      <img
-                        src={imageUrl}
-                        alt={`Product preview ${index + 1}`}
-                        className="max-h-full max-w-full object-contain"
-                        onError={(e) => {
-                          e.target.src = "/placeholder-product.png";
-                        }}
-                        loading="lazy"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveImage(index)}
-                      className="absolute top-1 right-1 bg-white text-red rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                      aria-label={`Remove image ${index + 1}`}
-                    >
-                      <FiTrash2 size={14} />
-                    </button>
+              {product.images.map((image, index) => (
+                <div key={index} className="relative group">
+                  <div className="h-24 w-full bg-gray-100 rounded border border-soft-gray flex items-center justify-center overflow-hidden">
+                    <img
+                      src={getImagePreview(image, index)}
+                      alt={`Product preview ${index + 1}`}
+                      className="max-h-full max-w-full object-contain"
+                      onError={(e) => {
+                        e.target.src = "/placeholder-product.png";
+                      }}
+                      loading="lazy"
+                    />
                   </div>
-                );
-              })}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveImage(index)}
+                    className="absolute top-1 right-1 bg-white text-red rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    aria-label={`Remove image ${index + 1}`}
+                  >
+                    <FiTrash2 size={14} />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -469,27 +483,19 @@ const ProductForm = memo(
               className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border border-soft-gray rounded-lg"
             >
               <Input
-                label="Variant Name"
-                value={variant.name}
+                label="Size"
+                value={variant.size}
                 onChange={(e) =>
-                  handleVariantChange(index, "name", e.target.value)
+                  handleVariantChange(index, "size", e.target.value)
                 }
-                error={errors[`variants.${index}.name`]}
+                error={errors[`variants.${index}`]}
               />
               <Input
-                label="Variant Price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={variant.price}
+                label="Color"
+                value={variant.color}
                 onChange={(e) =>
-                  handleVariantChange(
-                    index,
-                    "price",
-                    parseFloat(e.target.value)
-                  )
+                  handleVariantChange(index, "color", e.target.value)
                 }
-                error={errors[`variants.${index}.price`]}
               />
               <div className="flex items-end gap-2">
                 <Input
@@ -498,11 +504,7 @@ const ProductForm = memo(
                   min="0"
                   value={variant.stock}
                   onChange={(e) =>
-                    handleVariantChange(
-                      index,
-                      "stock",
-                      parseInt(e.target.value)
-                    )
+                    handleVariantChange(index, "stock", parseInt(e.target.value))
                   }
                 />
                 <Button
@@ -529,6 +531,23 @@ const ProductForm = memo(
             />
           </ErrorBoundary>
         </Suspense>
+
+        <div className="space-y-2">
+          <h2>Product Categories</h2>
+          {errors.categories && (
+            <p className="text-red text-sm">{errors.categories}</p>
+          )}
+          <Suspense fallback={<LoadingSkeleton type="text" count={1} />}>
+            <ErrorBoundary>
+              <CategorySelector
+                selected={product.categories}
+                onChange={handleCategoryChange}
+                categories={categories}
+                maxSelections={5}
+              />
+            </ErrorBoundary>
+          </Suspense>
+        </div>
 
         <div className="flex justify-end space-x-3 pt-4 border-t border-soft-gray">
           <Button
@@ -558,22 +577,34 @@ const ProductForm = memo(
 
 ProductForm.propTypes = {
   initialData: PropTypes.shape({
+    _id: PropTypes.string,
     title: PropTypes.string,
     description: PropTypes.string,
     price: PropTypes.number,
     stock: PropTypes.number,
-    images: PropTypes.array,
-    categories: PropTypes.array,
-    variants: PropTypes.array,
+    images: PropTypes.arrayOf(PropTypes.string),
+    variants: PropTypes.arrayOf(
+      PropTypes.shape({
+        size: PropTypes.string,
+        color: PropTypes.string,
+        stock: PropTypes.number,
+      })
+    ),
+    isFeatured: PropTypes.bool,
     seo: PropTypes.shape({
       title: PropTypes.string,
       description: PropTypes.string,
       keywords: PropTypes.string,
       slug: PropTypes.string,
     }),
-    isFeatured: PropTypes.bool, // Added to propTypes
+    categories: PropTypes.arrayOf(
+      PropTypes.shape({
+        _id: PropTypes.string,
+        name: PropTypes.string,
+      })
+    ),
   }),
-  onSubmit: PropTypes.func.isRequired,
+  onSubmit: PropTypes.func,
   isSubmitting: PropTypes.bool,
 };
 

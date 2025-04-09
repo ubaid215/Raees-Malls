@@ -1,218 +1,128 @@
-// productAPI.js
-import { openDB } from 'idb';
+import axios from "axios";
 
-const STORAGE_KEY = 'ecommerce_products';
-let products = [];
+const API_URL = "http://localhost:5000/api/products";
+const CATEGORY_API_URL = "http://localhost:5000/api/categories";
 
-// Initialize IndexedDB
-const dbPromise = openDB('ecommerce-store', 1, {
-  upgrade(db) {
-    db.createObjectStore('images', { keyPath: 'id' });
-    db.createObjectStore('products', { keyPath: 'id' });
-  },
-});
-
-const simulateNetworkDelay = () => new Promise(resolve => setTimeout(resolve, 1000));
-
-const initializeProducts = async () => {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  products = stored ? JSON.parse(stored) : [];
+// Helper to handle API errors
+const handleError = (error) => {
+  const message =
+    error.response?.data?.error || error.message || "An error occurred";
+  throw new Error(message);
 };
 
-const saveProducts = (updatedProducts) => {
-  const dataString = JSON.stringify(updatedProducts);
-  const sizeInMB = (dataString.length * 2) / (1024 * 1024);
-  console.log(`Saving products to localStorage, size: ${sizeInMB.toFixed(2)} MB`);
-  localStorage.setItem(STORAGE_KEY, dataString);
-};
-
-const getStoredProducts = () => {
-  initializeProducts();
-  return [...products];
-};
-
-// Store image in IndexedDB and return a reference
-const uploadImage = async (file) => {
-  const fileId = Date.now().toString() + '-' + file.name;
-  const db = await dbPromise;
-  await db.put('images', { id: fileId, file });
-  return `/images/${fileId}`;
-};
-
-// Retrieve image from IndexedDB and return a blob URL
-const getImage = async (imageRef) => {
-  console.log("getImage called with imageRef:", imageRef);
-  const fileId = imageRef.split('/').pop();
-  const db = await dbPromise;
-  const imageData = await db.get('images', fileId);
-  if (imageData && imageData.file) {
-    const blobUrl = URL.createObjectURL(imageData.file);
-    console.log("Found file in IndexedDB, returning blob URL:", blobUrl);
-    return blobUrl;
-  }
-  console.log("File not found in IndexedDB, returning placeholder");
-  return '/placeholder-product.png';
-};
-
-export const createProduct = async (productData) => {
-  await simulateNetworkDelay();
-  initializeProducts();
-  const products = getStoredProducts();
-
-  const imageRefs = await Promise.all(
-    productData.images.map(async (image) => {
-      if (image instanceof File) {
-        return await uploadImage(image);
-      }
-      return image;
-    })
-  );
-
-  const normalizedCategories = Array.isArray(productData.categories)
-    ? productData.categories.map(cat => (typeof cat === 'object' ? cat.name : cat))
-    : [];
-
-  const newProduct = {
-    ...productData,
-    id: Date.now().toString(),
-    price: Number(productData.price) || 0,
-    categories: normalizedCategories,
-    images: imageRefs,
-    createdAt: new Date().toISOString(),
-  };
-
-  console.log("Created product:", newProduct);
-
-  const updatedProducts = [newProduct, ...products];
-  saveProducts(updatedProducts);
-  return newProduct;
-};
-
-export const updateProduct = async (id, productData) => {
-  await simulateNetworkDelay();
-  initializeProducts();
-  let products = getStoredProducts();
-
-  const imageRefs = await Promise.all(
-    productData.images.map(async (image) => {
-      if (image instanceof File) {
-        return await uploadImage(image);
-      }
-      return image;
-    })
-  );
-
-  const normalizedCategories = Array.isArray(productData.categories)
-    ? productData.categories.map(cat => (typeof cat === 'object' ? cat.name : cat))
-    : [];
-
-  const updatedProduct = {
-    ...productData,
-    price: Number(productData.price) || 0,
-    categories: normalizedCategories,
-    images: imageRefs,
-  };
-
-  products = products.map(product =>
-    product.id === id ? { ...product, ...updatedProduct } : product
-  );
-
-  saveProducts(products);
-  return updatedProduct;
-};
-
-export const deleteProduct = async (id) => {
-  await simulateNetworkDelay();
-  initializeProducts();
-  let products = getStoredProducts();
-
-  // Clean up images from IndexedDB
-  const product = products.find(p => p.id === id);
-  if (product && product.images) {
-    const db = await dbPromise;
-    for (const imageRef of product.images) {
-      const fileId = imageRef.split('/').pop();
-      await db.delete('images', fileId);
+// Get all products with pagination and search
+export const getProducts = async ({ page = 1, limit = 10, search = "", isFeatured = false }) => {
+  try {
+    const response = await axios.get(API_URL, {
+      params: { 
+        page, 
+        limit, 
+        ...(search && { search }), 
+        ...(isFeatured && { isFeatured }) // Add isFeatured filter
+      },
+    });
+    if (!response.data.success) {
+      throw new Error(response.data.error || "Failed to fetch products");
     }
+    return {
+      data: response.data.data,
+      total: response.data.pagination.total,
+      page: response.data.pagination.page,
+      limit: response.data.pagination.limit,
+      totalPages: response.data.pagination.pages,
+    };
+  } catch (error) {
+    handleError(error);
   }
-
-  products = products.filter(product => product.id !== id);
-  saveProducts(products);
 };
 
-export const getProducts = async ({ page = 1, limit = 10, search = '', category = '' }) => {
-  await simulateNetworkDelay();
-  initializeProducts();
-  let products = getStoredProducts();
-
-  products = await Promise.all(
-    products.map(async product => ({
-      ...product,
-      price: Number(product.price) || 0,
-      categories: Array.isArray(product.categories)
-        ? product.categories.map(cat => (typeof cat === 'object' ? cat.name : cat))
-        : [],
-      images: Array.isArray(product.images)
-        ? await Promise.all(product.images.map(ref => getImage(ref)))
-        : [],
-    }))
-  );
-
-  if (search) {
-    const searchLower = search.toLowerCase();
-    products = products.filter(
-      product =>
-        product.title.toLowerCase().includes(searchLower) ||
-        product.description.toLowerCase().includes(searchLower) ||
-        product.categories?.some(cat => cat.toLowerCase().includes(searchLower))
-    );
-  }
-
-  if (category) {
-    products = products.filter(product =>
-      product.categories.includes(category)
-    );
-  }
-
-  const startIndex = (page - 1) * limit;
-  const paginatedProducts = products.slice(startIndex, startIndex + limit);
-
-  return {
-    data: paginatedProducts,
-    total: products.length,
-    page,
-    limit,
-    totalPages: Math.ceil(products.length / limit),
-  };
-};
-
+// Get a single product by ID
 export const getProductById = async (id) => {
-  await simulateNetworkDelay();
-  initializeProducts();
-  const product = getStoredProducts().find(p => p.id === id);
-  if (!product) {
-    throw new Error('Product not found');
+  try {
+    const response = await axios.get(`${API_URL}/${id}`);
+    if (!response.data.success) {
+      throw new Error(response.data.error || "Failed to fetch product");
+    }
+    return response.data.data;
+  } catch (error) {
+    handleError(error);
   }
-
-  return {
-    ...product,
-    price: Number(product.price) || 0,
-    categories: Array.isArray(product.categories)
-      ? product.categories.map(cat => (typeof cat === 'object' ? cat.name : cat))
-      : [],
-    images: Array.isArray(product.images)
-      ? await Promise.all(product.images.map(ref => getImage(ref)))
-      : [],
-  };
 };
 
+// Create a new product
+export const createProduct = async (productData) => {
+  try {
+    const formData = new FormData();
+    formData.append('title', productData.title || '');
+    formData.append('price', productData.price || 0);
+    formData.append('stock', productData.stock || 0);
+    formData.append('description', productData.description || '');
+    if (productData.categories && Array.isArray(productData.categories)) {
+      formData.append('categories', JSON.stringify(productData.categories)); // Send as JSON string
+    }
+    if (productData.image) {
+      formData.append('image', productData.image);
+    }
+
+    const response = await axios.post(API_URL, formData);
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to create product');
+    }
+    return response.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+// Update an existing product
+export const updateProduct = async (id, productData) => {
+  try {
+    const formData = new FormData();
+    Object.entries(productData).forEach(([key, value]) => {
+      if (key === "images") {
+        value.forEach((image) => {
+          if (image instanceof File) formData.append("images", image);
+        });
+      } else if (key === "variants" || key === "seo" || key === "categories") {
+        formData.append(key, JSON.stringify(value));
+      } else {
+        formData.append(key, value);
+      }
+    });
+
+    const response = await axios.put(`${API_URL}/${id}`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    if (!response.data.success) {
+      throw new Error(response.data.error || "Failed to update product");
+    }
+    return response.data.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+// Delete a product
+export const deleteProduct = async (id) => {
+  try {
+    const response = await axios.delete(`${API_URL}/${id}`);
+    if (!response.data.success) {
+      throw new Error(response.data.error || "Failed to delete product");
+    }
+    return response.data.data;
+  } catch (error) {
+    handleError(error);
+  }
+};
+
+// Get all categories
 export const getCategories = async () => {
-  await simulateNetworkDelay();
-  initializeProducts();
-  const products = getStoredProducts();
-  const categories = new Set();
-  products.forEach(product => {
-    product.categories.forEach(category => categories.add(category));
-  });
-  return ["All", ...Array.from(categories)];
+  try {
+    const response = await axios.get(CATEGORY_API_URL);
+    if (!response.data.success) {
+      throw new Error(response.data.error || "Failed to fetch categories");
+    }
+    return response.data.data;
+  } catch (error) {
+    handleError(error);
+  }
 };

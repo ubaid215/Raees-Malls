@@ -25,17 +25,13 @@ const ProductInventory = memo(() => {
   const loadProducts = async () => {
     try {
       setLoading(true);
-      const { data, total } = await getProducts({
+      const { data, totalPages: pages } = await getProducts({
         page: currentPage,
         limit: PRODUCTS_PER_PAGE,
         search: searchTerm,
       });
-      console.log(
-        "Loaded products images:",
-        data.map((p) => p.images)
-      ); // Debug
       setProducts(data);
-      setTotalPages(Math.ceil(total / PRODUCTS_PER_PAGE));
+      setTotalPages(pages);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -58,11 +54,6 @@ const ProductInventory = memo(() => {
     }
   };
 
-  // eslint-disable-next-line no-unused-vars
-  const handleEdit = (product) => {
-    window.location.href = `/admin/edit-product/${product.id}`;
-  };
-
   const handlePreview = (product) => {
     setSelectedProduct(product);
     setShowPreview(true);
@@ -83,7 +74,6 @@ const ProductInventory = memo(() => {
     <div className="container mx-auto px-4 py-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl font-bold text-gray-800">Product Inventory</h1>
-
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           <Input
             placeholder="Search products..."
@@ -138,17 +128,14 @@ const ProductInventory = memo(() => {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {products.map((product) => (
-                  <tr key={product.id}>
+                  <tr key={product._id}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10">
-                          {product.images &&
-                          product.images[0] &&
-                          typeof product.images[0] === "string" &&
-                          !product.images[0].startsWith("blob:") ? (
+                          {product.images && product.images[0] ? (
                             <img
                               className="h-10 w-10 rounded-full object-cover"
-                              src={product.images[0]}
+                              src={`http://localhost:5000${product.images[0]}`}
                               alt={product.title || "Product image"}
                               onError={(e) =>
                                 (e.target.src = "/placeholder-product.png")
@@ -164,9 +151,7 @@ const ProductInventory = memo(() => {
                           </div>
                           <div className="text-sm text-gray-500">
                             {product.categories
-                              ?.map((cat) =>
-                                typeof cat === "object" ? cat.name : cat
-                              )
+                              ?.map((cat) => cat.name)
                               .join(", ") || "No categories"}
                           </div>
                         </div>
@@ -198,7 +183,7 @@ const ProductInventory = memo(() => {
                         >
                           <FiEye className="h-5 w-5" />
                         </button>
-                        <Link to={`/admin/edit-product/${product.id}`}>
+                        <Link to={`/admin/edit-product/${product._id}`}>
                           <button
                             className="text-indigo-600 hover:text-indigo-900"
                             title="Edit"
@@ -207,7 +192,7 @@ const ProductInventory = memo(() => {
                           </button>
                         </Link>
                         <button
-                          onClick={() => handleDelete(product.id)}
+                          onClick={() => handleDelete(product._id)}
                           className="text-red-600 hover:text-red-900"
                           title="Delete"
                         >

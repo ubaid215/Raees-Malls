@@ -1,12 +1,11 @@
-// HeroSlider.jsx
 import { useState, useEffect } from 'react';
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { useSlider } from '../../context/SliderContext';
 
 const HeroSlider = () => {
-  const { slides } = useSlider();
+  const { slides, loading } = useSlider();
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const BASE_URL = 'http://localhost:5000'; // Adjust for production
 
   useEffect(() => {
     if (slides.length > 1) {
@@ -42,38 +41,47 @@ const HeroSlider = () => {
   }
 
   return (
-    <div className="relative w-full h-screen overflow-hidden">
+    <div className="relative w-full lg:h-[80vh] h-[40vh] overflow-hidden">
       <div 
         className="flex h-full transition-transform duration-700 ease-in-out"
         style={{ transform: `translateX(-${currentSlide * 100}%)` }}
       >
         {slides.map((slide) => (
           <div 
-            key={slide.id} 
+            key={slide._id} 
             className="w-full flex-shrink-0 relative h-full"
           >
             <img 
-              src={slide.imageUrl || 'https://via.placeholder.com/1500x500'} // Fallback for missing images
-              alt={slide.title} 
+              src={slide.imageUrl ? `${BASE_URL}${slide.imageUrl}` : 'https://via.placeholder.com/1500x500'}
+              alt={slide.title || 'Hero slide'} 
               className="w-full h-full object-cover"
               loading="lazy"
+              onError={(e) => (e.target.src = 'https://via.placeholder.com/1500x500')} // Fallback on error
             />
-            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-              <div className="max-w-4xl text-center px-4">
-                <h1 className="text-4xl md:text-6xl font-bold mb-6 text-white">
-                  {slide.title}
-                </h1>
-                <p className="text-xl md:text-2xl mb-8 text-white">
-                  {slide.subtitle}
-                </p>
-                <a 
-                  href={slide.ctaLink}
-                  className="inline-block bg-white text-black px-8 py-3 rounded-md font-semibold hover:bg-gray-100 transition duration-300"
-                >
-                  {slide.ctaText}
-                </a>
+            {(slide.title || slide.caption || slide.link) && (
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                <div className="max-w-4xl text-center px-4">
+                  {slide.title && (
+                    <h1 className="text-4xl sm:text-2xl md:text-6xl font-bold mb-6 text-white">
+                      {slide.title}
+                    </h1>
+                  )}
+                  {slide.caption && (
+                    <p className="text-xl md:text-2xl sm:text-xl mb-8 text-white">
+                      {slide.caption}
+                    </p>
+                  )}
+                  {slide.link && (
+                    <a 
+                      href={slide.link}
+                      className="inline-block bg-white text-black px-8 py-3 rounded-md font-semibold hover:bg-gray-100 transition duration-300"
+                    >
+                      Learn More
+                    </a>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         ))}
       </div>

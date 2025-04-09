@@ -12,7 +12,6 @@ const CategorySelector = React.memo(({
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Filter categories based on search term
   const filteredCategories = useMemo(() => {
     return categories.filter(category => 
       category.name.toLowerCase().includes(searchTerm.toLowerCase())

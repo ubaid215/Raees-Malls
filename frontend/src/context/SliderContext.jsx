@@ -1,73 +1,82 @@
-// SliderContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react';
-import { getSlides, addSlide, deleteSlide } from '../services/heroSliderService';
+import { getSlides, addSlide, updateSlide, deleteSlide } from '../services/heroSliderService';
 
 const SliderContext = createContext();
 
 export const SliderProvider = ({ children }) => {
-  // Metadata persisted in localStorage (no images)
-  const [slideMetadata, setSlideMetadata] = useState(() => {
-    const savedSlides = localStorage.getItem('heroSlides');
-    return savedSlides ? JSON.parse(savedSlides) : [];
-  });
+  const [slides, setSlides] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Images stored in memory only (reset on refresh)
-  const [slideImages, setSlideImages] = useState({});
-
-  // Combine metadata and images for the full slides array
-  const slides = slideMetadata.map(meta => ({
-    ...meta,
-    imageUrl: slideImages[meta.id] || '' // Use image from memory if available
-  }));
-
-  // Save metadata to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('heroSlides', JSON.stringify(slideMetadata));
-  }, [slideMetadata]);
-
-  const addNewSlide = async (slide) => {
+  const fetchSlides = async () => {
     try {
-      // Add metadata to service and get new slide
-      const newSlide = await addSlide(
-        { title: slide.title, subtitle: slide.subtitle, ctaText: slide.ctaText, ctaLink: slide.ctaLink },
-        slideMetadata
-      );
-      
-      // Update metadata
-      setSlideMetadata(prev => [...prev, newSlide]);
-      
-      // Store image in memory
-      setSlideImages(prev => ({
-        ...prev,
-        [newSlide.id]: slide.imageUrl
-      }));
-      
-      return newSlide;
-    } catch (error) {
-      console.error('Error adding slide:', error);
-      throw error;
+      setLoading(true);
+      const response = await getSlides();
+      setSlides(response.data || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSlides();
+  }, []);
+
+  const addNewSlide = async (slideData) => {
+    try {
+      setLoading(true);
+      const response = await addSlide(slideData);
+      await fetchSlides(); // Refresh the slides list
+      return response;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateExistingSlide = async (id, slideData) => {
+    try {
+      setLoading(true);
+      const response = await updateSlide(id, slideData);
+      await fetchSlides(); // Refresh the slides list
+      return response;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
   const removeSlide = async (id) => {
     try {
-      const updatedMetadata = await deleteSlide(id, slideMetadata);
-      setSlideMetadata(updatedMetadata);
-      
-      // Remove image from memory
-      setSlideImages(prev => {
-        const newImages = { ...prev };
-        delete newImages[id];
-        return newImages;
-      });
-    } catch (error) {
-      console.error('Error deleting slide:', error);
-      throw error;
+      setLoading(true);
+      await deleteSlide(id);
+      await fetchSlides(); // Refresh the slides list
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <SliderContext.Provider value={{ slides, addSlide: addNewSlide, deleteSlide: removeSlide }}>
+    <SliderContext.Provider
+      value={{
+        slides,
+        loading,
+        error,
+        addSlide: addNewSlide,
+        updateSlide: updateExistingSlide,
+        deleteSlide: removeSlide,
+        refreshSlides: fetchSlides,
+      }}
+    >
       {children}
     </SliderContext.Provider>
   );
