@@ -1,4 +1,3 @@
-// controllers/productController.js
 const Product = require('../models/Product');
 
 const createProduct = async (req, res) => {
@@ -46,7 +45,7 @@ const getAllProducts = async (req, res) => {
     if (search) {
       query.title = { $regex: search, $options: 'i' };
     }
-    if (isFeatured === 'true') { // Check string 'true' since query params are strings
+    if (isFeatured === 'true') { 
       query.isFeatured = true;
     }
 

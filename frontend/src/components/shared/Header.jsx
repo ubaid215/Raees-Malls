@@ -1,11 +1,17 @@
+// 📁 components/Header.jsx
 import React from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { FiMenu, FiX, FiShoppingCart, FiUser } from 'react-icons/fi';
 import Logo from '../shared/Logo';
+import { useCart } from '../../context/CartContext'; 
 
 const Header = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const navigate = useNavigate();
+  
+  // Use CartContext instead of Redux
+  const { cartItems } = useCart();
+  const cartItemCount = cartItems.reduce((count, item) => count + (item.quantity || 0), 0);
 
   const navLinks = [
     { name: 'Home', path: '/' },
@@ -53,17 +59,24 @@ const Header = () => {
 
           {/* Right side icons/actions */}
           <div className="flex items-center space-x-4">
-            <button
-              onClick={() => handleNavigation('/cart')}
-              className="p-2 text-gray-700 hover:text-red-500"
-              aria-label="Cart"
-            >
-              <FiShoppingCart className="h-5 w-5" />
-              <span className="sr-only">Cart</span>
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => handleNavigation('/cart')}
+                className="p-2 text-gray-700 hover:text-red-500 relative"
+                aria-label="Cart"
+              >
+                <FiShoppingCart className="h-5 w-5" />
+                <span className="sr-only">Cart</span>
+                {cartItemCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                    {cartItemCount}
+                  </span>
+                )}
+              </button>
+            </div>
 
             <button
-              onClick={() => handleNavigation('/account')}
+              onClick={() => handleNavigation('/profile')}
               className="p-2 text-gray-700 hover:text-red-500"
               aria-label="Account"
             >

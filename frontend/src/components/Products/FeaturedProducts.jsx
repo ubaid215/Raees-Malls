@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { getProducts } from "../services/productAPI";
-import LoadingSpinner from "../components/core/LoadingSpinner";
-import { Link } from "react-router-dom"; // Added for navigation to product details
+import { getProducts } from "../../services/productAPI";
+import LoadingSpinner from "../core/LoadingSpinner";
+import { Link } from "react-router-dom"; 
 
 const FeaturedProducts = () => {
   const [featuredProducts, setFeaturedProducts] = useState([]);

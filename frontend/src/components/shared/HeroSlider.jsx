@@ -90,14 +90,14 @@ const HeroSlider = () => {
         <>
           <button 
             onClick={prevSlide}
-            className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 text-white p-3 rounded-full z-30 hover:bg-black/70 transition backdrop-blur-sm"
+            className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/30 text-white p-3 rounded-full z-30 hover:bg-black/50 transition backdrop-blur-sm"
             aria-label="Previous slide"
           >
             <FiChevronLeft size={28} />
           </button>
           <button 
             onClick={nextSlide}
-            className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 text-white p-3 rounded-full z-30 hover:bg-black/70 transition backdrop-blur-sm"
+            className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/30 text-white p-3 rounded-full z-30 hover:bg-black/50 transition backdrop-blur-sm"
             aria-label="Next slide"
           >
             <FiChevronRight size={28} />
