@@ -7,9 +7,8 @@ import {
   FiShoppingBag,
   FiDollarSign,
   FiPieChart,
-  FiSettings
 } from 'react-icons/fi';
-import { History, ImagePlus, ListChecks, ShoppingBasket } from 'lucide-react';
+import { History, ImagePlus, ListChecks, ShoppingBasket, UserCircle } from 'lucide-react';
 
 const Sidebar = () => {
   const [isExpanded, setIsExpanded] = useState(true);
@@ -34,7 +33,7 @@ const Sidebar = () => {
         { path: '/admin/orders', icon: FiDollarSign, label: 'Orders' },
         { path: '/admin/orders-history', icon: History, label: 'Orders History' },
         { path: '/admin/reports', icon: FiPieChart, label: 'Reports' },
-        { path: '/admin/settings', icon: FiSettings, label: 'Settings' }
+        { path: '/admin/profile', icon: UserCircle, label: 'Profile' }
       ]
     }
   ];

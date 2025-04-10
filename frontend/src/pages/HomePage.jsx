@@ -1,14 +1,14 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import HeroSlider from '../components/shared/HeroSlider';
-import FeaturedProducts from '../pages/FeaturedProducts'; 
+import FeaturedProducts from '../components/Products/FeaturedProducts'; 
 import CategorySection from '../components/shared/CategorySection';
-import RecentProducts from '../components/shared/RecentProducts';
+import RecentProducts from '../components/Products/RecentProducts';
 
 const HomePage = () => {
 
   return (
-    <div className="bg-white">
+    <div className="bg-[#f3f4f6]">
       {/* Hero Section - HeroSlider */}
       <HeroSlider />
 
@@ -16,7 +16,14 @@ const HomePage = () => {
       <section className="py-16">
         <div className="container mx-auto px-4">
           <FeaturedProducts />
-          <div className="text-center mt-12 animate-fadeIn">
+        </div>
+      </section>
+
+      {/********** Recent Products Section ***********/ }
+      <section >
+        <RecentProducts/>
+
+        <div className="text-center animate-fadeIn">
             <Link
               to="/products"
               className="inline-block bg-red-600 text-white font-medium px-6 py-3 rounded-md shadow-md hover:bg-red-700 transition duration-300 transform hover:scale-105"
@@ -24,16 +31,12 @@ const HomePage = () => {
               View All Products
             </Link>
           </div>
-        </div>
       </section>
 
-      {/********** Recent Products Section ***********/ }
-      <section className='bg-gray-50'>
-        <RecentProducts/>
-      </section>
+      
 
       {/********* Categories Section ************/}
-      <section className="py-16 bg-gray-50">
+      <section className="py-16 ">
         <div className="container mx-auto px-4">
           <CategorySection />
         </div>
@@ -57,7 +60,7 @@ const HomePage = () => {
                   <input
                     type="email"
                     placeholder="Your email address"
-                    className="w-full md:w-64 px-4 py-3 rounded-l-md focus:outline-none text-gray-700"
+                    className="w-full md:w-64 px-4 py-3 border-white bg-white rounded-l-md focus:outline-none text-gray-700"
                   />
                   <button
                     type="submit"

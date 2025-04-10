@@ -7,9 +7,9 @@ const Footer = () => {
     {
       title: 'Shop',
       links: [
-        { name: 'All Products', path: '/shop' },
-        { name: 'New Arrivals', path: '/shop/new' },
-        { name: 'Featured', path: '/shop/featured' },
+        { name: 'All Products', path: '/products' },
+        { name: 'New Arrivals', path: '/recent-products' },
+        { name: 'Featured', path: '/featured-products' },
       ],
     },
     {
@@ -17,7 +17,6 @@ const Footer = () => {
       links: [
         { name: 'About Us', path: '/about' },
         { name: 'Contact', path: '/contact' },
-        { name: 'Careers', path: '/careers' },
       ],
     },
     {
@@ -89,7 +88,7 @@ const Footer = () => {
         {/* Copyright */}
         <div className="mt-12 pt-8 border-t border-gray-200">
           <p className="text-xs text-gray-500 text-center">
-            &copy; {new Date().getFullYear()} Raees Mobiles. All rights reserved.
+            &copy; {new Date().getFullYear()} Raees Malls. All rights reserved.
           </p>
         </div>
       </div>

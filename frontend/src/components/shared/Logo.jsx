@@ -71,7 +71,7 @@ const Logo = ({
             Raees
           </span>
           <span className={`block font-medium ${variants[variant].secondary} ${size === 'xl' ? 'text-xl' : 'text-base'}`}>
-            Mobiles
+            Malls
           </span>
         </div>
       )}
