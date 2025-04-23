@@ -59,7 +59,7 @@ const HeroSlider = () => {
               onError={(e) => (e.target.src = 'https://via.placeholder.com/1500x500')} // Fallback on error
             />
             {(slide.title || slide.caption || slide.link) && (
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
                 <div className="max-w-4xl text-center px-4">
                   {slide.title && (
                     <h1 className="text-4xl sm:text-2xl md:text-6xl font-bold mb-6 text-white">

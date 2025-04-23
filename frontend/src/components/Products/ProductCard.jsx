@@ -1,110 +1,110 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { memo } from 'react';
+import { CiHeart, CiShoppingCart } from 'react-icons/ci';
+import { DotIcon } from 'lucide-react';
 import Button from '../core/Button';
-import Card from '../core/Card';
-import { useCart } from '../../context/CartContext';
+import { useNavigate } from 'react-router-dom';
+import { useCartWishlist } from '../../context/CartWishlistContext';
+import PropTypes from 'prop-types';
 
-const ProductCard = ({ product }) => {
-  const { addToCart } = useCart();
+const ProductCard = memo(({ product }) => {
+  const navigate = useNavigate();
+  const { addToCart, addToWishlist } = useCartWishlist();
 
-  const getImageUrl = () => {
-    if (product.images && product.images[0] && typeof product.images[0] === 'string') {
-      return product.images[0];
+  if (!product || !product.productId || !product.title || !product.images?.length) {
+    console.warn('Invalid product data:', product);
+    return null;
+  }
+
+  const handleCardClick = (e) => {
+    const isHeartClick = e.target.closest('svg[data-heart="true"]');
+    const isCartButtonClick = e.target.closest('button');
+    if (!isHeartClick && !isCartButtonClick) {
+      navigate(`/product/${product.productId}`);
     }
-    return '/placeholder-product.png';
   };
 
-  const getPriceDisplay = () => {
-    if (!product.variants || product.variants.length === 0) {
-      return `PKR - ${Number(product.price || 0).toFixed(0)}`;
-    }
-    if (product.variants.length > 1) {
-      const minPrice = Math.min(...product.variants.map(v => Number(v.price || 0)));
-      return `From PKR - ${minPrice.toFixed(0)}`;
-    }
-    return `PKR - ${Number(product.variants[0]?.price || product.price || 0).toFixed(0)}`;
+  const handleHeartClick = (e) => {
+    e.stopPropagation();
+    addToWishlist(product);
   };
 
-  const handleAddToCart = (e) => {
-    e.preventDefault();
+  const handleAddToCartClick = (e) => {
+    e.stopPropagation();
     addToCart(product);
   };
 
+  // Format price with commas
+  const formattedPrice = new Intl.NumberFormat('en-PK').format(product.price);
+  
+  // Handle image error
+  const handleImageError = (e) => {
+    e.target.src = '/path-to-fallback-image.jpg';
+  };
+
   return (
-    <Card className="group hover:shadow-md transition-shadow h-full flex flex-col">
-      {/* Discount Badge */}
-      {product.discountPercentage > 0 && (
-        <div className="absolute top-2 left-2 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded">
-          Up to {Math.round(product.discountPercentage)}% off
-        </div>
-      )}
-
-      {/* Product Image */}
-      <Link to={`/products/${product.id}`} className="block">
-        <div className="aspect-square bg-gray-100 overflow-hidden rounded-t-lg">
-          <img
-            src={getImageUrl()}
-            alt={product.title || 'Product image'}
-            className="w-full h-full object-cover group-hover:opacity-90 transition-opacity"
-            onError={(e) => (e.target.src = '/placeholder-product.png')}
-          />
-        </div>
-      </Link>
-
-      {/* Product Info */}
-      <div className="p-4 flex flex-col flex-grow">
-        <div className="flex-grow">
-          <Link to={`/products/${product.id}`} className="block">
-            <h3 className="text-lg font-semibold text-gray-900 mb-1 hover:text-red-600 transition-colors line-clamp-2">
-              {product.title || 'Untitled Product'}
-            </h3>
-            {product.specs && (
-              <p className="text-sm text-gray-600 line-clamp-1 mb-2">
-                {product.specs}
-              </p>
-            )}
-          </Link>
-
-          {/* Rating */}
-          <div className="flex items-center mb-2">
-            <div className="flex text-yellow-400">
-              {'★★★★★'.slice(0, Math.floor(product.rating || 0))}
-              {'☆'.repeat(5 - Math.floor(product.rating || 0))}
-            </div>
-            <span className="text-xs text-gray-500 ml-1">
-              {product.rating?.toFixed(1)} ({product.numReviews?.toLocaleString() || 0})
-            </span>
-          </div>
-
-          {/* Tags */}
-          {product.tags && product.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mb-3">
-              {product.tags.map((tag, index) => (
-                <span key={index} className="text-xs bg-gray-100 px-2 py-1 rounded">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Price & Button */}
-        <div className="mt-auto">
-          <p className="text-xl font-bold text-gray-900 mb-3">
-            {getPriceDisplay()}
-          </p>
-          <Button
-            variant="primary"
-            size="small"
-            className="w-full"
-            onClick={handleAddToCart}
-          >
-            Add to Cart
-          </Button>
-        </div>
+    <div
+      className="w-64 h-auto flex flex-col items-center overflow-hidden hover:shadow-xl bg-white rounded-xl shadow-lg cursor-pointer"
+      onClick={handleCardClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && handleCardClick(e)}
+    >
+      <div className="relative overflow-hidden group">
+        <img
+          src={product.images[0]}
+          alt={product.title}
+          className="w-full h-auto"
+          loading="lazy"
+          onError={handleImageError}
+        />
+        <CiHeart
+          data-heart="true"
+          onClick={handleHeartClick}
+          className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer"
+          size={24}
+          strokeWidth={1}
+          aria-label="Add to wishlist"
+        />
+        <Button
+          onClick={handleAddToCartClick}
+          className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-[90%] opacity-0 group-hover:opacity-100 group-hover:translate-y-[-10px] transition-all duration-300 flex items-center justify-center gap-3 bg-red-500 text-white px-6 py-3 rounded-lg"
+          aria-label={`Add ${product.title} to cart`}
+        >
+          <CiShoppingCart size={20} strokeWidth={1} />
+          <span className="text-base whitespace-nowrap">Add to cart</span>
+        </Button>
       </div>
-    </Card>
+      <div className="p-6 text-center">
+        <h2 className="text-xl font-bold text-black hover:text-red-500">
+          {product.title}
+        </h2>
+        <p className="text-lg">{formattedPrice} PKR</p>
+        <p className="text-base">
+          {'⭐'.repeat(Math.floor(product.rating || 0))}
+          {product.rating % 1 >= 0.5 && '½'}
+          {product.numReviews ? ` (${product.numReviews})` : ''}
+        </p>
+        {product.stock > 0 && (
+          <p className="flex items-center justify-center gap-2 text-green-500 text-base">
+            <DotIcon size={40} aria-label="In stock" /> 
+            {product.stock} in Stock
+          </p>
+        )}
+      </div>
+    </div>
   );
+});
+
+ProductCard.propTypes = {
+  product: PropTypes.shape({
+    productId: PropTypes.string.isRequired,
+    title: PropTypes.string.isRequired,
+    price: PropTypes.number.isRequired,
+    images: PropTypes.arrayOf(PropTypes.string).isRequired,
+    rating: PropTypes.number,
+    numReviews: PropTypes.number,
+    stock: PropTypes.number
+  }).isRequired
 };
 
 export default ProductCard;

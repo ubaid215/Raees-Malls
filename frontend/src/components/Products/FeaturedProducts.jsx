@@ -1,118 +1,118 @@
-import React, { useState, useEffect } from "react";
-import { getProducts } from "../../services/productAPI";
-import LoadingSpinner from "../core/LoadingSpinner";
-import { Link } from "react-router-dom"; 
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Helmet } from 'react-helmet';
+import { ArrowRight } from 'lucide-react';
+import Sidebanner from '../../assets/images/Side_banner_home_1_535x.webp';
+import ProductCard from './ProductCard';
+import Button from '../core/Button';
+import LoadingSpinner from '../core/LoadingSpinner';
+import { productService } from '../../services/productAPI';
+import { Link } from 'react-router-dom';
 
-const FeaturedProducts = () => {
-  const [featuredProducts, setFeaturedProducts] = useState([]);
+function FeaturedProducts() {
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchFeaturedProducts = async () => {
-      try {
-        setLoading(true);
-        // Fetch products with isFeatured: true
-        const { data } = await getProducts({ 
-          page: 1, 
-          limit: 12, 
-          search: '', // No search term
-          isFeatured: true // Add filter for featured products
-        });
-        console.log("Fetched featured products:", data);
-        // Format data to match component expectations
-        const formattedProducts = data.map(product => ({
-          ...product,
-          id: product._id, // Convert _id to id
-          images: product.images.map(img => `http://localhost:5000${img}`), // Full image URLs
-        }));
-        setFeaturedProducts(formattedProducts);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchFeaturedProducts = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await productService.getProducts({ isFeatured: true, limit: 6 });
+      setProducts(response.data);
+    } catch (err) {
+      setError(err.message || 'Failed to load featured products');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
+  useEffect(() => {
     fetchFeaturedProducts();
-  }, []); // Empty dependency array means it fetches once on mount
+  }, [fetchFeaturedProducts]);
+
+  const memoizedProducts = useMemo(() => {
+    return products.map((product) => ({
+      _id: product._id,
+      title: product.title,
+      price: product.price,
+      images: product.images?.[0]
+        ? [product.images[0].startsWith('http') ? product.images[0] : `http://localhost:5000${product.images[0]}`]
+        : ['/placeholder-product.png'],
+      rating: product.rating ? Math.round(product.rating) : 0,
+      numReviews: product.numReviews || 0,
+      stock: product.stock || 0,
+    }));
+  }, [products]);
 
   if (loading) {
     return (
-      <div className="flex justify-center py-8">
-        <LoadingSpinner size="lg" />
-      </div>
+      <section aria-label="Loading Featured Products" className="w-full px-6 my-8 pb-5 text-center">
+        <div className="flex justify-center">
+          <LoadingSpinner size="lg" />
+        </div>
+      </section>
     );
   }
 
   if (error) {
     return (
-      <div className="text-center py-8 text-red-600">
-        Error loading featured products: {error}
-      </div>
-    );
-  }
-
-  if (featuredProducts.length === 0) {
-    return (
-      <div className="text-center py-8 text-gray-500">
-        No featured products available
-      </div>
+      <section aria-label="Error Loading Featured Products" className="w-full px-6 my-8 pb-5 text-center">
+        <p className="text-lg text-red-600">Error: {error}</p>
+        <Button onClick={fetchFeaturedProducts} variant="outline" className="mt-2">
+          Retry
+        </Button>
+      </section>
     );
   }
 
   return (
-    <section className="py-12 px-4 sm:px-6 lg:px-8 bg-gray-50">
-      <div className="max-w-7xl mx-auto">
-        <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">
-          Featured Products
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {featuredProducts.map((product) => (
-            <div
-              key={product.id} // Use id instead of _id
-              className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300"
-            >
-              <div className="relative h-48">
-                <img
-                  src={product.images[0] || "/placeholder-product.png"}
-                  alt={product.title}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    e.target.src = "/placeholder-product.png";
-                  }}
-                />
-                <span className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                  Featured
-                </span>
-              </div>
-              <div className="p-4">
-                <h3 className="text-lg font-semibold text-gray-900 truncate">
-                  {product.title}
-                </h3>
-                <p className="text-sm text-gray-600 mt-1 line-clamp-2">
-                  {product.description}
-                </p>
-                <div className="mt-3 flex justify-between items-center">
-                  <span className="text-lg font-bold text-gray-900">
-                    PKR {product.price.toFixed(2)}
-                  </span>
-                  <span className="text-sm text-gray-500">
-                    {product.stock > 0 ? "In Stock" : "Out of Stock"}
-                  </span>
-                </div>
-                <Link to={`/products/${product.id}`}>
-                  <button className="mt-4 w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors duration-200">
-                    View Details
-                  </button>
-                </Link>
-              </div>
-            </div>
-          ))}
+    <section aria-label="Featured Products" className="w-full px-6 my-8 pb-5">
+      <Helmet>
+        <title>Featured Products | Your Store</title>
+        <meta name="description" content="Explore our handpicked selection of featured products with exclusive discounts and limited stock." />
+      </Helmet>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-semibold">Featured Products</h1>
+        <nav>
+          <Link to="/products" className="flex items-center gap-2 border-b-2 hover:text-red-500 transition-colors">
+            View All <ArrowRight size={18} />
+          </Link>
+        </nav>
+      </div>
+
+      <div className="flex items-start justify-center gap-8 w-full">
+        <div className="hidden lg:block w-[30%] h-[160vh] rounded-xl overflow-hidden relative">
+          <img
+            src={Sidebanner}
+            alt="Promotional banner for up to 50% off sale"
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+          <h5 className="uppercase absolute top-10 left-7 text-white">Upto 50% off</h5>
+          <h1 className="absolute top-20 left-7 text-white text-3xl font-semibold">
+            Limited <span className="text-red-600">Stock</span>, <br />Huge Saving
+          </h1>
+          <Link to="/products/sale">
+            <Button className="absolute top-44 left-7 text-white">Shop Now</Button>
+          </Link>
+        </div>
+        <div className="w-full lg:w-[70%] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {memoizedProducts.length === 0 ? (
+            <p className="text-center text-gray-500 text-lg">
+              No featured products available.
+            </p>
+          ) : (
+            memoizedProducts.map((product) => (
+              <ProductCard
+                key={product._id}
+                product={product}
+              />
+            ))
+          )}
         </div>
       </div>
     </section>
   );
-};
+}
 
 export default FeaturedProducts;

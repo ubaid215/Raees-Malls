@@ -1,51 +1,97 @@
-// admin/pages/EditProductPage.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Helmet } from "react-helmet";
 import { useParams, useNavigate } from "react-router-dom";
 import ProductForm from "./ProductForm";
-import { getProductById, updateProduct } from "../../services/productAPI";
+import { productService } from "../../services/productAPI";
+import LoadingSpinner from "../../components/core/LoadingSpinner";
 
 const EditProductPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [initialData, setInitialData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [submitError, setSubmitError] = useState(null);
   const { id } = useParams();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchProduct = async () => {
-      try {
-        const product = await getProductById(id);
-        setInitialData(product);
-      } catch (err) {
-        console.error("Failed to load product:", err);
-      }
-    };
-    fetchProduct();
+  const fetchProduct = useCallback(async () => {
+    setIsLoading(true);
+    setSubmitError(null);
+    try {
+      const product = await productService.getProduct(id);
+      setInitialData(product);
+    } catch (err) {
+      console.error("Failed to load product:", err);
+      setSubmitError(err.message || "Failed to load product");
+    } finally {
+      setIsLoading(false);
+    }
   }, [id]);
 
-  const handleSubmit = async (productData) => {
-    setIsSubmitting(true);
-    try {
-      await updateProduct(id, productData);
-      navigate("/admin/inventory");
-    } catch (err) {
-      console.error("Submission failed:", err);
-      throw err; // Let ProductForm handle the error display
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  useEffect(() => {
+    fetchProduct();
+  }, [fetchProduct]);
 
-  if (!initialData) return <div>Loading...</div>;
+  const handleSubmit = useCallback(
+    async (productData) => {
+      setIsSubmitting(true);
+      setSubmitError(null);
+      try {
+        const response = await productService.updateProduct(id, productData);
+        console.log("Product updated:", response);
+        navigate("/admin/inventory");
+      } catch (err) {
+        console.error("Submission failed:", err);
+        setSubmitError(err.message || "Failed to update product");
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [id, navigate]
+  );
+
+  if (isLoading) {
+    return (
+      <section aria-label="Loading Product">
+        <div className="container mx-auto px-4 py-6 flex justify-center">
+          <LoadingSpinner size="lg" />
+        </div>
+      </section>
+    );
+  }
+
+  if (submitError && !initialData) {
+    return (
+      <section aria-label="Error Loading Product">
+        <div className="container mx-auto px-4 py-6">
+          <div className="p-3 bg-light-red text-red rounded border border-red">
+            {submitError}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
-    <div className="container mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold mb-6">Edit Product</h1>
-      <ProductForm
-        initialData={initialData}
-        onSubmit={handleSubmit}
-        isSubmitting={isSubmitting}
-      />
-    </div>
+    <section aria-label="Edit Product">
+      <Helmet>
+        <title>Edit Product | Your Store</title>
+        <meta name="description" content="Edit an existing product in your store" />
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
+      <div className="container mx-auto px-4 py-6">
+        <h1 className="text-2xl font-bold mb-6">Edit Product</h1>
+        {submitError && (
+          <div className="p-3 bg-light-red text-red rounded border border-red mb-6">
+            {submitError}
+          </div>
+        )}
+        <ProductForm
+          initialData={initialData}
+          onSubmit={handleSubmit}
+          isSubmitting={isSubmitting}
+        />
+      </div>
+    </section>
   );
 };
 
