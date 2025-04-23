@@ -1,12 +1,13 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import React, { lazy, memo, Suspense, useEffect, useState } from "react";
+import React, { lazy, memo, Suspense, useEffect, useState, useCallback } from "react";
+import { Helmet } from "react-helmet";
 import { Link } from "react-router-dom";
 import { FiEdit2, FiTrash2, FiEye } from "react-icons/fi";
 import Button from "../../components/core/Button";
 import Input from "../../components/core/Input";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
-import { getProducts, deleteProduct } from "../../services/productAPI";
+import { productService } from "../../services/productAPI";
 
 const ProductModal = lazy(() => import("../../pages/ProductModal"));
 
@@ -22,47 +23,75 @@ const ProductInventory = memo(() => {
 
   const PRODUCTS_PER_PAGE = 10;
 
-  const loadProducts = async () => {
+  const loadProducts = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const { data, totalPages: pages } = await getProducts({
+      const response = await productService.getProducts({
         page: currentPage,
         limit: PRODUCTS_PER_PAGE,
         search: searchTerm,
       });
-      setProducts(data);
-      setTotalPages(pages);
+      setProducts(response.data);
+      setTotalPages(response.pages);
     } catch (err) {
-      setError(err.message);
+      setError(
+        err.message.includes('Network Error')
+          ? 'Unable to connect to the server. Please check your network or try again later.'
+          : `Failed to load products: ${err.message}`
+      );
+      console.error('Error fetching products:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentPage, searchTerm]);
+
+  const handleDelete = useCallback(async (productId) => {
+    if (window.confirm("Are you sure you want to delete this product?")) {
+      try {
+        await productService.deleteProduct(productId);
+        loadProducts();
+      } catch (err) {
+        setError(
+          err.message.includes('Network Error')
+            ? 'Unable to connect to the server. Please check your network or try again later.'
+            : `Failed to delete product: ${err.message}`
+        );
+        console.error('Error deleting product:', err);
+      }
+    }
+  }, [loadProducts]);
 
   useEffect(() => {
     loadProducts();
-  }, [currentPage, searchTerm]);
+  }, [loadProducts]);
 
-  const handleDelete = async (productId) => {
-    if (window.confirm("Are you sure you want to delete this product?")) {
-      try {
-        await deleteProduct(productId);
-        loadProducts();
-      } catch (err) {
-        setError(err.message);
-      }
-    }
-  };
-
-  const handlePreview = (product) => {
-    setSelectedProduct(product);
+  const handlePreview = useCallback((product) => {
+    setSelectedProduct({
+      _id: product._id,
+      title: product.title,
+      price: product.price,
+      originalPrice: product.originalPrice || product.price,
+      discountPercentage:
+        product.originalPrice && product.originalPrice > product.price
+          ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
+          : 0,
+      images: product.images?.map((img) =>
+        img.startsWith('http') ? img : `http://localhost:5000${img}`
+      ) || ['/placeholder-product.png'],
+      rating: product.rating ? parseFloat(product.rating) : 0,
+      numReviews: product.numReviews || 0,
+      stock: product.stock || 0,
+      description: product.description || '',
+      categories: product.categories || [],
+    });
     setShowPreview(true);
-  };
+  }, []);
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 text-red-600 rounded-lg">
-        <p>Error loading products: {error}</p>
+      <div className="p-4 bg-red-50 text-red-600 rounded-lg mx-auto max-w-7xl">
+        <p>{error}</p>
         <Button onClick={loadProducts} variant="outline" className="mt-2">
           Retry
         </Button>
@@ -71,7 +100,11 @@ const ProductInventory = memo(() => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <section aria-label="Product Inventory" className="container mx-auto px-4 py-6">
+      <Helmet>
+        <title>Product Inventory | Admin Dashboard</title>
+        <meta name="description" content="Manage your product inventory, add, edit, or delete products." />
+      </Helmet>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl font-bold text-gray-800">Product Inventory</h1>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
@@ -135,11 +168,9 @@ const ProductInventory = memo(() => {
                           {product.images && product.images[0] ? (
                             <img
                               className="h-10 w-10 rounded-full object-cover"
-                              src={`http://localhost:5000${product.images[0]}`}
+                              src={product.images[0].startsWith('http') ? product.images[0] : `http://localhost:5000${product.images[0]}`}
                               alt={product.title || "Product image"}
-                              onError={(e) =>
-                                (e.target.src = "/placeholder-product.png")
-                              }
+                              onError={(e) => (e.target.src = "/placeholder-product.png")}
                             />
                           ) : (
                             <div className="h-10 w-10 rounded-full bg-gray-200"></div>
@@ -180,6 +211,7 @@ const ProductInventory = memo(() => {
                           onClick={() => handlePreview(product)}
                           className="text-blue-600 hover:text-blue-900"
                           title="Preview"
+                          aria-label={`Preview ${product.title}`}
                         >
                           <FiEye className="h-5 w-5" />
                         </button>
@@ -187,6 +219,7 @@ const ProductInventory = memo(() => {
                           <button
                             className="text-indigo-600 hover:text-indigo-900"
                             title="Edit"
+                            aria-label={`Edit ${product.title}`}
                           >
                             <FiEdit2 className="h-5 w-5" />
                           </button>
@@ -195,6 +228,7 @@ const ProductInventory = memo(() => {
                           onClick={() => handleDelete(product._id)}
                           className="text-red-600 hover:text-red-900"
                           title="Delete"
+                          aria-label={`Delete ${product.title}`}
                         >
                           <FiTrash2 className="h-5 w-5" />
                         </button>
@@ -240,7 +274,7 @@ const ProductInventory = memo(() => {
           />
         )}
       </Suspense>
-    </div>
+    </section>
   );
 });
 

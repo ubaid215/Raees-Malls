@@ -23,7 +23,7 @@ const Logo = ({
   const variants = {
     default: {
       primary: 'text-red-600',
-      secondary: 'text-gray-800'
+      secondary: 'text-gray-50'
     },
     light: {
       primary: 'text-red-400',

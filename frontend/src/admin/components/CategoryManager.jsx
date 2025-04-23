@@ -3,6 +3,7 @@ import { FiPlus, FiTrash2, FiEdit2 } from 'react-icons/fi';
 import Button from '../../components/core/Button';
 import Input from '../../components/core/Input';
 import axios from 'axios';
+import CategorySelector from '../../admin/pages/CategorySelector'; 
 
 const CategoryManager = () => {
   const [categories, setCategories] = useState([]);
@@ -11,6 +12,7 @@ const CategoryManager = () => {
     description: '',
     imageFile: null,
     previewUrl: '',
+    parentCategories: [], // Added for parent categories
   });
   const [editCategory, setEditCategory] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +57,14 @@ const CategoryManager = () => {
     }
   };
 
+  // Handle parent category selection
+  const handleParentCategoriesChange = (selectedParents) => {
+    setNewCategory(prev => ({
+      ...prev,
+      parentCategories: selectedParents
+    }));
+  };
+
   const handleAddCategory = async (e) => {
     e.preventDefault();
     if (!newCategory.name.trim()) {
@@ -66,6 +76,10 @@ const CategoryManager = () => {
       const formData = new FormData();
       formData.append('name', newCategory.name);
       formData.append('description', newCategory.description);
+      // Add parent categories to form data
+      newCategory.parentCategories.forEach(parent => {
+        formData.append('parents', parent._id);
+      });
       if (newCategory.imageFile) {
         formData.append('image', newCategory.imageFile);
       }
@@ -73,7 +87,13 @@ const CategoryManager = () => {
       const response = await axios.post(API_URL, formData);
       if (response.data.success) {
         setCategories((prev) => [...prev, response.data.data]);
-        setNewCategory({ name: '', description: '', imageFile: null, previewUrl: '' });
+        setNewCategory({ 
+          name: '', 
+          description: '', 
+          imageFile: null, 
+          previewUrl: '',
+          parentCategories: [] 
+        });
         setError(null);
       } else {
         throw new Error(response.data.error || 'Failed to add category');
@@ -90,6 +110,7 @@ const CategoryManager = () => {
       description: category.description || '',
       imageFile: null,
       previewUrl: category.imageUrl ? `http://localhost:5000${category.imageUrl}` : '',
+      parentCategories: category.parents || []
     });
   };
 
@@ -99,6 +120,10 @@ const CategoryManager = () => {
       const formData = new FormData();
       formData.append('name', newCategory.name);
       formData.append('description', newCategory.description);
+      // Add parent categories to form data
+      newCategory.parentCategories.forEach(parent => {
+        formData.append('parents', parent._id);
+      });
       if (newCategory.imageFile) {
         formData.append('image', newCategory.imageFile);
       }
@@ -108,7 +133,13 @@ const CategoryManager = () => {
         setCategories((prev) =>
           prev.map((cat) => (cat._id === editCategory._id ? response.data.data : cat))
         );
-        setNewCategory({ name: '', description: '', imageFile: null, previewUrl: '' });
+        setNewCategory({ 
+          name: '', 
+          description: '', 
+          imageFile: null, 
+          previewUrl: '',
+          parentCategories: [] 
+        });
         setEditCategory(null);
         setError(null);
       } else {
@@ -174,6 +205,16 @@ const CategoryManager = () => {
             placeholder="Enter category description"
           />
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Parent Categories (Optional)</label>
+            <CategorySelector
+              selected={newCategory.parentCategories}
+              onChange={handleParentCategoriesChange}
+              categories={categories.filter(cat => !editCategory || cat._id !== editCategory._id)} // Prevent selecting self as parent
+              placeholder="Select parent categories..."
+              maxSelections={3}
+            />
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Category Image (Optional)</label>
             <input
               type="file"
@@ -209,7 +250,7 @@ const CategoryManager = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Slug</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parents</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Image</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -219,7 +260,17 @@ const CategoryManager = () => {
               {categories.map((category) => (
                 <tr key={category._id}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{category.name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{category.slug}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {category.parents?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {category.parents.map(parent => (
+                          <span key={parent._id} className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
+                            {parent.name}
+                          </span>
+                        ))}
+                      </div>
+                    ) : '—'}
+                  </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{category.description || 'N/A'}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {category.imageUrl ? (

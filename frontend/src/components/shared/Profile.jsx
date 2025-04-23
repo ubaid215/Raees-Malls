@@ -1,122 +1,218 @@
-// 📁 pages/Profile.jsx
-import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { FiUser, FiPackage, FiTruck, FiLogOut } from 'react-icons/fi';
+import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
-import Button from '../core/Button';
+import { useCartWishlist } from '../../context/CartWishlistContext';
+import { useNavigate } from 'react-router-dom';
 
 const Profile = () => {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
+  const { loading, error, clearError } = useCartWishlist();
+  const [orders, setOrders] = useState([]);
+  const [fetchError, setFetchError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Redirect if not authenticated
-  useEffect(() => {
-    if (!user) {
-      navigate('/login');
-    }
-  }, [user, navigate]);
-
-  // Handle logout
   const handleLogout = () => {
     logout();
-    navigate(user?.role === 'admin' ? '/admin/login' : '/login');
+    navigate('/login'); // Redirect to login page after logout
   };
 
-  // Handle navigation based on role
-  const handleRoleAction = () => {
-    if (user?.role === 'admin') {
-      navigate('/admin/dashboard');
-    } else {
-      navigate('/products');
-    }
-  };
+  useEffect(() => {
+    const fetchOrders = async () => {
+      if (!token) {
+        setFetchError('Please log in to view orders');
+        setIsLoading(false);
+        return;
+      }
 
-  if (!user) return null; // Render nothing while redirecting
+      try {
+        setIsLoading(true);
+        const response = await axios.get('http://localhost:5000/api/orders', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setOrders(response.data || []);
+        setFetchError(null);
+      } catch (err) {
+        setFetchError(err.response?.data?.message || 'Failed to fetch orders');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchOrders();
+  }, [token]);
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-md p-6 text-center">
+          <p className="text-red-600 text-lg font-medium">Please log in to view your profile</p>
+          <a href="/login" className="mt-4 inline-block px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition duration-200">
+            Go to Login
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading || loading.fetch) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-red-600 text-lg font-medium">Loading...</div>
+      </div>
+    );
+  }
+
+  if (error || fetchError) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white rounded-xl shadow-md p-6 text-center">
+          <p className="text-red-600 text-lg font-medium">{error || fetchError}</p>
+          <button
+            onClick={clearError}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition duration-200"
+          >
+            Clear Error
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-3xl mx-auto mt-12 p-6 bg-white rounded-lg shadow-md animate-fadeIn">
-      <h2 className="text-2xl font-semibold text-gray-900 mb-6">
-        {user.role === 'admin' ? 'Admin Profile' : 'My Profile'}
-      </h2>
+    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-red-600">My Profile</h1>
+          <button
+            onClick={handleLogout}
+            className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition duration-200"
+          >
+            <FiLogOut />
+            <span>Logout</span>
+          </button>
+        </div>
 
-      {/* User Info Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Name</label>
-          <p className="mt-1 text-lg text-gray-900">{user.name}</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Email</label>
-          <p className="mt-1 text-lg text-gray-900">{user.email}</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Role</label>
-          <p className="mt-1 text-lg text-gray-900 capitalize">{user.role}</p>
-        </div>
-      </div>
-
-      {/* Role-Specific Content */}
-      <div className="mb-6">
-        {user.role === 'admin' ? (
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium text-gray-900">Admin Overview</h3>
-            <p className="text-sm text-gray-600">
-              Manage your e-commerce platform from here. Add products, update banners, and oversee user activity.
-            </p>
-            {/* Placeholder for admin stats - expand later */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-100 p-4 rounded-md">
-                <p className="text-sm text-gray-600">Total Products</p>
-                <p className="text-xl font-bold text-gray-900">Coming Soon</p>
+        {/* Bento Grid Layout */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* User Info Card */}
+          <div className="bg-white rounded-xl shadow-md p-6 col-span-1 row-span-1">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <FiUser className="text-red-600 text-2xl" />
               </div>
-              <div className="bg-gray-100 p-4 rounded-md">
-                <p className="text-sm text-gray-600">Total Users</p>
-                <p className="text-xl font-bold text-gray-900">Coming Soon</p>
-              </div>
+              <h2 className="text-xl font-semibold text-gray-800">Personal Information</h2>
             </div>
-            <Button
-              onClick={handleRoleAction}
-              variant="primary"
-              className="w-full bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300"
-            >
-              Go to Dashboard
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium text-gray-900">User Dashboard</h3>
-            <p className="text-sm text-gray-600">
-              View your shopping activity and manage your account here.
-            </p>
-            {/* Placeholder for user data - expand later */}
             <div className="space-y-4">
-              <div className="bg-gray-100 p-4 rounded-md">
-                <p className="text-sm text-gray-600">Recent Orders</p>
-                <p className="text-gray-900">No orders yet. Start shopping!</p>
+              <div>
+                <p className="text-sm text-gray-500">Full Name</p>
+                <p className="text-lg font-medium text-gray-800">{user.name || 'N/A'}</p>
               </div>
-              <div className="bg-gray-100 p-4 rounded-md">
-                <p className="text-sm text-gray-600">Your Reviews</p>
-                <p className="text-gray-900">No reviews submitted yet.</p>
+              <div>
+                <p className="text-sm text-gray-500">Email Address</p>
+                <p className="text-lg font-medium text-gray-800">{user.email}</p>
               </div>
+              <button className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition duration-200">
+                Edit Profile
+              </button>
             </div>
-            <Button
-              onClick={handleRoleAction}
-              variant="primary"
-              className="w-full bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300"
-            >
-              Shop Now
-            </Button>
           </div>
-        )}
-      </div>
 
-      {/* Logout Button */}
-      <Button
-        onClick={handleLogout}
-        variant="secondary"
-        className="w-full bg-gray-600 text-white hover:bg-gray-700 transition-all duration-300"
-      >
-        Logout
-      </Button>
+          {/* Order Summary Card */}
+          <div className="bg-white rounded-xl shadow-md p-6 col-span-1 md:col-span-2">
+            <div className="flex items-center space-x-4 mb-4">
+              <div className="bg-red-100 p-3 rounded-full">
+                <FiPackage className="text-red-600 text-2xl" />
+              </div>
+              <h2 className="text-xl font-semibold text-gray-800">Order Summary</h2>
+            </div>
+            <div className="space-y-6">
+              <div className="grid grid-cols-3 text-sm text-gray-500 font-medium border-b pb-2">
+                <p>Order ID</p>
+                <p className="text-center">Date</p>
+                <p className="text-right">Total</p>
+              </div>
+              {orders.length === 0 ? (
+                <p className="text-gray-600">No orders found</p>
+              ) : (
+                orders.map((order) => (
+                  <div key={order.orderId} className="grid grid-cols-3 border-b pb-4">
+                    <p className="font-medium text-red-600">{order.orderId}</p>
+                    <p className="text-center text-gray-600">{new Date(order.createdAt).toLocaleDateString()}</p>
+                    <p className="text-right font-semibold">${order.total.toFixed(2)}</p>
+                  </div>
+                ))
+              )}
+              <button className="w-full mt-4 px-4 py-2 border border-red-600 text-red-600 rounded-lg hover:bg-red-50 transition duration-200">
+                View All Orders
+              </button>
+            </div>
+          </div>
+
+          {/* Current Orders Card */}
+          <div className="bg-white rounded-xl shadow-md p-6 col-span-1 md:col-span-3">
+            <div className="flex items-center space-x-4 mb-6">
+              <div className="bg-red-100 p-3 rounded-full">
+                <FiTruck className="text-red-600 text-2xl" />
+              </div>
+              <h2 className="text-xl font-semibold text-gray-800">Current Orders</h2>
+            </div>
+            <div className="space-y-6">
+              {orders.length === 0 ? (
+                <p className="text-gray-600">No current orders</p>
+              ) : (
+                orders.map((order) => (
+                  <div key={order.orderId} className="border rounded-lg p-4 hover:shadow-md transition duration-200">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <p className="font-medium text-gray-800">Order {order.orderId}</p>
+                        <p className="text-sm text-gray-500">Placed on {new Date(order.createdAt).toLocaleDateString()}</p>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        order.status === 'Delivered' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {order.status}
+                      </span>
+                    </div>
+
+                    <div className="mb-4">
+                      <p className="text-sm font-medium text-gray-500 mb-2">Items:</p>
+                      <ul className="space-y-2">
+                        {order.items.map((item, index) => (
+                          <li key={index} className="flex justify-between">
+                            <span className="text-gray-700">
+                              {item.quantity} × {item.productId.title}
+                            </span>
+                            <span className="text-gray-800 font-medium">${item.productId.price.toFixed(2)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="flex justify-between items-center border-t pt-4">
+                      <div>
+                        <p className="text-sm text-gray-500">Tracking Number</p>
+                        <p className="font-medium">{order.trackingNumber || 'N/A'}</p>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button className="px-3 py-1 text-sm border border-red-600 text-red-600 rounded hover:bg-red-50 transition duration-200">
+                          Track Order
+                        </button>
+                        <button className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition duration-200">
+                          View Details
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

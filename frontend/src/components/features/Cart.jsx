@@ -1,139 +1,195 @@
-// 📁 src/components/features/Cart.jsx
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { CiHeart, CiShoppingCart, CiTrash, CiCirclePlus, CiCircleMinus } from 'react-icons/ci';
+import { DotIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useCartWishlist } from '../../context/CartWishlistContext';
 import Button from '../core/Button';
 
-const Cart = ({ cartItems = [], onQuantityChange, onRemoveItem }) => {
-  // Safely calculate totals with default empty array
-  const safeCartItems = Array.isArray(cartItems) ? cartItems : [];
-  
-  const subtotal = safeCartItems.reduce((sum, item) => sum + (item?.price || 0) * (item?.quantity || 0), 0);
-  const tax = subtotal * 0.1; // Example 10% tax
-  const shipping = subtotal > 0 ? 10 : 0; // $10 shipping if items exist
-  const total = subtotal + tax + shipping;
+function CartProductCard({ productId, image, title, price, rating, reviews, stock, quantity }) {
+  const { updateCartQuantity, removeFromCart } = useCartWishlist();
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-gray-900 mb-8">Your Cart</h1>
-      
-      <div className="flex flex-col lg:flex-row gap-8">
-        {/* Cart Items */}
-        <div className="lg:w-2/3">
-          {safeCartItems.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-600 mb-4">Your cart is empty</p>
-              <Link to="/products">
-                <Button variant="primary">Continue Shopping</Button>
-              </Link>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {safeCartItems.map((item) => (
-                <div key={item?.id} className="flex flex-col sm:flex-row gap-4 p-4 border-b border-gray-200">
-                  {/* Product Image */}
-                  <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                    {item?.image && (
-                      <img 
-                        src={item.image} 
-                        alt={item?.name || 'Product'} 
-                        className="w-full h-full object-cover"
-                      />
-                    )}
-                  </div>
-                  
-                  {/* Product Info */}
-                  <div className="flex-grow">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h2 className="text-lg font-semibold text-gray-900">{item?.name || 'Unnamed Product'}</h2>
-                        <p className="text-sm text-gray-600">{item?.variant || ''}</p>
-                      </div>
-                      <button 
-                        onClick={() => item?.id && onRemoveItem?.(item.id)}
-                        className="text-gray-500 hover:text-red-500"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    
-                    <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="flex items-center gap-4">
-                        <div className="flex items-center border border-gray-300 rounded">
-                          <button 
-                            onClick={() => item?.id && onQuantityChange?.(item.id, (item?.quantity || 0) - 1)}
-                            className="px-3 py-1 text-gray-600 hover:bg-gray-100"
-                            disabled={(item?.quantity || 0) <= 1}
-                          >
-                            -
-                          </button>
-                          <span className="px-3 py-1">{item?.quantity || 0}</span>
-                          <button 
-                            onClick={() => item?.id && onQuantityChange?.(item.id, (item?.quantity || 0) + 1)}
-                            className="px-3 py-1 text-gray-600 hover:bg-gray-100"
-                          >
-                            +
-                          </button>
-                        </div>
-                        <span className="text-gray-900 font-medium">
-                          ${(item?.price || 0).toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="text-lg font-semibold">
-                        ${((item?.price || 0) * (item?.quantity || 0)).toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+    <div className="w-full max-w-md flex flex-col sm:flex-row items-center bg-white rounded-xl shadow-lg p-4 gap-4">
+      <div className="relative w-full sm:w-32 h-32 overflow-hidden group">
+        <img
+          src={image}
+          alt={title}
+          className="w-full h-full object-cover rounded-lg transition-transform duration-300 group-hover:scale-105"
+          onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
+        />
+        <CiHeart
+          className="absolute top-2 right-2 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+          size={20}
+          strokeWidth={1}
+        />
+      </div>
+      <div className="flex-1 text-center sm:text-left">
+        <h2 className="text-lg font-bold text-gray-800 cursor-pointer hover:text-red-500">
+          {title}
+        </h2>
+        <p className="text-md text-gray-600">{price.toFixed(2)} PKR</p>
+        <p className="text-sm text-gray-500">
+          {'⭐'.repeat(rating)} ({reviews})
+        </p>
+        <p className="flex items-center justify-center sm:justify-start gap-2 text-green-500 text-sm">
+          <DotIcon size={24} /> {stock} in Stock
+        </p>
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => updateCartQuantity(productId, quantity - 1)}
+            variant="secondary"
+            size="small"
+            disabled={quantity <= 1}
+            aria-label={`Decrease quantity of ${title}`}
+          >
+            <CiCircleMinus size={16} strokeWidth={1} />
+          </Button>
+          <span className="w-12 text-center">{quantity}</span>
+          <Button
+            onClick={() => updateCartQuantity(productId, quantity + 1)}
+            variant="secondary"
+            size="small"
+            disabled={quantity >= stock}
+            aria-label={`Increase quantity of ${title}`}
+          >
+            <CiCirclePlus size={16} strokeWidth={1} />
+          </Button>
         </div>
-        
-        {/* Order Summary - Only show if items exist */}
-        {safeCartItems.length > 0 && (
-          <div className="lg:w-1/3">
-            <div className="bg-gray-50 p-6 rounded-lg">
-              <h2 className="text-xl font-semibold mb-4">Order Summary</h2>
-              
-              <div className="space-y-3 mb-6">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Subtotal</span>
-                  <span className="font-medium">${subtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Tax</span>
-                  <span className="font-medium">${tax.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Shipping</span>
-                  <span className="font-medium">${shipping.toFixed(2)}</span>
-                </div>
-                <div className="border-t border-gray-200 pt-3 flex justify-between text-lg font-semibold">
-                  <span>Total</span>
-                  <span>${total.toFixed(2)}</span>
-                </div>
-              </div>
-              
-              <Button variant="primary" className="w-full mb-4">
-                Confirm Payment
-              </Button>
-              
-              <Link to="/products" className="block text-center text-blue-600 hover:text-blue-800">
-                Continue Shopping
-              </Link>
-            </div>
-          </div>
-        )}
+        <Button
+          onClick={() => removeFromCart(productId)}
+          variant="danger"
+          size="small"
+          aria-label={`Remove ${title} from cart`}
+        >
+          <CiTrash size={16} strokeWidth={1} />
+          <span className="text-sm">Remove</span>
+        </Button>
       </div>
     </div>
   );
-};
+}
 
-// Default props for safety
-Cart.defaultProps = {
-  cartItems: [],
-  onQuantityChange: () => {},
-  onRemoveItem: () => {}
-};
+function Cart() {
+  const { cartItems } = useCartWishlist();
+  const navigate = useNavigate();
+
+  const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+  const handleCheckout = () => {
+    navigate('/checkout', { state: { cartItems } });
+  };
+
+  return (
+    <div className="w-full min-h-screen bg-gray-50 py-8">
+      <h1 className="text-center lg:text-4xl text-2xl font-bold text-gray-800 pb-8">
+        Your Shopping Cart
+      </h1>
+      <section className="w-full max-w-7xl mx-auto px-4 lg:px-8">
+        {cartItems.length === 0 ? (
+          <p className="text-center text-gray-500 text-lg">Your cart is empty.</p>
+        ) : (
+          <div className="flex flex-col gap-6">
+            <div className="hidden md:block bg-white rounded-lg shadow-md">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b">
+                    <th className="p-4 text-gray-700 font-semibold">Product</th>
+                    <th className="p-4 text-gray-700 font-semibold">Quantity</th>
+                    <th className="p-4 text-gray-700 font-semibold">Price</th>
+                    <th className="p-4 text-gray-700 font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cartItems.map((item) => (
+                    <tr key={item.productId} className="border-b last:border-b-0">
+                      <td className="p-4 flex items-center gap-4">
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="w-16 h-16 object-cover rounded-lg"
+                          onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
+                        />
+                        <div>
+                          <h3 className="text-md font-semibold text-gray-800">{item.title}</h3>
+                          <p className="text-sm text-gray-500">
+                            {'⭐'.repeat(item.rating)} ({item.reviews})
+                          </p>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            onClick={() => updateCartQuantity(item.productId, item.quantity - 1)}
+                            variant="secondary"
+                            size="small"
+                            disabled={item.quantity <= 1}
+                          >
+                            <CiCircleMinus size={16} strokeWidth={1} />
+                          </Button>
+                          <span className="w-12 text-center">{item.quantity}</span>
+                          <Button
+                            onClick={() => updateCartQuantity(item.productId, item.quantity + 1)}
+                            variant="secondary"
+                            size="small"
+                            disabled={item.quantity >= item.stock}
+                          >
+                            <CiCirclePlus size={16} strokeWidth={1} />
+                          </Button>
+                        </div>
+                      </td>
+                      <td className="p-4 text-gray-600">
+                        {(item.price * item.quantity).toFixed(2)} PKR
+                      </td>
+                      <td className="p-4">
+                        <Button
+                          onClick={() => removeFromCart(item.productId)}
+                          variant="danger"
+                          size="small"
+                        >
+                          <CiTrash size={16} strokeWidth={1} />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="block md:hidden space-y-6">
+              {cartItems.map((item) => (
+                <CartProductCard
+                  key={item.productId}
+                  productId={item.productId}
+                  image={item.image}
+                  title={item.title}
+                  price={item.price}
+                  rating={item.rating}
+                  reviews={item.reviews}
+                  stock={item.stock}
+                  quantity={item.quantity}
+                />
+              ))}
+            </div>
+            <div className="bg-white rounded-lg shadow-md p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <h3 className="text-lg font-semibold text-gray-800">
+                Total Price: {totalPrice.toFixed(2)} PKR
+              </h3>
+              <Button
+                onClick={handleCheckout}
+                variant="primary"
+                size="large"
+                disabled={cartItems.length === 0}
+                aria-label="Proceed to checkout"
+              >
+                Proceed to Checkout
+              </Button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
 
 export default Cart;

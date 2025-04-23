@@ -55,7 +55,7 @@ const CategorySection = () => {
   }
 
   return (
-    <section className="py-12 px-4 bg-gray-50">
+    <section className="py-12 px-4 ">
       <div className="max-w-7xl mx-auto">
         <h2 className="text-3xl font-bold text-gray-900 mb-8 text-center">
           Shop by Category

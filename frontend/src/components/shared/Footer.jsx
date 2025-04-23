@@ -30,7 +30,7 @@ const Footer = () => {
   ];
 
   return (
-    <footer className="bg-gray-50 border-t">
+    <footer className="bg-[#232F3F] border-t">
       <div className="container mx-auto px-4 py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Logo and description */}
@@ -38,7 +38,7 @@ const Footer = () => {
             <Link to="/" className="flex items-center">
               <Logo className="h-8 w-auto" />
             </Link>
-            <p className="mt-4 text-sm text-gray-500">
+            <p className="mt-4 text-sm text-white">
               Your one-stop shop for all mobile accessories and gadgets.
             </p>
           </div>
@@ -46,7 +46,7 @@ const Footer = () => {
           {/* Footer links */}
           {footerLinks.map((section) => (
             <div key={section.title}>
-              <h3 className="text-sm font-semibold text-gray-900 tracking-wider uppercase">
+              <h3 className="text-sm font-semibold text-red-600 tracking-wider uppercase">
                 {section.title}
               </h3>
               <ul className="mt-4 space-y-2">
@@ -54,7 +54,7 @@ const Footer = () => {
                   <li key={link.name}>
                     <Link
                       to={link.path}
-                      className="text-sm text-gray-500 hover:text-red-600"
+                      className="text-sm text-zinc-50 hover:text-red-600"
                     >
                       {link.name}
                     </Link>
@@ -66,10 +66,10 @@ const Footer = () => {
 
           {/* Newsletter */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 tracking-wider uppercase">
+            <h3 className="text-sm font-semibold text-gray-50 tracking-wider uppercase">
               Newsletter
             </h3>
-            <p className="mt-4 text-sm text-gray-500">
+            <p className="mt-4 text-sm text-gray-50">
               Subscribe to get special offers and updates
             </p>
             <div className="mt-4 flex">
@@ -87,7 +87,7 @@ const Footer = () => {
 
         {/* Copyright */}
         <div className="mt-12 pt-8 border-t border-gray-200">
-          <p className="text-xs text-gray-500 text-center">
+          <p className="text-xs text-red-500 text-center">
             &copy; {new Date().getFullYear()} Raees Malls. All rights reserved.
           </p>
         </div>
