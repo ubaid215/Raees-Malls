@@ -8,21 +8,21 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'raees_mobiles/products', // Folder in Cloudinary
-    allowed_formats: ['jpg', 'jpeg', 'png'],
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
     public_id: (req, file) => `${file.fieldname}-${Date.now()}`
   }
 });
 
-// File filter to allow only images
+// File filter to allow images (including WebP)
 const fileFilter = (req, file, cb) => {
-  const filetypes = /jpeg|jpg|png/;
+  const filetypes = /jpeg|jpg|png|webp/;
   const extname = filetypes.test(file.mimetype.toLowerCase());
   const mimetype = filetypes.test(file.mimetype);
 
   if (extname && mimetype) {
     return cb(null, true);
   } else {
-    cb(new ApiError(400, 'Only JPEG, JPG, and PNG images are allowed'));
+    cb(new ApiError(400, 'Only JPEG, JPG, PNG, and WebP images are allowed')); // Updated error message
   }
 };
 
