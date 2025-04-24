@@ -84,17 +84,20 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
+const bannerRoutes = require('./routes/bannerRoutes');
 
 // Authentication Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/admin/products', productRoutes); // Admin product routes
-app.use('/api/admin/categories', categoryRoutes); // Admin category routes
-app.use('/api/products', productRoutes); // Public product routes
-app.use('/api/categories', categoryRoutes); // Public category routes
-app.use('/api/orders', orderRoutes); // Order routes
-app.use('/api/cart', cartRoutes); // Cart routes
-app.use('/api/reviews', reviewRoutes); // Review routes
+app.use('/api/admin/products', productRoutes);
+app.use('/api/admin/categories', categoryRoutes); 
+app.use('/api/admin/banners', bannerRoutes)
+app.use('/api/products', productRoutes); 
+app.use('/api/categories', categoryRoutes); 
+app.use('/api/orders', orderRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/reviews', reviewRoutes); 
+app.use('/api/banners', bannerRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
