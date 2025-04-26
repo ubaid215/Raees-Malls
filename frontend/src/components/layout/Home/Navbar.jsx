@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import Logo from '../../shared/Logo';
-import { CiHeart, CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
+import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
 import { FiPhoneCall } from 'react-icons/fi';
-import { categoryService } from '../../../services/productAPI';
+import { categoryService } from '../../../services/categoryAPI'; // Updated import
 import { useCartWishlist } from '../../../context/CartWishlistContext';
 
 const navLinks = [
@@ -24,20 +24,24 @@ function Navbar() {
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
   const navigate = useNavigate();
-  const { cartCount, wishlistCount } = useCartWishlist();
+  const { cartCount } = useCartWishlist(); // Removed wishlistCount
 
   const fetchCategories = useCallback(async () => {
     setLoadingCategories(true);
     try {
-      const data = await categoryService.getAllCategories();
-      setCategories(
-        data.map((cat) => ({
-          name: cat.name,
-          path: `/categories/${cat._id}`,
-        }))
-      );
+      const response = await categoryService.getAllPublicCategories();
+      if (response.success) {
+        setCategories(
+          response.data.map((cat) => ({
+            name: cat.name,
+            path: `/categories/${cat.slug || cat._id}`,
+          }))
+        );
+      } else {
+        throw new Error(response.message || 'Failed to load categories');
+      }
     } catch (err) {
-      console.error('Failed to fetch categories:', err);
+      console.error('Failed to fetch categories:', err.message);
     } finally {
       setLoadingCategories(false);
     }
@@ -95,7 +99,7 @@ function Navbar() {
           <Link to="/cart" className="p-2 relative" aria-label="Cart">
             <CiShoppingCart size={24} strokeWidth={1} />
             {cartCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-600 text-[#232F3F] text-xs rounded-full h-5 w-5 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                 {cartCount}
               </span>
             )}
@@ -117,7 +121,7 @@ function Navbar() {
             />
             <button
               type="submit"
-              className="px-4 py-2 bg-red-600 text-[#232F3F] rounded-r-md"
+              className="px-4 py-2 bg-red-600 text-white rounded-r-md"
               aria-label="Submit search"
             >
               <CiSearch size={20} strokeWidth={1} />
@@ -146,14 +150,6 @@ function Navbar() {
                 Sign Up
               </Link>
             </div>
-            <Link
-              to="/wishlist"
-              className="flex items-center gap-2 p-2 text-gray-700"
-              onClick={closeMobileMenu}
-            >
-              <CiHeart size={20} strokeWidth={1} />
-              <span>Wishlist</span>
-            </Link>
           </div>
           <div className="px-4 py-2">
             {navLinks.map((link) => (
@@ -169,6 +165,20 @@ function Navbar() {
               </NavLink>
             ))}
           </div>
+          {!loadingCategories && (
+            <div className="px-4 py-2 border-t">
+              {categories.slice(0, 5).map((category) => (
+                <Link
+                  key={category.name}
+                  to={category.path}
+                  className="block px-2 py-2 text-gray-700 hover:text-red-600"
+                  onClick={closeMobileMenu}
+                >
+                  {category.name}
+                </Link>
+              ))}
+            </div>
+          )}
           <div className="px-4 py-3 flex items-center gap-2 text-gray-700">
             <FiPhoneCall size={18} />
             <span>+923006530063</span>
@@ -200,7 +210,7 @@ function Navbar() {
             </button>
 
             {showDropdown && !loadingCategories && (
-              <div className="absolute left- Benchma4 mt-1 w-48 bg-white rounded-md shadow-lg z-10">
+              <div className="absolute left-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
                 {categories.map((category) => (
                   <button
                     key={category.name}
@@ -225,7 +235,7 @@ function Navbar() {
             />
             <button
               type="submit"
-              className="px-4 py-3 bg-red-400 text-[#232F3F] rounded-r-md hover:bg-red-500 transition-colors"
+              className="px-4 py-3 bg-red-600 text-white rounded-r-md hover:bg-red-700 transition-colors"
               aria-label="Submit search"
             >
               <CiSearch size={20} strokeWidth={1} />
@@ -235,25 +245,13 @@ function Navbar() {
 
         <div className="flex items-center gap-4 lg:gap-6">
           <Link
-            to="/wishlist"
-            className="p-2 hover:text-red-400 transition-colors relative"
-            aria-label="Wishlist"
-          >
-            <CiHeart size={24} strokeWidth={1} />
-            {wishlistCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-400 text-[#232F3F] text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                {wishlistCount}
-              </span>
-            )}
-          </Link>
-          <Link
             to="/cart"
             className="p-2 hover:text-red-400 transition-colors relative"
             aria-label="Cart"
           >
             <CiShoppingCart size={24} strokeWidth={1} />
             {cartCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-400 text-[#232F3F] text-xs rounded-full h-5 w-5 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                 {cartCount}
               </span>
             )}
@@ -278,7 +276,7 @@ function Navbar() {
             <RiArrowDownLine size={16} />
           </button>
           {!loadingCategories && (
-            <div className="absolute left-0 mt-1 w-56 bg-white rounded-md shadow-lg z-10 hidden group-hover:block">
+            <div className="absolute left-0 mt-1 w-56 bg-white rounded-md shadow-lg z-10 hidden group-hover:block max-h-96 overflow-y-auto">
               {categories.map((category) => (
                 <Link
                   key={category.name}

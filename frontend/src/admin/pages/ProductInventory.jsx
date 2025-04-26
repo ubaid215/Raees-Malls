@@ -8,6 +8,7 @@ import Input from "../../components/core/Input";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
 import { productService } from "../../services/productAPI";
+import { categoryService } from "../../services/categoryAPI";
 
 const ProductModal = lazy(() => import("../../pages/ProductModal"));
 
@@ -20,10 +21,33 @@ const ProductInventory = memo(() => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
+  const [categoryMap, setCategoryMap] = useState({}); // Cache category names
 
   const PRODUCTS_PER_PAGE = 10;
 
+  // Fetch categories to map _id to name if not populated
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await categoryService.getAllCategories();
+      if (response.success) {
+        const map = response.data.reduce((acc, cat) => {
+          acc[cat._id] = cat.name;
+          return acc;
+        }, {});
+        setCategoryMap(map);
+      }
+    } catch (err) {
+      console.error('Error fetching categories:', err);
+    }
+  }, []);
+
   const loadProducts = useCallback(async () => {
+    if (!productService.getProducts) {
+      setError('Product service is not properly initialized');
+      setLoading(false);
+      console.error('productService.getProducts is not a function');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -46,6 +70,16 @@ const ProductInventory = memo(() => {
     }
   }, [currentPage, searchTerm]);
 
+  // Handle product added event
+  useEffect(() => {
+    const handleProductAdded = () => {
+      setCurrentPage(1); // Reset to first page to show new product
+      loadProducts();
+    };
+    window.addEventListener('productAdded', handleProductAdded);
+    return () => window.removeEventListener('productAdded', handleProductAdded);
+  }, [loadProducts]);
+
   const handleDelete = useCallback(async (productId) => {
     if (window.confirm("Are you sure you want to delete this product?")) {
       try {
@@ -63,8 +97,9 @@ const ProductInventory = memo(() => {
   }, [loadProducts]);
 
   useEffect(() => {
+    loadCategories();
     loadProducts();
-  }, [loadProducts]);
+  }, [loadCategories, loadProducts]);
 
   const handlePreview = useCallback((product) => {
     setSelectedProduct({
@@ -77,7 +112,7 @@ const ProductInventory = memo(() => {
           ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
           : 0,
       images: product.images?.map((img) =>
-        img.startsWith('http') ? img : `http://localhost:5000${img}`
+        img.url ? img.url : `http://localhost:5000${img}`
       ) || ['/placeholder-product.png'],
       rating: product.rating ? parseFloat(product.rating) : 0,
       numReviews: product.numReviews || 0,
@@ -87,6 +122,20 @@ const ProductInventory = memo(() => {
     });
     setShowPreview(true);
   }, []);
+
+  // Map category IDs to names
+  const getCategoryNames = (categories) => {
+    if (!categories || categories.length === 0) return 'No categories';
+    // Handle populated categories (objects with name)
+    if (categories[0]?.name) {
+      return categories.map(cat => cat.name).join(', ');
+    }
+    // Handle unpopulated categories (array of _id)
+    return categories
+      .map(id => categoryMap[id] || 'Unknown')
+      .filter(name => name !== 'Unknown')
+      .join(', ') || 'No categories';
+  };
 
   if (error) {
     return (
@@ -168,7 +217,7 @@ const ProductInventory = memo(() => {
                           {product.images && product.images[0] ? (
                             <img
                               className="h-10 w-10 rounded-full object-cover"
-                              src={product.images[0].startsWith('http') ? product.images[0] : `http://localhost:5000${product.images[0]}`}
+                              src={product.images[0].url ? product.images[0].url : `http://localhost:5000${product.images[0]}`}
                               alt={product.title || "Product image"}
                               onError={(e) => (e.target.src = "/placeholder-product.png")}
                             />
@@ -181,9 +230,7 @@ const ProductInventory = memo(() => {
                             {product.title}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {product.categories
-                              ?.map((cat) => cat.name)
-                              .join(", ") || "No categories"}
+                            {getCategoryNames(product.categories)}
                           </div>
                         </div>
                       </div>
