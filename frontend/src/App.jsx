@@ -5,20 +5,23 @@ import { SliderProvider } from './context/SliderContext';
 import { BannerProvider } from './context/BannerContext';
 import { CartWishlistProvider } from './context/CartWishlistContext';
 import { AuthProvider } from './context/AuthContext';
+import { AdminAuthProvider } from './context/AdminAuthContext';
 
 function App() {
   return (
-    <AuthProvider>
-      <SliderProvider>
-        <BannerProvider>
-          <CartWishlistProvider>
-            <Router>
-              <AppRouter />
-            </Router>
-          </CartWishlistProvider>
-        </BannerProvider>
-      </SliderProvider>
-    </AuthProvider>
+    <Router>
+      <AuthProvider>
+        <AdminAuthProvider>
+          <SliderProvider>
+            <BannerProvider>
+              <CartWishlistProvider>
+                <AppRouter />
+              </CartWishlistProvider>
+            </BannerProvider>
+          </SliderProvider>
+        </AdminAuthProvider>
+      </AuthProvider>
+    </Router>
   );
 }
 

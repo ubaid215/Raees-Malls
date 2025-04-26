@@ -1,609 +1,530 @@
-import React, {
-  lazy,
-  memo,
-  useState,
-  useEffect,
-  Suspense,
-  useCallback,
-  useMemo,
-} from "react";
-import { Helmet } from "react-helmet";
-import { FiUpload, FiTrash2, FiPlus, FiMinus } from "react-icons/fi";
-import PropTypes from "prop-types";
-import Button from "../../components/core/Button";
-import Input from "../../components/core/Input";
-import LoadingSpinner from "../../components/core/LoadingSpinner";
-import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
-import { productService, categoryService } from "../../services/productAPI";
+/* eslint-disable no-unused-vars */
+import React, { useState, useMemo, useEffect } from 'react';
+import { useForm } from 'react-hook-form';
+import { productService } from '../../services/productAPI';
+import { categoryService } from '../../services/categoryAPI';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import { XMarkIcon, PhotoIcon } from '@heroicons/react/24/outline';
 
-const ImageUploader = lazy(() => import("./ImageUploader"));
-const CategorySelector = lazy(() => import("./CategorySelector"));
+const ProductForm = React.memo(({ product = null }) => {
+  const navigate = useNavigate();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [images, setImages] = useState(product?.images || []);
+  const [newImageFiles, setNewImageFiles] = useState([]);
+  const [specifications, setSpecifications] = useState(
+    product?.specifications || [{ key: '', value: '' }]
+  );
+  const [categories, setCategories] = useState([]);
+  const [categoryError, setCategoryError] = useState(null);
 
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error("Component Error:", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="p-3 bg-light-red text-red rounded border border-red">
-          Component failed to load: {this.state.error?.toString() || "Unknown error"}
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-const ProductForm = memo(
-  ({
-    initialData = null,
-    onSubmit = () => Promise.resolve(),
-    isSubmitting = false,
-  }) => {
-    const [product, setProduct] = useState({
-      title: "",
-      description: "",
-      shortDescription: "",
-      price: 0,
-      originalPrice: 0,
-      stock: 0,
-      images: [],
-      variants: [],
-      isFeatured: false,
-      categories: [],
-      seo: { title: "", description: "" },
-    });
-
-    const [categories, setCategories] = useState([]);
-    const [errors, setErrors] = useState({});
-    const [isLoading, setIsLoading] = useState(true);
-    const [imagePreviews, setImagePreviews] = useState({});
-
-    // Fetch categories and initialize form data
-    useEffect(() => {
-      const fetchCategories = async () => {
-        try {
-          const fetchedCategories = await categoryService.getAllCategories();
-          setCategories(fetchedCategories);
-        } catch (error) {
-          console.error("Error fetching categories:", error);
-          setErrors({ categories: "Failed to load categories" });
-        }
-      };
-
-      fetchCategories();
-
-      if (initialData) {
-        try {
-          const validatedData = {
-            title: initialData.title || "",
-            description: initialData.description || "",
-            shortDescription: initialData.shortDescription || "",
-            price: Number(initialData.price) || 0,
-            originalPrice: Number(initialData.originalPrice) || 0,
-            stock: Number(initialData.stock) || 0,
-            images: Array.isArray(initialData.images) ? initialData.images : [],
-            variants: Array.isArray(initialData.variants)
-              ? initialData.variants.map((v) => ({
-                  size: v.size || "",
-                  color: v.color || "",
-                  stock: Number(v.stock) || 0,
-                }))
-              : [],
-            isFeatured: initialData.isFeatured || false,
-            categories: Array.isArray(initialData.categories)
-              ? initialData.categories
-              : [],
-            seo: {
-              title: initialData.seo?.title || "",
-              description: initialData.seo?.description || "",
-            },
-          };
-
-          const initialImagePreviews = {};
-          validatedData.images.forEach((img, index) => {
-            initialImagePreviews[index] = img;
-          });
-          setImagePreviews(initialImagePreviews);
-          setProduct(validatedData);
-        } catch (error) {
-          console.error("Error parsing initial data:", error);
-        }
-      }
-      setIsLoading(false);
-    }, [initialData]);
-
-    // Cleanup blob URLs
-    useEffect(() => {
-      return () => {
-        Object.values(imagePreviews).forEach((url) => {
-          if (url && url.startsWith("blob:")) {
-            URL.revokeObjectURL(url);
-          }
-        });
-      };
-    }, [imagePreviews]);
-
-    const getImagePreview = useCallback((image, index) => {
-      if (!image) return "/placeholder-product.png";
-      if (typeof image === "string") {
-        return image.startsWith("/uploads/") || image.startsWith("http")
-          ? image
-          : "/placeholder-product.png";
-      }
-      if (image instanceof File) {
-        return imagePreviews[index] || URL.createObjectURL(image);
-      }
-      return "/placeholder-product.png";
-    }, [imagePreviews]);
-
-    const handleChange = useCallback((e) => {
-      const { name, value } = e.target;
-      if (name.startsWith("seo.")) {
-        const seoField = name.split(".")[1];
-        setProduct((prev) => ({
-          ...prev,
-          seo: { ...prev.seo, [seoField]: value },
-        }));
-      } else {
-        setProduct((prev) => ({ ...prev, [name]: value }));
-      }
-    }, []);
-
-    const handleCategoryChange = useCallback((selectedCategories) => {
-      setProduct((prev) => ({ ...prev, categories: selectedCategories }));
-    }, []);
-
-    const handleImageUpload = useCallback((files) => {
-      const newImages = [...product.images, ...files].slice(0, 5);
-      setProduct((prev) => ({ ...prev, images: newImages }));
-      const newPreviews = {};
-      files.forEach((file, i) => {
-        newPreviews[product.images.length + i] = URL.createObjectURL(file);
-      });
-      setImagePreviews((prev) => ({ ...prev, ...newPreviews }));
-    }, [product.images]);
-
-    const handleRemoveImage = useCallback((index) => {
-      setProduct((prev) => ({
-        ...prev,
-        images: prev.images.filter((_, i) => i !== index),
-      }));
-      setImagePreviews((prev) => {
-        const newPreviews = { ...prev };
-        if (newPreviews[index]?.startsWith("blob:")) {
-          URL.revokeObjectURL(newPreviews[index]);
-        }
-        delete newPreviews[index];
-        return newPreviews;
-      });
-    }, []);
-
-    const handleVariantChange = useCallback((index, field, value) => {
-      setProduct((prev) => {
-        const variants = [...prev.variants];
-        variants[index] = { ...variants[index], [field]: value };
-        return { ...prev, variants };
-      });
-    }, []);
-
-    const addVariant = useCallback(() => {
-      setProduct((prev) => ({
-        ...prev,
-        variants: [...prev.variants, { size: "", color: "", stock: 0 }],
-      }));
-    }, []);
-
-    const removeVariant = useCallback((index) => {
-      setProduct((prev) => ({
-        ...prev,
-        variants: prev.variants.filter((_, i) => i !== index),
-      }));
-    }, []);
-
-    const handleFeaturedChange = useCallback((e) => {
-      setProduct((prev) => ({
-        ...prev,
-        isFeatured: e.target.checked,
-      }));
-    }, []);
-
-    const validate = useCallback(() => {
-      const newErrors = {};
-      if (!product.title.trim()) newErrors.title = "Title is required";
-      if (!product.description.trim()) newErrors.description = "Description is required";
-      if (!product.shortDescription.trim()) newErrors.shortDescription = "Short description is required";
-      if (!product.price || product.price <= 0) newErrors.price = "Valid price is required";
-      if (product.stock === undefined || product.stock < 0) newErrors.stock = "Valid stock quantity is required";
-      if (product.images.length === 0) newErrors.images = "At least one image is required";
-      if (product.categories.length === 0) newErrors.categories = "At least one category is required";
-      if (!product.seo.title.trim()) newErrors.seoTitle = "SEO title is required";
-      if (!product.seo.description.trim()) newErrors.seoDescription = "SEO description is required";
-
-      product.variants.forEach((variant, index) => {
-        if (!variant.size?.trim() && !variant.color?.trim()) {
-          newErrors[`variants.${index}`] = "Size or color is required";
-        }
-      });
-
-      setErrors(newErrors);
-      return Object.keys(newErrors).length === 0;
-    }, [product]);
-
-    const handleSubmit = useCallback(
-      async (e) => {
-        e.preventDefault();
-        if (!validate()) return;
-
-        const productData = {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setValue,
+    watch,
+  } = useForm({
+    defaultValues: product
+      ? {
           title: product.title,
           description: product.description,
-          shortDescription: product.shortDescription,
-          price: parseFloat(product.price) || 0,
-          originalPrice: parseFloat(product.originalPrice) || 0,
-          stock: parseInt(product.stock) || 0,
-          isFeatured: product.isFeatured,
-          variants: product.variants,
-          categories: product.categories.map((cat) => cat._id).filter(Boolean),
-          images: product.images,
+          price: product.price,
+          discountPrice: product.discountPrice || '',
+          categories: product.categories?.map(cat => cat._id) || [],
+          brand: product.brand || '',
+          stock: product.stock,
+          sku: product.sku,
           seo: {
-            title: product.seo.title,
-            description: product.seo.description,
+            title: product.seo?.title || '',
+            description: product.seo?.description || '',
+            slug: product.seo?.slug || '',
           },
-        };
-
-        try {
-          let response;
-          if (initialData?._id) {
-            response = await productService.updateProduct(initialData._id, productData);
-          } else {
-            response = await productService.createProduct(productData);
-          }
-
-          await onSubmit(response.data);
-          setProduct({
-            title: "",
-            description: "",
-            shortDescription: "",
-            price: 0,
-            originalPrice: 0,
-            stock: 0,
-            images: [],
-            variants: [],
-            isFeatured: false,
-            categories: [],
-            seo: { title: "", description: "" },
-          });
-          setImagePreviews({});
-          setErrors({});
-        } catch (error) {
-          console.error("API error:", error);
-          setErrors({
-            submit: error.message || "Failed to submit product",
-          });
         }
-      },
-      [product, initialData, onSubmit, validate]
-    );
+      : {
+          title: '',
+          description: '',
+          price: '',
+          discountPrice: '',
+          categories: [],
+          brand: '',
+          stock: '',
+          sku: '',
+          seo: {
+            title: '',
+            description: '',
+            slug: '',
+          },
+        },
+  });
 
-    const memoizedImagePreviews = useMemo(() => imagePreviews, [imagePreviews]);
+  const watchedPrice = watch('price');
 
-    if (isLoading) {
-      return (
-        <section aria-label="Product Form Loading">
-          <div className="space-y-6">
-            <LoadingSkeleton type="card" count={2} />
-            <LoadingSkeleton type="image" count={5} width="100px" height="100px" />
-            <LoadingSkeleton type="text" count={3} />
-          </div>
-        </section>
-      );
+  // Fetch categories
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await categoryService.getAllCategories();
+        if (response.success) {
+          setCategories(response.data);
+        } else {
+          setCategoryError(response.message || 'Failed to fetch categories');
+          toast.error(response.message || 'Failed to fetch categories');
+        }
+      } catch (error) {
+        setCategoryError(error.message || 'Failed to fetch categories');
+        toast.error(error.message || 'Failed to fetch categories');
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  // Handle form submission
+  const onSubmit = async (data) => {
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+
+      // Append basic fields
+      formData.append('title', data.title);
+      formData.append('description', data.description);
+      formData.append('price', data.price);
+      if (data.discountPrice) formData.append('discountPrice', data.discountPrice);
+      data.categories.forEach(id => formData.append('categories', id));
+      if (data.brand) formData.append('brand', data.brand);
+      formData.append('stock', data.stock);
+      formData.append('sku', data.sku);
+
+      // Append SEO fields
+      if (data.seo.title) formData.append('seo.title', data.seo.title);
+      if (data.seo.description) formData.append('seo.description', data.seo.description);
+      if (data.seo.slug) formData.append('seo.slug', data.seo.slug);
+
+      // Append specifications
+      const validSpecs = specifications.filter(spec => spec.key.trim() && spec.value.trim());
+      if (validSpecs.length > 0) {
+        formData.append('specifications', JSON.stringify(validSpecs));
+      }
+
+      // Append new images
+      newImageFiles.forEach(file => {
+        formData.append('images', file);
+      });
+
+      let response;
+      if (product) {
+        response = await productService.updateProduct(product._id, formData);
+        toast.success(response.message || 'Product updated successfully');
+      } else {
+        response = await productService.createProduct(formData);
+        toast.success(response.message || 'Product created successfully');
+        window.dispatchEvent(new Event('productAdded'));
+      }
+
+      if (response.success) {
+        navigate('/admin/products');
+      } else {
+        throw new Error(response.message);
+      }
+    } catch (error) {
+      toast.error(error.message || 'Failed to save product');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
 
-    return (
-      <section aria-label="Product Form">
-        <Helmet>
-          <title>{initialData ? "Edit Product" : "Create Product"} | Your Store</title>
-          <meta
-            name="description"
-            content={initialData ? "Edit an existing product in your store" : "Create a new product for your store"}
-          />
-          <meta name="robots" content="noindex, nofollow" />
-        </Helmet>
-        <article>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {errors.submit && (
-              <div className="p-3 bg-light-red text-red rounded border border-red">
-                {errors.submit}
-              </div>
-            )}
+  // Handle new image selection
+  const handleImageChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (images.length + newImageFiles.length + files.length > 5) {
+      toast.error('Maximum 5 images allowed');
+      return;
+    }
+    setNewImageFiles(prev => [...prev, ...files]);
+  };
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <h2>Product Information</h2>
+  // Remove an existing image (for editing)
+  const removeExistingImage = (index) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
 
-                <Input
-                  label="Product Title"
-                  name="title"
-                  value={product.title}
-                  onChange={handleChange}
-                  error={errors.title}
-                  required
-                />
+  // Remove a new image file
+  const removeNewImage = (index) => {
+    setNewImageFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
-                <Input
-                  label="Short Description"
-                  name="shortDescription"
-                  value={product.shortDescription}
-                  onChange={handleChange}
-                  error={errors.shortDescription}
-                  required
-                />
+  // Add a specification
+  const addSpecification = () => {
+    setSpecifications(prev => [...prev, { key: '', value: '' }]);
+  };
 
-                <Input
-                  label="Description"
-                  name="description"
-                  value={product.description}
-                  onChange={handleChange}
-                  as="textarea"
-                  rows={4}
-                  error={errors.description}
-                  required
-                />
+  // Remove a specification
+  const removeSpecification = (index) => {
+    setSpecifications(prev => prev.filter((_, i) => i !== index));
+  };
 
-                <div className="grid grid-cols-2 gap-4">
-                  <Input
-                    label="Price (PKR)"
-                    name="price"
-                    type="number"
-                    value={product.price}
-                    onChange={handleChange}
-                    error={errors.price}
-                    min="0"
-                    step="0.01"
-                    required
-                  />
-
-                  <Input
-                    label="Original Price (PKR)"
-                    name="originalPrice"
-                    type="number"
-                    value={product.originalPrice}
-                    onChange={handleChange}
-                    min="0"
-                    step="0.01"
-                  />
-                </div>
-
-                <Input
-                  label="Stock Quantity"
-                  name="stock"
-                  type="number"
-                  value={product.stock}
-                  onChange={handleChange}
-                  error={errors.stock}
-                  min="0"
-                  required
-                />
-
-                <div className="space-y-2">
-                  <h2 className="text-lg font-semibold">SEO Settings</h2>
-                  <Input
-                    label="SEO Title"
-                    name="seo.title"
-                    value={product.seo.title}
-                    onChange={handleChange}
-                    error={errors.seoTitle}
-                    required
-                  />
-                  <Input
-                    label="SEO Description"
-                    name="seo.description"
-                    value={product.seo.description}
-                    onChange={handleChange}
-                    as="textarea"
-                    rows={3}
-                    error={errors.seoDescription}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <h2 className="text-lg font-semibold">Display Settings</h2>
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="checkbox"
-                      name="isFeatured"
-                      checked={product.isFeatured}
-                      onChange={handleFeaturedChange}
-                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Feature this product</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h2>Product Images</h2>
-                {errors.images && (
-                  <p className="text-red text-sm">{errors.images}</p>
-                )}
-
-                <Suspense
-                  fallback={<LoadingSkeleton type="image" count={1} height="150px" />}
-                >
-                  <ErrorBoundary>
-                    <ImageUploader
-                      onUpload={handleImageUpload}
-                      maxFiles={5}
-                      accept="image/jpeg,image/jpg,image/png"
-                    />
-                  </ErrorBoundary>
-                </Suspense>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {product.images.map((image, index) => (
-                    <div key={index} className="relative group">
-                      <div className="h-24 w-full bg-gray-100 rounded border border-soft-gray flex items-center justify-center overflow-hidden">
-                        <img
-                          src={getImagePreview(image, index)}
-                          alt={`Product preview ${index + 1}`}
-                          className="max-h-full max-w-full object-contain"
-                          onError={(e) => {
-                            e.target.src = "/placeholder-product.png";
-                          }}
-                          loading="lazy"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveImage(index)}
-                        className="absolute top-1 right-1 bg-white text-red rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                        aria-label={`Remove image ${index + 1}`}
-                      >
-                        <FiTrash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2>Product Variants</h2>
-                <Button type="button" variant="outline" size="sm" onClick={addVariant}>
-                  <FiPlus className="mr-1" /> Add Variant
-                </Button>
-              </div>
-
-              {product.variants.map((variant, index) => (
-                <div
-                  key={index}
-                  className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border border-soft-gray rounded-lg"
-                >
-                  <Input
-                    label="Size"
-                    value={variant.size}
-                    onChange={(e) => handleVariantChange(index, "size", e.target.value)}
-                    error={errors[`variants.${index}`]}
-                  />
-                  <Input
-                    label="Color"
-                    value={variant.color}
-                    onChange={(e) => handleVariantChange(index, "color", e.target.value)}
-                  />
-                  <div className="flex items-end gap-2">
-                    <Input
-                      label="Stock"
-                      type="number"
-                      min="0"
-                      value={variant.stock}
-                      onChange={(e) =>
-                        handleVariantChange(index, "stock", parseInt(e.target.value))
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      onClick={() => removeVariant(index)}
-                      aria-label={`Remove variant ${index + 1}`}
-                    >
-                      <FiMinus />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <h2>Product Categories</h2>
-              {errors.categories && (
-                <p className="text-red text-sm">{errors.categories}</p>
-              )}
-              <Suspense fallback={<LoadingSkeleton type="text" count={1} />}>
-                <ErrorBoundary>
-                  <CategorySelector
-                    selected={product.categories}
-                    onChange={handleCategoryChange}
-                    categories={categories}
-                    maxSelections={5}
-                  />
-                </ErrorBoundary>
-              </Suspense>
-            </div>
-
-            <div className="flex justify-end space-x-3 pt-4 border-t border-soft-gray">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => window.history.back()}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <LoadingSpinner size="sm" color="white" className="mr-2" />
-                    {initialData ? "Updating..." : "Creating..."}
-                  </>
-                ) : initialData ? (
-                  "Update Product"
-                ) : (
-                  "Create Product"
-                )}
-              </Button>
-            </div>
-          </form>
-        </article>
-      </section>
+  // Update a specification
+  const updateSpecification = (index, field, value) => {
+    setSpecifications(prev =>
+      prev.map((spec, i) => (i === index ? { ...spec, [field]: value } : spec))
     );
-  }
-);
+  };
 
-ProductForm.propTypes = {
-  initialData: PropTypes.shape({
-    _id: PropTypes.string,
-    title: PropTypes.string,
-    description: PropTypes.string,
-    shortDescription: PropTypes.string,
-    price: PropTypes.number,
-    originalPrice: PropTypes.number,
-    stock: PropTypes.number,
-    images: PropTypes.arrayOf(PropTypes.oneOfType([PropTypes.string, PropTypes.object])),
-    variants: PropTypes.arrayOf(
-      PropTypes.shape({
-        size: PropTypes.string,
-        color: PropTypes.string,
-        stock: PropTypes.number,
-      })
-    ),
-    isFeatured: PropTypes.bool,
-    categories: PropTypes.arrayOf(
-      PropTypes.shape({
-        _id: PropTypes.string,
-        name: PropTypes.string,
-      })
-    ),
-    seo: PropTypes.shape({
-      title: PropTypes.string,
-      description: PropTypes.string,
-    }),
-  }),
-  onSubmit: PropTypes.func,
-  isSubmitting: PropTypes.bool,
-};
+  // Memoized sections
+  const ImageUploadSection = useMemo(() => (
+    <div className="space-y-4">
+      <label className="block text-sm font-medium text-gray-700">Product Images (up to 5)</label>
+      <input
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleImageChange}
+        className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-red-50 file:text-red-700 hover:file:bg-red-100"
+      />
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
+        {images.map((image, index) => (
+          <div key={`existing-${index}`} className="relative group">
+            <img
+              src={image.url}
+              alt={image.alt || 'Product image'}
+              className="h-24 w-full object-cover rounded-lg"
+            />
+            <button
+              type="button"
+              onClick={() => removeExistingImage(index)}
+              className="absolute top-1 right-1 p-1 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <XMarkIcon className="h-4 w-4 text-white" />
+            </button>
+          </div>
+        ))}
+        {newImageFiles.map((file, index) => (
+          <div key={`new-${index}`} className="relative group">
+            <img
+              src={URL.createObjectURL(file)}
+              alt={file.name}
+              className="h-24 w-full object-cover rounded-lg"
+            />
+            <button
+              type="button"
+              onClick={() => removeNewImage(index)}
+              className="absolute top-1 right-1 p-1 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <XMarkIcon className="h-4 w-4 text-white" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  ), [images, newImageFiles]);
+
+  const SpecificationsSection = useMemo(() => (
+    <div className="space-y-4">
+      <label className="block text-sm font-medium text-gray-700">Specifications</label>
+      {specifications.map((spec, index) => (
+        <div key={index} className="flex flex-col sm:flex-row sm:space-x-2 space-y-2 sm:space-y-0">
+          <input
+            type="text"
+            value={spec.key}
+            onChange={(e) => updateSpecification(index, 'key', e.target.value)}
+            placeholder="Key (e.g., Color)"
+            className="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
+          />
+          <input
+            type="text"
+            value={spec.value}
+            onChange={(e) => updateSpecification(index, 'value', e.target.value)}
+            placeholder="Value (e.g., Blue)"
+            className="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => removeSpecification(index)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={addSpecification}
+        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+      >
+        Add Specification
+      </button>
+    </div>
+  ), [specifications]);
+
+  return (
+    <div className="w-full min-h-screen bg-gray-100 flex items-start justify-center px-4 sm:px-6 lg:px-8 py-8">
+      <div className="w-full max-w-7xl bg-white shadow-lg rounded-lg p-6 sm:p-8">
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">
+          {product ? 'Edit Product' : 'Add New Product'}
+        </h2>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+          <div className="space-y-6">
+            <h3 className="text-lg font-medium text-gray-900">Basic Information</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div>
+                <label htmlFor="title" className="block text-sm font-medium text-gray-700">
+                  Product Title*
+                </label>
+                <input
+                  id="title"
+                  type="text"
+                  {...register('title', {
+                    required: 'Title is required',
+                    minLength: { value: 3, message: 'Title must be at least 3 characters' },
+                    maxLength: { value: 100, message: 'Title cannot exceed 100 characters' },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.title && (
+                  <p className="mt-1 text-sm text-red-600">{errors.title.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="sku" className="block text-sm font-medium text-gray-700">
+                  SKU*
+                </label>
+                <input
+                  id="sku"
+                  type="text"
+                  {...register('sku', {
+                    required: 'SKU is required',
+                    minLength: { value: 5, message: 'SKU must be at least 5 characters' },
+                    maxLength: { value: 20, message: 'SKU cannot exceed 20 characters' },
+                    pattern: {
+                      value: /^[A-Z0-9-]+$/i,
+                      message: 'SKU can only contain letters, numbers, and hyphens',
+                    },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.sku && (
+                  <p className="mt-1 text-sm text-red-600">{errors.sku.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="price" className="block text-sm font-medium text-gray-700">
+                  Price*
+                </label>
+                <input
+                  id="price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  {...register('price', {
+                    required: 'Price is required',
+                    min: { value: 0, message: 'Price must be positive' },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.price && (
+                  <p className="mt-1 text-sm text-red-600">{errors.price.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="discountPrice" className="block text-sm font-medium text-gray-700">
+                  Discount Price
+                </label>
+                <input
+                  id="discountPrice"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  {...register('discountPrice', {
+                    min: { value: 0, message: 'Discount price must be positive' },
+                    validate: value =>
+                      !value ||
+                      parseFloat(value) < parseFloat(watchedPrice || Infinity) ||
+                      'Discount must be less than price',
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.discountPrice && (
+                  <p className="mt-1 text-sm text-red-600">{errors.discountPrice.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="categories" className="block text-sm font-medium text-gray-700">
+                  Categories*
+                </label>
+                <select
+                  id="categories"
+                  multiple
+                  {...register('categories', { required: 'At least one category is required' })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3 max-h-40"
+                >
+                  {categories.map(category => (
+                    <option key={category._id} value={category._id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+                {errors.categories && (
+                  <p className="mt-1 text-sm text-red-600">{errors.categories.message}</p>
+                )}
+                {categoryError && (
+                  <p className="mt-1 text-sm text-red-600">{categoryError}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="brand" className="block text-sm font-medium text-gray-700">
+                  Brand
+                </label>
+                <input
+                  id="brand"
+                  type="text"
+                  {...register('brand', {
+                    minLength: { value: 2, message: 'Brand must be at least 2 characters' },
+                    maxLength: { value: 50, message: 'Brand cannot exceed 50 characters' },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.brand && (
+                  <p className="mt-1 text-sm text-red-600">{errors.brand.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label htmlFor="stock" className="block text-sm font-medium text-gray-700">
+                  Stock*
+                </label>
+                <input
+                  id="stock"
+                  type="number"
+                  min="0"
+                  {...register('stock', {
+                    required: 'Stock is required',
+                    min: { value: 0, message: 'Stock cannot be negative' },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.stock && (
+                  <p className="mt-1 text-sm text-red-600">{errors.stock.message}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+              Description*
+            </label>
+            <textarea
+              id="description"
+              rows={6}
+              {...register('description', {
+                required: 'Description is required',
+                minLength: { value: 10, message: 'Description must be at least 10 characters' },
+                maxLength: { value: 1000, message: 'Description cannot exceed 1000 characters' },
+              })}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+            />
+            {errors.description && (
+              <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-gray-900">SEO Settings</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div>
+                <label htmlFor="seo.title" className="block text-sm font-medium text-gray-700">
+                  SEO Title
+                </label>
+                <input
+                  id="seo.title"
+                  type="text"
+                  {...register('seo.title', {
+                    maxLength: { value: 60, message: 'SEO title cannot exceed 60 characters' },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.seo?.title && (
+                  <p className="mt-1 text-sm text-red-600">{errors.seo.title.message}</p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="seo.description" className="block text-sm font-medium text-gray-700">
+                  SEO Description
+                </label>
+                <textarea
+                  id="seo.description"
+                  rows={3}
+                  {...register('seo.description', {
+                    maxLength: { value: 160, message: 'SEO description cannot exceed 160 characters' },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.seo?.description && (
+                  <p className="mt-1 text-sm text-red-600">{errors.seo.description.message}</p>
+                )}
+              </div>
+              <div>
+                <label htmlFor="seo.slug" className="block text-sm font-medium text-gray-700">
+                  SEO Slug
+                </label>
+                <input
+                  id="seo.slug"
+                  type="text"
+                  {...register('seo.slug', {
+                    pattern: {
+                      value: /^[a-z0-9-]+$/,
+                      message: 'SEO slug can only contain lowercase letters, numbers, and hyphens',
+                    },
+                  })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3"
+                />
+                {errors.seo?.slug && (
+                  <p className="mt-1 text-sm text-red-600">{errors.seo.slug.message}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {ImageUploadSection}
+
+          {SpecificationsSection}
+
+          <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3">
+            <button
+              type="button"
+              onClick={() => navigate('/admin/products')}
+              className="w-full sm:w-auto px-6 py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full sm:w-auto px-6 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {product ? 'Updating...' : 'Creating...'}
+                </span>
+              ) : (
+                product ? 'Update Product' : 'Create Product'
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+});
 
 export default ProductForm;

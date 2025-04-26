@@ -2,6 +2,7 @@ const passport = require('passport');
 const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const authService = require('../services/authServices');
+const jwtService = require('../services/jwtService');
 const AuditLog = require('../models/AuditLog');
 const User = require('../models/User');
 
@@ -18,21 +19,30 @@ exports.login = (req, res, next) => {
         throw new ApiError(403, 'User is not an admin');
       }
 
-      req.logIn(user, async (err) => {
-        if (err) throw new ApiError(500, 'Session error', err);
-        
-        await AuditLog.create({
-          userId: user._id,
-          action: 'ADMIN_LOGIN',
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent']
-        });
+     // In your login function:
+req.logIn(user, async (err) => {
+  if (err) throw new ApiError(500, 'Session error', err);
+  
+  await AuditLog.create({
+    userId: user._id,
+    action: 'ADMIN_LOGIN',
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent']
+  });
 
-        console.log('Admin logged in:', user.email);
-        ApiResponse.success(res, 200, 'Logged in successfully', {
-          user: authService.sanitizeUser(user)
-        });
-      });
+  // Updated token generation - using generateTokens instead of generateAccessToken
+  const { accessToken, refreshToken } = jwtService.generateTokens({
+    id: user._id,
+    role: user.role
+  });
+
+  console.log('Admin logged in:', user.email);
+  ApiResponse.success(res, 200, 'Logged in successfully', {
+    user: authService.sanitizeUser(user),
+    token: accessToken,        // Send access token
+    refreshToken: refreshToken // Send refresh token
+  });
+});
     } catch (error) {
       next(error);
     }

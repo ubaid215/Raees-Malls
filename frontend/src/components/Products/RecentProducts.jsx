@@ -4,7 +4,8 @@ import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import ProductCard from '../Products/ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
-import { productService, categoryService } from '../../services/productAPI';
+import { productService } from '../../services/productAPI';
+import {  categoryService } from '../../services/categoryAPI';
 
 const RecentProducts = () => {
   const [activeCategory, setActiveCategory] = useState('all');

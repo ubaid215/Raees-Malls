@@ -1,6 +1,5 @@
 import React, { memo } from 'react';
-import { CiHeart, CiShoppingCart } from 'react-icons/ci';
-import { DotIcon } from 'lucide-react';
+import { CiShoppingCart } from 'react-icons/ci';
 import Button from '../core/Button';
 import { useNavigate } from 'react-router-dom';
 import { useCartWishlist } from '../../context/CartWishlistContext';
@@ -8,24 +7,18 @@ import PropTypes from 'prop-types';
 
 const ProductCard = memo(({ product }) => {
   const navigate = useNavigate();
-  const { addToCart, addToWishlist } = useCartWishlist();
+  const { addToCart } = useCartWishlist();
 
-  if (!product || !product.productId || !product.title || !product.images?.length) {
+  if (!product || !product._id || !product.title || !product.images?.length) {
     console.warn('Invalid product data:', product);
     return null;
   }
 
   const handleCardClick = (e) => {
-    const isHeartClick = e.target.closest('svg[data-heart="true"]');
     const isCartButtonClick = e.target.closest('button');
-    if (!isHeartClick && !isCartButtonClick) {
-      navigate(`/product/${product.productId}`);
+    if (!isCartButtonClick) {
+      navigate(`/product/${product._id}`);
     }
-  };
-
-  const handleHeartClick = (e) => {
-    e.stopPropagation();
-    addToWishlist(product);
   };
 
   const handleAddToCartClick = (e) => {
@@ -33,63 +26,70 @@ const ProductCard = memo(({ product }) => {
     addToCart(product);
   };
 
-  // Format price with commas
-  const formattedPrice = new Intl.NumberFormat('en-PK').format(product.price);
-  
+  // Format price with PKR
+  const formattedPrice = new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: 0,
+  }).format(product.price);
+
   // Handle image error
   const handleImageError = (e) => {
-    e.target.src = '/path-to-fallback-image.jpg';
+    e.target.src = '/placeholder-product.png';
   };
+
+  // Get category names
+  const categoryNames = product.categories?.map((cat) => cat.name).join(', ') || 'No categories';
 
   return (
     <div
-      className="w-64 h-auto flex flex-col items-center overflow-hidden hover:shadow-xl bg-white rounded-xl shadow-lg cursor-pointer"
+      className="w-full max-w-[320px] mx-auto bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col overflow-hidden hover:shadow-md transition-shadow duration-300 cursor-pointer"
       onClick={handleCardClick}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => e.key === 'Enter' && handleCardClick(e)}
     >
-      <div className="relative overflow-hidden group">
+      <div className="relative">
         <img
-          src={product.images[0]}
+          src={product.images[0]?.url || '/placeholder-product.png'}
           alt={product.title}
-          className="w-full h-auto"
+          className="w-full h-40 sm:h-48 lg:h-56 object-cover"
           loading="lazy"
           onError={handleImageError}
         />
-        <CiHeart
-          data-heart="true"
-          onClick={handleHeartClick}
-          className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300 cursor-pointer"
-          size={24}
-          strokeWidth={1}
-          aria-label="Add to wishlist"
-        />
-        <Button
-          onClick={handleAddToCartClick}
-          className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-[90%] opacity-0 group-hover:opacity-100 group-hover:translate-y-[-10px] transition-all duration-300 flex items-center justify-center gap-3 bg-red-500 text-white px-6 py-3 rounded-lg"
-          aria-label={`Add ${product.title} to cart`}
-        >
-          <CiShoppingCart size={20} strokeWidth={1} />
-          <span className="text-base whitespace-nowrap">Add to cart</span>
-        </Button>
+        {product.stock > 0 ? (
+          <span className="absolute top-2 left-2 bg-green-100 text-green-700 text-xs font-medium px-2 py-1 rounded">
+            In Stock ({product.stock})
+          </span>
+        ) : (
+          <span className="absolute top-2 left-2 bg-red-100 text-red-700 text-xs font-medium px-2 py-1 rounded">
+            Out of Stock
+          </span>
+        )}
       </div>
-      <div className="p-6 text-center">
-        <h2 className="text-xl font-bold text-black hover:text-red-500">
+      <div className="p-4 sm:p-6 flex flex-col gap-2 text-center">
+        <h2 className="text-base sm:text-lg font-semibold text-gray-900 truncate hover:text-red-600">
           {product.title}
         </h2>
-        <p className="text-lg">{formattedPrice} PKR</p>
-        <p className="text-base">
+        <p className="text-sm sm:text-base text-gray-600">SKU: {product.sku || 'N/A'}</p>
+        <p className="text-sm sm:text-base text-gray-600 truncate">
+          Categories: {categoryNames}
+        </p>
+        <p className="text-base sm:text-lg font-medium text-gray-900">{formattedPrice}</p>
+        <div className="flex justify-center items-center gap-1 text-yellow-500 text-sm sm:text-base">
           {'⭐'.repeat(Math.floor(product.rating || 0))}
           {product.rating % 1 >= 0.5 && '½'}
           {product.numReviews ? ` (${product.numReviews})` : ''}
-        </p>
-        {product.stock > 0 && (
-          <p className="flex items-center justify-center gap-2 text-green-500 text-base">
-            <DotIcon size={40} aria-label="In stock" /> 
-            {product.stock} in Stock
-          </p>
-        )}
+        </div>
+        <Button
+          onClick={handleAddToCartClick}
+          className="mt-2 w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md flex items-center justify-center gap-2 text-sm sm:text-base"
+          aria-label={`Add ${product.title} to cart`}
+          disabled={product.stock === 0}
+        >
+          <CiShoppingCart size={20} />
+          <span>Add to Cart</span>
+        </Button>
       </div>
     </div>
   );
@@ -97,14 +97,25 @@ const ProductCard = memo(({ product }) => {
 
 ProductCard.propTypes = {
   product: PropTypes.shape({
-    productId: PropTypes.string.isRequired,
+    _id: PropTypes.string.isRequired,
     title: PropTypes.string.isRequired,
     price: PropTypes.number.isRequired,
-    images: PropTypes.arrayOf(PropTypes.string).isRequired,
+    images: PropTypes.arrayOf(
+      PropTypes.shape({
+        url: PropTypes.string.isRequired,
+      })
+    ).isRequired,
     rating: PropTypes.number,
     numReviews: PropTypes.number,
-    stock: PropTypes.number
-  }).isRequired
+    stock: PropTypes.number,
+    sku: PropTypes.string,
+    categories: PropTypes.arrayOf(
+      PropTypes.shape({
+        _id: PropTypes.string,
+        name: PropTypes.string,
+      })
+    ),
+  }).isRequired,
 };
 
 export default ProductCard;
