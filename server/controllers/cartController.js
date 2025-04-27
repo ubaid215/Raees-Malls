@@ -8,7 +8,7 @@ const { v4: uuidv4 } = require('uuid');
 // Add or update item in cart
 exports.addToCart = async (req, res, next) => {
   try {
-    const { productId, quantity } = req.body;
+    const { productId, variantId, quantity } = req.body;
     const userId = req.user._id;
 
     // Validate product
@@ -17,9 +17,21 @@ exports.addToCart = async (req, res, next) => {
       throw new ApiError(404, 'Product not found');
     }
 
+    // Validate variant if provided
+    let stock;
+    if (variantId) {
+      const variant = product.variants.id(variantId);
+      if (!variant) {
+        throw new ApiError(404, 'Variant not found');
+      }
+      stock = variant.stock;
+    } else {
+      stock = product.stock;
+    }
+
     // Check stock
-    if (product.stock < quantity) {
-      throw new ApiError(400, `Insufficient stock for product: ${product.title}`);
+    if (stock < quantity) {
+      throw new ApiError(400, `Insufficient stock for product: ${product.title}${variantId ? ' (variant)' : ''}`);
     }
 
     // Find or create cart
@@ -32,14 +44,17 @@ exports.addToCart = async (req, res, next) => {
       });
     }
 
-    // Check if product already in cart
-    const itemIndex = cart.items.findIndex(item => item.productId.toString() === productId);
+    // Check if product/variant already in cart
+    const itemIndex = cart.items.findIndex(item => 
+      item.productId.toString() === productId && 
+      (item.variantId?.toString() === variantId || (!item.variantId && !variantId))
+    );
     if (itemIndex > -1) {
       // Update quantity
       cart.items[itemIndex].quantity = quantity;
     } else {
       // Add new item
-      cart.items.push({ productId, quantity });
+      cart.items.push({ productId, variantId, quantity });
     }
 
     await cart.save();
@@ -56,7 +71,7 @@ exports.getCart = async (req, res, next) => {
     const userId = req.user._id;
 
     const cart = await Cart.findOne({ userId })
-      .populate('items.productId', 'title price stock brand sku images');
+      .populate('items.productId', 'title price discountPrice stock brand sku images variants');
 
     if (!cart) {
       return ApiResponse.success(res, 200, 'Cart is empty', { cart: null });
@@ -71,7 +86,7 @@ exports.getCart = async (req, res, next) => {
 // Remove item from cart
 exports.removeFromCart = async (req, res, next) => {
   try {
-    const { productId } = req.params;
+    const { productId, variantId } = req.params;
     const userId = req.user._id;
 
     const cart = await Cart.findOne({ userId });
@@ -79,7 +94,10 @@ exports.removeFromCart = async (req, res, next) => {
       throw new ApiError(404, 'Cart not found');
     }
 
-    cart.items = cart.items.filter(item => item.productId.toString() !== productId);
+    cart.items = cart.items.filter(item => 
+      !(item.productId.toString() === productId && 
+        (item.variantId?.toString() === variantId || (!item.variantId && !variantId)))
+    );
     await cart.save();
 
     ApiResponse.success(res, 200, 'Item removed from cart successfully', { cart });
@@ -119,26 +137,41 @@ exports.placeOrderFromCart = async (req, res, next) => {
       throw new ApiError(400, 'Cart is empty');
     }
 
-    // Validate stock for all items
+    // Validate stock and prepare order items
+    let totalPrice = 0;
+    const orderItems = [];
+
     for (const item of cart.items) {
       const product = item.productId;
-      if (product.stock < item.quantity) {
-        throw new ApiError(400, `Insufficient stock for product: ${product.title}`);
-      }
-    }
+      let price, sku, stock;
 
-    // Calculate total price and prepare order items
-    let totalPrice = 0;
-    const orderItems = cart.items.map(item => {
-      const product = item.productId;
-      totalPrice += product.price * item.quantity;
-      return {
+      if (item.variantId) {
+        const variant = product.variants.id(item.variantId);
+        if (!variant) {
+          throw new ApiError(404, `Variant not found for product: ${product.title}`);
+        }
+        price = variant.discountPrice || variant.price;
+        sku = variant.sku;
+        stock = variant.stock;
+      } else {
+        price = product.discountPrice || product.price;
+        sku = product.sku;
+        stock = product.stock;
+      }
+
+      if (stock < item.quantity) {
+        throw new ApiError(400, `Insufficient stock for product: ${product.title}${item.variantId ? ' (variant)' : ''}`);
+      }
+
+      totalPrice += price * item.quantity;
+      orderItems.push({
         productId: product._id,
+        variantId: item.variantId,
         quantity: item.quantity,
-        price: product.price,
-        sku: product.sku
-      };
-    });
+        price,
+        sku
+      });
+    }
 
     // Create order
     const order = new Order({
@@ -152,10 +185,15 @@ exports.placeOrderFromCart = async (req, res, next) => {
 
     await order.save();
 
-    // Decrease stock for each product
+    // Decrease stock
     for (const item of cart.items) {
       const product = item.productId;
-      product.stock -= item.quantity;
+      if (item.variantId) {
+        const variant = product.variants.id(item.variantId);
+        variant.stock -= item.quantity;
+      } else {
+        product.stock -= item.quantity;
+      }
       await product.save();
     }
 

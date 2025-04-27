@@ -7,14 +7,32 @@ const cloudinary = require('../config/cloudinary');
 // Create a new product (Admin only)
 exports.createProduct = async (req, res, next) => {
   try {
-    const { title, description, price, discountPrice, categoryId, brand, stock, sku, specifications } = req.body;
+    const { title, description, price, discountPrice, categoryId, brand, stock, sku, specifications, variants } = req.body;
 
-    // Process uploaded images from Cloudinary
-    const images = req.files?.map(file => ({
-      url: file.path, // Cloudinary URL
-      public_id: file.filename, // Cloudinary public_id
+    // Process uploaded base images from Cloudinary
+    const images = req.files?.baseImages?.map(file => ({
+      url: file.path,
+      public_id: file.filename,
       alt: file.originalname
     })) || [];
+
+    // Process variant images
+    const variantImages = {};
+    if (req.files?.variantImages) {
+      Object.keys(req.files.variantImages).forEach(variantIndex => {
+        variantImages[variantIndex] = req.files.variantImages[variantIndex].map(file => ({
+          url: file.path,
+          public_id: file.filename,
+          alt: file.originalname
+        }));
+      });
+    }
+
+    // Attach images to variants
+    const processedVariants = variants?.map((variant, index) => ({
+      ...variant,
+      images: variantImages[index] || []
+    }));
 
     // Create new product
     const product = new Product({
@@ -27,7 +45,8 @@ exports.createProduct = async (req, res, next) => {
       brand,
       stock,
       sku,
-      specifications
+      specifications,
+      variants: processedVariants || []
     });
 
     await product.save();
@@ -43,6 +62,9 @@ exports.createProduct = async (req, res, next) => {
 
     ApiResponse.success(res, 201, 'Product created successfully', { product });
   } catch (error) {
+    if (error.code === 11000) {
+      return next(new ApiError(400, 'Duplicate SKU or slug detected'));
+    }
     next(error);
   }
 };
@@ -50,7 +72,7 @@ exports.createProduct = async (req, res, next) => {
 // Get all products for admin with pagination, sorting, and filtering (Admin only)
 exports.getAllProducts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue } = req.query;
 
     // Build query
     const query = {};
@@ -59,6 +81,9 @@ exports.getAllProducts = async (req, res, next) => {
       query.price = {};
       if (minPrice) query.price.$gte = parseFloat(minPrice);
       if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+    }
+    if (attributeKey && attributeValue) {
+      query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
     }
 
     const sortOption = sort || '-createdAt';
@@ -109,17 +134,43 @@ exports.updateProduct = async (req, res, next) => {
       throw new ApiError(404, 'Product not found');
     }
 
-    const { title, description, price, discountPrice, categoryId, brand, stock, sku, specifications } = req.body;
+    const { title, description, price, discountPrice, categoryId, brand, stock, sku, specifications, variants } = req.body;
 
-    // Delete old images from Cloudinary if new images are uploaded
-    if (req.files?.length > 0) {
+    // Delete old base images from Cloudinary if new images are uploaded
+    if (req.files?.baseImages?.length > 0) {
       for (const image of product.images) {
         await cloudinary.uploader.destroy(image.public_id);
       }
-      product.images = req.files.map(file => ({
+      product.images = req.files.baseImages.map(file => ({
         url: file.path,
         public_id: file.filename,
         alt: file.originalname
+      }));
+    }
+
+    // Process variant images
+    const variantImages = {};
+    if (req.files?.variantImages) {
+      Object.keys(req.files.variantImages).forEach(variantIndex => {
+        variantImages[variantIndex] = req.files.variantImages[variantIndex].map(file => ({
+          url: file.path,
+          public_id: file.filename,
+          alt: file.originalname
+        }));
+      });
+    }
+
+    // Update variants
+    if (variants) {
+      // Delete old variant images
+      for (const variant of product.variants) {
+        for (const image of variant.images) {
+          await cloudinary.uploader.destroy(image.public_id);
+        }
+      }
+      product.variants = variants.map((variant, index) => ({
+        ...variant,
+        images: variantImages[index] || variant.images || []
       }));
     }
 
@@ -147,6 +198,9 @@ exports.updateProduct = async (req, res, next) => {
 
     ApiResponse.success(res, 200, 'Product updated successfully', { product });
   } catch (error) {
+    if (error.code === 11000) {
+      return next(new ApiError(400, 'Duplicate SKU or slug detected'));
+    }
     next(error);
   }
 };
@@ -159,9 +213,16 @@ exports.deleteProduct = async (req, res, next) => {
       throw new ApiError(404, 'Product not found');
     }
 
-    // Delete images from Cloudinary
+    // Delete base images from Cloudinary
     for (const image of product.images) {
       await cloudinary.uploader.destroy(image.public_id);
+    }
+
+    // Delete variant images from Cloudinary
+    for (const variant of product.variants) {
+      for (const image of variant.images) {
+        await cloudinary.uploader.destroy(image.public_id);
+      }
     }
 
     await product.deleteOne();
@@ -184,7 +245,7 @@ exports.deleteProduct = async (req, res, next) => {
 // Get all products for customers (Public)
 exports.getAllProductsForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, attributeKey, attributeValue } = req.query;
 
     // Build query
     const query = { stock: { $gt: 0 } }; // Only show products in stock
@@ -199,8 +260,12 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
         { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
         { brand: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } } // Allow searching by SKU
+        { sku: { $regex: search, $options: 'i' } },
+        { 'variants.sku': { $regex: search, $options: 'i' } }
       ];
+    }
+    if (attributeKey && attributeValue) {
+      query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
     }
 
     const sortOption = sort || '-createdAt';
@@ -208,7 +273,7 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
 
     // Fetch products
     const products = await Product.find(query)
-      .select('-__v') // Exclude version field
+      .select('-__v')
       .populate('categoryId', 'name slug')
       .sort(sortOption)
       .skip(skip)
@@ -232,14 +297,14 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
 exports.getProductDetailsForCustomers = async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id)
-      .select('-__v') // Exclude version field
+      .select('-__v')
       .populate('categoryId', 'name slug');
 
     if (!product) {
       throw new ApiError(404, 'Product not found');
     }
 
-    if (product.stock <= 0) {
+    if (product.stock <= 0 && product.variants.every(v => v.stock <= 0)) {
       throw new ApiError(404, 'Product is out of stock');
     }
 

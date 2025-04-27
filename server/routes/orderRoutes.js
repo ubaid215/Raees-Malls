@@ -12,7 +12,7 @@ const {
 // User routes (under /api/orders)
 router.post('/',
   ensureAuthenticated,
-  authorizeRoles('user', 'admin'), 
+  authorizeRoles('user', 'admin'),
   placeOrderValidator,
   orderController.placeOrder
 );

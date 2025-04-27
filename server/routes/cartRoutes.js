@@ -18,7 +18,15 @@ router.get('/',
   cartController.getCart
 );
 
+// Split the delete route to avoid optional parameter
 router.delete('/:productId',
+  ensureAuthenticated,
+  authorizeRoles('user'),
+  removeFromCartValidator,
+  cartController.removeFromCart
+);
+
+router.delete('/:productId/:variantId',
   ensureAuthenticated,
   authorizeRoles('user'),
   removeFromCartValidator,

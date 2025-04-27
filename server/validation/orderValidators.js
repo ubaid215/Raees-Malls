@@ -1,7 +1,6 @@
 const { body, param, query, validationResult } = require('express-validator');
 const ApiError = require('../utils/apiError');
 
-
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -19,10 +18,13 @@ const placeOrderValidator = [
   body('items.*.productId')
     .isMongoId()
     .withMessage('Invalid product ID'),
+  body('items.*.variantId')
+    .optional()
+    .isMongoId()
+    .withMessage('Invalid variant ID'),
   body('items.*.quantity')
     .isInt({ min: 1 })
     .withMessage('Quantity must be at least 1'),
-
   // Validate shippingAddress object
   body('shippingAddress')
     .exists()
@@ -69,16 +71,18 @@ const placeOrderValidator = [
     .withMessage('Phone number is required')
     .matches(/^\+\d{1,4}\s\d{6,14}$/)
     .withMessage('Phone number must be in the format +[country code] [number], e.g., +92 3001234567'),
-
+  body('discountCode')
+    .optional()
+    .isString().withMessage('Invalid discount code')
+    .matches(/^[A-Z0-9-]+$/i).withMessage('Discount code can only contain letters, numbers, and hyphens'),
   validate
 ];
 
 // Validator for updating order status (PUT /api/admin/orders/:orderId)
 const updateOrderStatusValidator = [
   param('orderId')
-    .trim()
-    .notEmpty()
-    .withMessage('Order ID is required'),
+    .isMongoId()
+    .withMessage('Invalid order ID'),
   body('status')
     .isIn(['pending', 'processing', 'shipped', 'delivered', 'cancelled'])
     .withMessage('Invalid status value'),
@@ -109,9 +113,8 @@ const getOrdersValidator = [
 // Validator for downloading invoice (GET /api/admin/orders/invoice/:orderId)
 const downloadInvoiceValidator = [
   param('orderId')
-    .trim()
-    .notEmpty()
-    .withMessage('Order ID is required'),
+    .isMongoId()
+    .withMessage('Invalid order ID'),
   validate
 ];
 
