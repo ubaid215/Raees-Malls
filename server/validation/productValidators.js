@@ -3,13 +3,13 @@ const ApiError = require('../utils/apiError');
 const Category = require('../models/Category');
 const Product = require('../models/Product');
 
-// Helper function to parse specifications if it's a string
-const parseSpecifications = (value) => {
+// Helper function to parse specifications or variants if string
+const parseJsonField = (value) => {
   if (typeof value === 'string') {
     try {
       return JSON.parse(value);
     } catch (error) {
-      throw new Error('Specifications must be a valid JSON array');
+      throw new Error('Field must be a valid JSON');
     }
   }
   return value;
@@ -63,9 +63,33 @@ const createProductValidator = [
       }
       return true;
     }),
+  body('variants')
+    .optional()
+    .customSanitizer(parseJsonField)
+    .isArray().withMessage('Variants must be an array')
+    .custom((value) => {
+      return value.every(variant => 
+        variant.sku && 
+        typeof variant.sku === 'string' && 
+        /^[A-Z0-9-]+$/i.test(variant.sku) &&
+        variant.price && 
+        typeof variant.price === 'number' && 
+        variant.price >= 0 &&
+        variant.stock && 
+        typeof variant.stock === 'number' && 
+        variant.stock >= 0 &&
+        Array.isArray(variant.attributes) &&
+        variant.attributes.every(attr => 
+          attr.key && 
+          typeof attr.key === 'string' && 
+          attr.value && 
+          typeof attr.value === 'string'
+        )
+      );
+    }).withMessage('Each variant must have a valid SKU, price, stock, and attributes array'),
   body('specifications')
     .optional()
-    .customSanitizer(parseSpecifications)
+    .customSanitizer(parseJsonField)
     .isArray().withMessage('Specifications must be an array')
     .custom((value) => {
       return value.every(spec => spec.key && spec.value && typeof spec.key === 'string' && typeof spec.value === 'string');
@@ -136,9 +160,33 @@ const updateProductValidator = [
       }
       return true;
     }),
+  body('variants')
+    .optional()
+    .customSanitizer(parseJsonField)
+    .isArray().withMessage('Variants must be an array')
+    .custom((value) => {
+      return value.every(variant => 
+        variant.sku && 
+        typeof variant.sku === 'string' && 
+        /^[A-Z0-9-]+$/i.test(variant.sku) &&
+        variant.price && 
+        typeof variant.price === 'number' && 
+        variant.price >= 0 &&
+        variant.stock && 
+        typeof variant.stock === 'number' && 
+        variant.stock >= 0 &&
+        Array.isArray(variant.attributes) &&
+        variant.attributes.every(attr => 
+          attr.key && 
+          typeof attr.key === 'string' && 
+          attr.value && 
+          typeof attr.value === 'string'
+        )
+      );
+    }).withMessage('Each variant must have a valid SKU, price, stock, and attributes array'),
   body('specifications')
     .optional()
-    .customSanitizer(parseSpecifications)
+    .customSanitizer(parseJsonField)
     .isArray().withMessage('Specifications must be an array')
     .custom((value) => {
       return value.every(spec => spec.key && spec.value && typeof spec.key === 'string' && typeof spec.value === 'string');
@@ -191,6 +239,12 @@ const getProductsValidator = [
   query('maxPrice')
     .optional()
     .isFloat({ min: 0 }).withMessage('Maximum price must be a positive number'),
+  query('attributeKey')
+    .optional()
+    .isIn(['size', 'color', 'material', 'style']).withMessage('Invalid attribute key'),
+  query('attributeValue')
+    .optional()
+    .isString().withMessage('Attribute value must be a string'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -225,6 +279,12 @@ const getProductsForCustomersValidator = [
     .optional()
     .trim()
     .isLength({ max: 100 }).withMessage('Search term cannot exceed 100 characters'),
+  query('attributeKey')
+    .optional()
+    .isIn(['size', 'color', 'material', 'style']).withMessage('Invalid attribute key'),
+  query('attributeValue')
+    .optional()
+    .isString().withMessage('Attribute value must be a string'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

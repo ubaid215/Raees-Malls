@@ -18,7 +18,7 @@ const productSchema = new mongoose.Schema({
   },
   price: {
     type: Number,
-    required: [true, 'Product price is required'],
+    required: [true, 'Product base price is required'],
     min: [0, 'Price cannot be negative']
   },
   discountPrice: {
@@ -28,7 +28,7 @@ const productSchema = new mongoose.Schema({
       validator: function (value) {
         return value < this.price;
       },
-      message: 'Discount price must be less than the price'
+      message: 'Discount price must be less than the base price'
     }
   },
   images: [{
@@ -51,7 +51,7 @@ const productSchema = new mongoose.Schema({
   },
   stock: {
     type: Number,
-    required: [true, 'Stock quantity is required'],
+    required: [true, 'Base stock quantity is required'],
     min: [0, 'Stock cannot be negative']
   },
   brand: {
@@ -62,12 +62,68 @@ const productSchema = new mongoose.Schema({
   },
   sku: {
     type: String,
-    required: [true, 'SKU is required'],
+    required: [true, 'Base SKU is required'],
     trim: true,
     match: [/^[A-Z0-9-]+$/i, 'SKU can only contain uppercase letters, numbers, and hyphens'],
     minlength: [5, 'SKU must be at least 5 characters'],
     maxlength: [20, 'SKU cannot exceed 20 characters']
   },
+  variants: [{
+    sku: {
+      type: String,
+      required: [true, 'Variant SKU is required'],
+      trim: true,
+      match: [/^[A-Z0-9-]+$/i, 'Variant SKU can only contain uppercase letters, numbers, and hyphens'],
+      minlength: [5, 'Variant SKU must be at least 5 characters'],
+      maxlength: [20, 'Variant SKU cannot exceed 20 characters']
+    },
+    price: {
+      type: Number,
+      required: [true, 'Variant price is required'],
+      min: [0, 'Variant price cannot be negative']
+    },
+    discountPrice: {
+      type: Number,
+      min: [0, 'Variant discount price cannot be negative'],
+      validate: {
+        validator: function (value) {
+          return value < this.price;
+        },
+        message: 'Variant discount price must be less than the variant price'
+      }
+    },
+    stock: {
+      type: Number,
+      required: [true, 'Variant stock quantity is required'],
+      min: [0, 'Variant stock cannot be negative']
+    },
+    attributes: [{
+      key: {
+        type: String,
+        required: [true, 'Attribute key is required'],
+        trim: true,
+        enum: ['size', 'color', 'material', 'style'], // Restrict to common attributes
+      },
+      value: {
+        type: String,
+        required: [true, 'Attribute value is required'],
+        trim: true
+      }
+    }],
+    images: [{
+      url: {
+        type: String,
+        required: true
+      },
+      public_id: {
+        type: String,
+        required: true
+      },
+      alt: {
+        type: String
+      }
+    }]
+  }],
   specifications: [{
     key: {
       type: String,
@@ -134,6 +190,23 @@ productSchema.pre('save', async function (next) {
     this.seo.slug = slug;
   }
 
+  // Ensure unique SKUs for variants
+  const variantSkus = this.variants.map(v => v.sku);
+  if (new Set(variantSkus).size !== variantSkus.length) {
+    return next(new Error('Duplicate variant SKUs are not allowed'));
+  }
+
+  // Ensure variant SKUs are unique across all products
+  for (const variant of this.variants) {
+    const existing = await mongoose.models.Product.findOne({
+      'variants.sku': variant.sku,
+      _id: { $ne: this._id }
+    });
+    if (existing) {
+      return next(new Error(`Variant SKU ${variant.sku} already exists in another product`));
+    }
+  }
+
   next();
 });
 
@@ -141,6 +214,7 @@ productSchema.pre('save', async function (next) {
 productSchema.index({ categoryId: 1 });
 productSchema.index({ price: 1 });
 productSchema.index({ stock: 1 });
-productSchema.index({ sku: 1 }); // Index for SKU
+productSchema.index({ sku: 1 });
+productSchema.index({ 'variants.sku': 1 });
 
 module.exports = mongoose.model('Product', productSchema);

@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const passport = require('passport');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
@@ -40,9 +41,14 @@ app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGO_URI,
+    collectionName: 'sessions'
+  }),
   cookie: { 
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
+    sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 1 day
   }
 }));
@@ -85,19 +91,24 @@ const orderRoutes = require('./routes/orderRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
+const wishlistRoutes = require('./routes/wishlistRoutes');
+const discountRoutes = require('./routes/discountRoutes');
 
 // Authentication Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/products', productRoutes);
 app.use('/api/admin/categories', categoryRoutes); 
-app.use('/api/admin/banners', bannerRoutes)
+app.use('/api/admin/banners', bannerRoutes);
+app.use('/api/admin/discounts', discountRoutes);
 app.use('/api/products', productRoutes); 
 app.use('/api/categories', categoryRoutes); 
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/reviews', reviewRoutes); 
 app.use('/api/banners', bannerRoutes);
+app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/discounts', discountRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -166,4 +177,4 @@ server.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });
 
-module.exports = app; // for testing
+module.exports = app; 

@@ -11,8 +11,15 @@ const {
   getProductsForCustomersValidator
 } = require('../validation/productValidators');
 
+// Configure upload for baseImages and variantImages
+const uploadFields = upload.fields([
+  { name: 'baseImages', maxCount: 5 },
+  { name: 'variantImages[0]', maxCount: 5 },
+  { name: 'variantImages[1]', maxCount: 5 },
+  { name: 'variantImages[2]', maxCount: 5 } // Adjust maxCount and indices based on needs
+]);
+
 // Public product routes (mounted under /api/products)
-// Note: Static routes must come before dynamic routes to avoid conflicts
 router.get('/public',
   getProductsForCustomersValidator,
   productController.getAllProductsForCustomers
@@ -27,7 +34,7 @@ router.get('/public/:id',
 router.post('/',
   ensureAuthenticated,
   authorizeRoles('admin'),
-  upload.array('images', 5), // Allow up to 5 images for product creation
+  uploadFields,
   createProductValidator,
   productController.createProduct
 );
@@ -49,7 +56,7 @@ router.get('/:id',
 router.put('/:id',
   ensureAuthenticated,
   authorizeRoles('admin'),
-  upload.array('images', 5), // Allow up to 5 images for product update
+  uploadFields,
   productIdValidator,
   updateProductValidator,
   productController.updateProduct

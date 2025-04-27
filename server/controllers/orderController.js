@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const Discount = require('../models/Discount');
 const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const { v4: uuidv4 } = require('uuid');
@@ -10,7 +11,7 @@ const path = require('path');
 // Place a new order (User only)
 exports.placeOrder = async (req, res, next) => {
   try {
-    const { items, shippingAddress } = req.body;
+    const { items, shippingAddress, discountCode } = req.body;
     const userId = req.user._id;
 
     // Validate items
@@ -27,21 +28,71 @@ exports.placeOrder = async (req, res, next) => {
       if (!product) {
         throw new ApiError(404, `Product not found: ${item.productId}`);
       }
-      if (product.stock < item.quantity) {
-        throw new ApiError(400, `Insufficient stock for product: ${product.title}`);
+
+      let price, sku, stock;
+      if (item.variantId) {
+        const variant = product.variants.id(item.variantId);
+        if (!variant) {
+          throw new ApiError(404, `Variant not found for product: ${product.title}`);
+        }
+        price = variant.discountPrice || variant.price;
+        sku = variant.sku;
+        stock = variant.stock;
+      } else {
+        price = product.discountPrice || product.price;
+        sku = product.sku;
+        stock = product.stock;
       }
 
-      totalPrice += product.price * item.quantity;
+      if (stock < item.quantity) {
+        throw new ApiError(400, `Insufficient stock for product: ${product.title}${item.variantId ? ' (variant)' : ''}`);
+      }
+
+      totalPrice += price * item.quantity;
       orderItems.push({
         productId: product._id,
+        variantId: item.variantId,
         quantity: item.quantity,
-        price: product.price,
-        sku: product.sku
+        price,
+        sku
+      });
+    }
+
+    // Apply discount if provided
+    let discountAmount = 0;
+    let discountId = null;
+    if (discountCode) {
+      const discount = await Discount.findOne({
+        code: discountCode,
+        isActive: true,
+        startDate: { $lte: new Date() },
+        endDate: { $gte: new Date() },
+        $or: [
+          { applicableTo: 'all' },
+          { applicableTo: 'products', productIds: { $in: items.map(item => item.productId) } },
+          { applicableTo: 'orders' }
+        ]
       });
 
-      // Decrease stock
-      product.stock -= item.quantity;
-      await product.save();
+      if (!discount) {
+        throw new ApiError(400, 'Invalid or expired discount code');
+      }
+
+      if (discount.minOrderAmount > totalPrice) {
+        throw new ApiError(400, 'Order total too low for discount');
+      }
+
+      if (discount.usageLimit > 0 && discount.usedCount >= discount.usageLimit) {
+        throw new ApiError(400, 'Discount usage limit reached');
+      }
+
+      discountAmount = discount.type === 'percentage'
+        ? (discount.value / 100) * totalPrice
+        : Math.min(discount.value, totalPrice);
+      discountId = discount._id;
+
+      discount.usedCount += 1;
+      await discount.save();
     }
 
     // Create order
@@ -49,12 +100,26 @@ exports.placeOrder = async (req, res, next) => {
       orderId: `ORD-${uuidv4().split('-')[0]}`,
       userId,
       items: orderItems,
-      totalPrice,
+      totalPrice: totalPrice - discountAmount,
+      discountId,
+      discountAmount,
       shippingAddress,
       status: 'pending'
     });
 
     await order.save();
+
+    // Decrease stock
+    for (const item of orderItems) {
+      const product = await Product.findById(item.productId);
+      if (item.variantId) {
+        const variant = product.variants.id(item.variantId);
+        variant.stock -= item.quantity;
+      } else {
+        product.stock -= item.quantity;
+      }
+      await product.save();
+    }
 
     // Emit Socket.io event for admin notification
     const io = req.app.get('socketio');
@@ -86,6 +151,7 @@ exports.getUserOrders = async (req, res, next) => {
 
     const orders = await Order.find(query)
       .populate('items.productId', 'title brand sku')
+      .populate('discountId', 'code value type')
       .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
@@ -118,6 +184,7 @@ exports.getAllOrders = async (req, res, next) => {
     const orders = await Order.find(query)
       .populate('userId', 'email')
       .populate('items.productId', 'title brand sku')
+      .populate('discountId', 'code value type')
       .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
@@ -176,7 +243,8 @@ exports.downloadInvoice = async (req, res, next) => {
 
     const order = await Order.findOne({ orderId })
       .populate('userId', 'email')
-      .populate('items.productId', 'title brand sku');
+      .populate('items.productId', 'title brand sku')
+      .populate('discountId', 'code value type');
 
     if (!order) {
       throw new ApiError(404, 'Order not found');
@@ -237,12 +305,21 @@ exports.downloadInvoice = async (req, res, next) => {
     let y = doc.y;
     doc.font('Helvetica');
     order.items.forEach(item => {
-      doc.text(item.productId.title, 50, y, { width: itemWidth });
+      const variantDetails = item.variantId
+        ? order.items.productId?.variants?.id(item.variantId)?.attributes?.map(attr => `${attr.key}: ${attr.value}`).join(', ') || ''
+        : '';
+      doc.text(`${item.productId.title}${variantDetails ? ` (${variantDetails})` : ''}`, 50, y, { width: itemWidth });
       doc.text(item.sku, 200, y, { width: skuWidth });
       doc.text(item.quantity.toString(), 300, y, { width: qtyWidth, align: 'right' });
       doc.text(`$${item.price.toFixed(2)}`, 350, y, { width: priceWidth, align: 'right' });
       y += 15;
     });
+
+    // Discount
+    if (order.discountId) {
+      doc.moveDown();
+      doc.font('Helvetica').text(`Discount (${order.discountId.code}): -$${order.discountAmount.toFixed(2)}`, { align: 'right' });
+    }
 
     // Total
     doc.moveDown();
