@@ -1,35 +1,12 @@
-import React, { useEffect, useState, useContext } from 'react';
+import React, { useEffect } from 'react';
 import { CiShoppingCart, CiTrash, CiCirclePlus, CiCircleMinus } from 'react-icons/ci';
 import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../../context/AuthContext';
-import { useCartWishlist } from '../../context/CartWishlistContext';
-import Button from '../core/Button';
-import { toast } from 'react-toastify';
-import LoadingSkeleton from '../shared/LoadingSkelaton';
-import { getCart, updateCartQuantity, removeFromCart } from '../../services/OrderAPI';
+import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
+import Button from '../components/core/Button';
+import LoadingSkeleton from '../components/shared/LoadingSkelaton';
 
-function CartProductCard({ item }) {
-  const { updateCartQuantity: updateContextQuantity, removeFromCart: removeFromContext } = useCartWishlist();
-
-  const handleUpdateQuantity = async (quantity) => {
-    try {
-      await updateCartQuantity(item._id, quantity);
-      updateContextQuantity(item._id, quantity);
-    } catch (err) {
-      toast.error('Failed to update quantity');
-    }
-  };
-
-  const handleRemove = async () => {
-    try {
-      await removeFromCart(item._id);
-      removeFromContext(item._id);
-      toast.success('Item removed from cart');
-    } catch (err) {
-      toast.error('Failed to remove item');
-    }
-  };
-
+function CartProductCard({ item, onUpdateQuantity, onRemove }) {
   const formattedPrice = new Intl.NumberFormat('en-PK', {
     style: 'currency',
     currency: 'PKR',
@@ -40,7 +17,7 @@ function CartProductCard({ item }) {
     <div className="w-full max-w-2xl mx-auto flex flex-col sm:flex-row items-center bg-white rounded-lg shadow-sm border border-gray-200 p-4 gap-4">
       <div className="w-full sm:w-24 h-24">
         <img
-          src={item.images[0]?.url || '/placeholder-product.png'}
+          src={item.image || '/placeholder-product.png'}
           alt={item.title}
           className="w-full h-full object-cover rounded-lg"
           onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
@@ -64,7 +41,7 @@ function CartProductCard({ item }) {
       <div className="flex flex-col items-center gap-2">
         <div className="flex items-center gap-2">
           <Button
-            onClick={() => handleUpdateQuantity(item.quantity - 1)}
+            onClick={() => onUpdateQuantity(item.productId, item.quantity - 1)}
             className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-1"
             disabled={item.quantity <= 1}
             aria-label={`Decrease quantity of ${item.title}`}
@@ -73,7 +50,7 @@ function CartProductCard({ item }) {
           </Button>
           <span className="w-12 text-center text-sm sm:text-base">{item.quantity}</span>
           <Button
-            onClick={() => handleUpdateQuantity(item.quantity + 1)}
+            onClick={() => onUpdateQuantity(item.productId, item.quantity + 1)}
             className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-1"
             disabled={item.quantity >= item.stock}
             aria-label={`Increase quantity of ${item.title}`}
@@ -82,7 +59,7 @@ function CartProductCard({ item }) {
           </Button>
         </div>
         <Button
-          onClick={handleRemove}
+          onClick={() => onRemove(item.productId)}
           className="bg-red-600 text-white hover:bg-red-700 p-1 flex items-center gap-1"
           aria-label={`Remove ${item.title} from cart`}
         >
@@ -95,67 +72,40 @@ function CartProductCard({ item }) {
 }
 
 function Cart() {
-  const { cartItems, setCartItems } = useCartWishlist();
-  const { user } = useContext(AuthContext);
-  const [isLoading, setIsLoading] = useState(false);
-  const [fetchError, setFetchError] = useState(null);
+  const { user } = useAuth();
+  const { 
+    cartItems, 
+    isLoading, 
+    error, 
+    updateQuantity, 
+    removeItem, 
+    clearCart, 
+    getTotalPrice,
+    fetchCart
+  } = useCart();
   const navigate = useNavigate();
 
-  const fetchCart = async () => {
-    if (!user || !localStorage.getItem('accessToken')) {
-      setFetchError('Please log in to view your cart');
-      setIsLoading(false);
-      navigate('/login');
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const response = await getCart();
-      if (response.data.success) {
-        setCartItems(response.data.items || []);
-        setFetchError(null);
-      } else {
-        throw new Error(response.data.message || 'Failed to fetch cart');
-      }
-    } catch (err) {
-      setFetchError(err.message || 'Failed to fetch cart');
-      toast.error(err.message || 'Failed to fetch cart');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    if (user) {
-      fetchCart();
-    } else {
-      setFetchError('Please log in to view your cart');
+    if (!user) {
       navigate('/login');
     }
   }, [user, navigate]);
 
-  const totalPrice = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const handleCheckout = () => {
+    navigate('/checkout', { state: { cartItems } });
+  };
+
   const formattedTotalPrice = new Intl.NumberFormat('en-PK', {
     style: 'currency',
     currency: 'PKR',
     minimumFractionDigits: 0,
-  }).format(totalPrice);
+  }).format(getTotalPrice());
 
-  const handleCheckout = () => {
-    if (!user) {
-      toast.error('Please log in to proceed to checkout');
-      navigate('/login');
-      return;
-    }
-    navigate('/checkout', { state: { cartItems } });
-  };
-
-  if (fetchError) {
+  if (error) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
         <div className="bg-white rounded-lg shadow-sm p-6 text-center max-w-md w-full">
-          <p className="text-red-600 text-lg font-medium">{fetchError}</p>
+          <p className="text-red-600 text-lg font-medium">{error}</p>
           <Button
             onClick={() => navigate('/login')}
             className="mt-4 w-full bg-red-600 text-white hover:bg-red-700"
@@ -220,10 +170,10 @@ function Cart() {
                 </thead>
                 <tbody>
                   {cartItems.map((item) => (
-                    <tr key={item._id} className="border-b border-gray-200 last:border-b-0">
+                    <tr key={item.productId} className="border-b border-gray-200 last:border-b-0">
                       <td className="p-4 flex items-center gap-4">
                         <img
-                          src={item.images[0]?.url || '/placeholder-product.png'}
+                          src={item.image || '/placeholder-product.png'}
                           alt={item.title}
                           className="w-16 h-16 object-cover rounded-lg"
                           onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
@@ -245,7 +195,7 @@ function Cart() {
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <Button
-                            onClick={() => handleUpdateQuantity(item.quantity - 1)}
+                            onClick={() => updateQuantity(item.productId, item.quantity - 1)}
                             className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-1"
                             disabled={item.quantity <= 1}
                           >
@@ -253,7 +203,7 @@ function Cart() {
                           </Button>
                           <span className="w-12 text-center text-sm sm:text-base">{item.quantity}</span>
                           <Button
-                            onClick={() => handleUpdateQuantity(item.quantity + 1)}
+                            onClick={() => updateQuantity(item.productId, item.quantity + 1)}
                             className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-1"
                             disabled={item.quantity >= item.stock}
                           >
@@ -270,7 +220,7 @@ function Cart() {
                       </td>
                       <td className="p-4">
                         <Button
-                          onClick={handleRemove}
+                          onClick={() => removeItem(item.productId)}
                           className="bg-red-600 text-white hover:bg-red-700 p-1"
                         >
                           <CiTrash size={20} />
@@ -283,17 +233,29 @@ function Cart() {
             </div>
             <div className="block md:hidden space-y-6">
               {cartItems.map((item) => (
-                <CartProductCard key={item._id} item={item} />
+                <CartProductCard 
+                  key={item.productId} 
+                  item={item} 
+                  onUpdateQuantity={updateQuantity}
+                  onRemove={removeItem}
+                />
               ))}
             </div>
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
-              <h3 className="text-base sm:text-lg font-semibold text-gray-900">
-                Total Price: {formattedTotalPrice}
-              </h3>
+              <div className="flex flex-col sm:flex-row items-center gap-4">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900">
+                  Total Price: {formattedTotalPrice}
+                </h3>
+                <Button
+                  onClick={clearCart}
+                  className="bg-gray-600 text-white hover:bg-gray-700"
+                >
+                  Clear Cart
+                </Button>
+              </div>
               <Button
                 onClick={handleCheckout}
                 className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
-                disabled={cartItems.length === 0}
                 aria-label="Proceed to checkout"
               >
                 Proceed to Checkout

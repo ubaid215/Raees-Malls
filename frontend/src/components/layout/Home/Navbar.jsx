@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import Logo from '../../shared/Logo';
 import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
 import { FiPhoneCall } from 'react-icons/fi';
-import { categoryService } from '../../../services/categoryAPI'; // Updated import
-import { useCartWishlist } from '../../../context/CartWishlistContext';
+import { getCategories } from '../../../services/categoryService';
+import { useCart } from '../../../context/CartContext';
 
 const navLinks = [
   { name: 'Home', path: '/' },
@@ -22,34 +22,72 @@ function Navbar() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [categories, setCategories] = useState([]);
-  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [error, setError] = useState(null);
   const navigate = useNavigate();
-  const { cartCount } = useCartWishlist(); // Removed wishlistCount
+  const { cart } = useCart();
 
-  const fetchCategories = useCallback(async () => {
-    setLoadingCategories(true);
-    try {
-      const response = await categoryService.getAllPublicCategories();
-      if (response.success) {
-        setCategories(
-          response.data.map((cat) => ({
-            name: cat.name,
-            path: `/categories/${cat.slug || cat._id}`,
-          }))
-        );
-      } else {
-        throw new Error(response.message || 'Failed to load categories');
-      }
-    } catch (err) {
-      console.error('Failed to fetch categories:', err.message);
-    } finally {
-      setLoadingCategories(false);
-    }
-  }, []);
+  // Safely calculate cart count
+  const cartCount = Array.isArray(cart?.items)
+    ? cart.items.reduce((count, item) => count + (item.quantity || 0), 0)
+    : 0;
 
+  // Fetch categories with caching and request cancellation
   useEffect(() => {
+    const controller = new AbortController();
+    let isMounted = true;
+
+    const fetchCategories = async () => {
+      // Check cache first
+      const cachedCategories = localStorage.getItem('categories');
+      if (cachedCategories) {
+        try {
+          const parsedCategories = JSON.parse(cachedCategories);
+          if (isMounted) {
+            setCategories(parsedCategories);
+          }
+          return;
+        } catch (err) {
+          console.error('Invalid cached categories:', cachedCategories, err);
+          localStorage.removeItem('categories');
+        }
+      }
+
+      if (isMounted) {
+        setLoadingCategories(true);
+        setError(null);
+      }
+
+      try {
+        const categoriesData = await getCategories({ signal: controller.signal });
+        const formattedCategories = categoriesData.map((cat) => ({
+          name: cat.name,
+          path: `/categories/${cat.slug || cat._id}`,
+        }));
+
+        if (isMounted) {
+          setCategories(formattedCategories);
+          localStorage.setItem('categories', JSON.stringify(formattedCategories || []));
+        }
+      } catch (err) {
+        if (isMounted && err.name !== 'AbortError') {
+          setError('Failed to load categories. Please refresh the page.');
+          console.error('Failed to fetch categories:', err.message);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingCategories(false);
+        }
+      }
+    };
+
     fetchCategories();
-  }, [fetchCategories]);
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -70,8 +108,23 @@ function Navbar() {
     setShowMobileMenu(false);
   };
 
+  // Clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   return (
     <header className="sticky top-0 z-50 bg-[#f5f5f5] shadow-sm mb-5">
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-100 text-red-700 text-center py-1 px-4 text-sm">
+          {error}
+        </div>
+      )}
+
       {/* Mobile Top Bar */}
       <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#232F3F] text-white">
         <button
@@ -84,7 +137,7 @@ function Navbar() {
 
         <div className="flex-shrink-0 mx-4">
           <Link to="/" onClick={closeMobileMenu}>
-            <Logo />
+            <Logo isLink={false} />
           </Link>
         </div>
 
@@ -165,11 +218,11 @@ function Navbar() {
               </NavLink>
             ))}
           </div>
-          {!loadingCategories && (
+          {categories.length > 0 && (
             <div className="px-4 py-2 border-t">
               {categories.slice(0, 5).map((category) => (
                 <Link
-                  key={category.name}
+                  key={category.path}
                   to={category.path}
                   className="block px-2 py-2 text-gray-700 hover:text-red-600"
                   onClick={closeMobileMenu}
@@ -190,7 +243,7 @@ function Navbar() {
       <nav className="hidden md:flex max-w-7xl mx-auto h-20 px-4 py-4 bg-[#232F3F] text-white items-center justify-between">
         <div className="flex-shrink-0">
           <Link to="/">
-            <Logo />
+            <Logo isLink={false} />
           </Link>
         </div>
 
@@ -198,24 +251,26 @@ function Navbar() {
           <div className="relative">
             <button
               onClick={() => setShowDropdown(!showDropdown)}
-              className="px-4 py-3 flex items-center gap-2 bg-white text-[#232F3F] rounded-l-md border-r hover:bg-gray-100 transition-colors hover:shadow-md"
+              className="px-4 py-3 flex items-center gap-2 bg-white text-[#232F3F] rounded-l-md border-r hover:bg-gray-100 transition-colors hover:shadow-md min-w-[180px] justify-between"
               aria-label="Select category"
               disabled={loadingCategories}
             >
-              {loadingCategories ? 'Loading...' : selectedCategory}
+              <span className="truncate">
+                {loadingCategories ? 'Loading...' : selectedCategory}
+              </span>
               <RiArrowDownLine
                 size={18}
                 className={`transition-transform ${showDropdown ? 'rotate-180' : ''}`}
               />
             </button>
 
-            {showDropdown && !loadingCategories && (
+            {showDropdown && categories.length > 0 && (
               <div className="absolute left-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
                 {categories.map((category) => (
                   <button
-                    key={category.name}
+                    key={category.path}
                     onClick={() => handleCategorySelect(category)}
-                    className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100"
+                    className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100 truncate"
                   >
                     {category.name}
                   </button>
@@ -275,11 +330,11 @@ function Navbar() {
             <span>Categories</span>
             <RiArrowDownLine size={16} />
           </button>
-          {!loadingCategories && (
+          {categories.length > 0 && (
             <div className="absolute left-0 mt-1 w-56 bg-white rounded-md shadow-lg z-10 hidden group-hover:block max-h-96 overflow-y-auto">
               {categories.map((category) => (
                 <Link
-                  key={category.name}
+                  key={category.path}
                   to={category.path}
                   className="block px-4 py-2 text-gray-800 hover:bg-gray-100"
                 >
@@ -293,7 +348,7 @@ function Navbar() {
         <div className="flex items-center space-x-4 lg:space-x-6">
           {navLinks.map((link) => (
             <NavLink
-              key={link.name}
+              key={link.path}
               to={link.path}
               className={({ isActive }) =>
                 `px-3 py-2 text-sm font-medium hover:text-red-600 transition-colors ${

@@ -22,6 +22,7 @@ const io = new Server(server, {
     credentials: true
   }
 });
+app.use(express.json());
 
 // Connect to MongoDB
 connectDB();

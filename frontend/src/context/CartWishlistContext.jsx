@@ -1,6 +1,5 @@
-// /src/context/CartWishlistContext.js
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { cartService } from '../services/cartAPI'; 
+import { getCart } from '../services/cartService'; // Import individual functions
 
 const CartWishlistContext = createContext();
 
@@ -16,10 +15,11 @@ export function CartWishlistProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await cartService.getCart();
-      if (response.success && response.data) {
-        setCart(response.data);
-        const totalItems = response.data.items.reduce((sum, item) => sum + item.quantity, 0);
+      const token = localStorage.getItem('token'); // Assuming token is stored in localStorage
+      const response = await getCart(token);
+      if (response.data && response.data.cart) {
+        setCart(response.data.cart);
+        const totalItems = response.data.cart.items.reduce((sum, item) => sum + item.quantity, 0);
         setCartCount(totalItems);
       } else {
         setCart(null);
@@ -39,10 +39,11 @@ export function CartWishlistProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await cartService.addToCart({ productId, quantity });
-      if (response.success) {
-        setCart(response.data);
-        const totalItems = response.data.items.reduce((sum, item) => sum + item.quantity, 0);
+      const token = localStorage.getItem('token');
+      const response = await addToCart(productId, quantity, token);
+      if (response.data && response.data.cart) {
+        setCart(response.data.cart);
+        const totalItems = response.data.cart.items.reduce((sum, item) => sum + item.quantity, 0);
         setCartCount(totalItems);
         return response;
       } else {
@@ -61,10 +62,11 @@ export function CartWishlistProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await cartService.removeFromCart(productId);
-      if (response.success) {
-        setCart(response.data);
-        const totalItems = response.data.items.reduce((sum, item) => sum + item.quantity, 0);
+      const token = localStorage.getItem('token');
+      const response = await removeFromCart(productId, token);
+      if (response.data && response.data.cart) {
+        setCart(response.data.cart);
+        const totalItems = response.data.cart.items.reduce((sum, item) => sum + item.quantity, 0);
         setCartCount(totalItems);
         return response;
       } else {
@@ -83,9 +85,10 @@ export function CartWishlistProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await cartService.clearCart();
-      if (response.success) {
-        setCart(response.data);
+      const token = localStorage.getItem('token');
+      const response = await clearCart(token);
+      if (response.data && response.data.cart) {
+        setCart(response.data.cart);
         setCartCount(0);
         return response;
       } else {
@@ -104,8 +107,9 @@ export function CartWishlistProvider({ children }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await cartService.placeOrderFromCart({ shippingAddress });
-      if (response.success) {
+      const token = localStorage.getItem('token');
+      const response = await placeOrderFromCart(shippingAddress, token);
+      if (response.data && response.data.order) {
         setCart(null);
         setCartCount(0);
         return response;
@@ -128,8 +132,11 @@ export function CartWishlistProvider({ children }) {
 
   // Fetch cart and wishlist on mount
   useEffect(() => {
-    fetchCart();
-    fetchWishlist();
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchCart();
+      fetchWishlist();
+    }
   }, [fetchCart]);
 
   return (

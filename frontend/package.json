@@ -29,6 +29,7 @@
     "jspdf-autotable": "^5.0.2",
     "lodash.memoize": "^4.1.2",
     "lucide-react": "^0.487.0",
+    "mitt": "^3.0.1",
     "postcss": "^8.5.3",
     "prop-types": "^15.8.1",
     "react": "^19.1.0",

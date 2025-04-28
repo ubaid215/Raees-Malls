@@ -1,3 +1,4 @@
+// models/Category.js
 const mongoose = require('mongoose');
 
 const categorySchema = new mongoose.Schema({
@@ -21,6 +22,14 @@ const categorySchema = new mongoose.Schema({
     trim: true,
     maxlength: [500, 'Description cannot exceed 500 characters']
   },
+  image: {
+    type: String,
+    default: null
+  },
+  imagePublicId: {
+    type: String,
+    default: null
+  },
   parentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
@@ -41,7 +50,6 @@ categorySchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();
 });
-
 
 categorySchema.index({ parentId: 1 });
 

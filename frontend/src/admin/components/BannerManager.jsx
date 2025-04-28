@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useBanners } from '../../context/BannerContext';
 import { FiEdit, FiTrash2, FiPlus, FiUpload } from 'react-icons/fi';
 import Modal from '../../components/core/Modal';

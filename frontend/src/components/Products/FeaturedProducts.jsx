@@ -5,7 +5,7 @@ import Sidebanner from '../../assets/images/Side_banner_home_1_535x.webp';
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
-import { productService } from '../../services/productAPI';
+import { getProducts } from '../../services/productService';
 import { Link } from 'react-router-dom';
 
 function FeaturedProducts() {
@@ -17,8 +17,9 @@ function FeaturedProducts() {
     setLoading(true);
     setError(null);
     try {
-      const response = await productService.getProducts({ isFeatured: true, limit: 6 });
-      setProducts(response.data);
+      const products = await getProducts(1, 6); 
+      const featuredProducts = products.filter(product => product.isFeatured === true).slice(0, 6);
+      setProducts(featuredProducts);
     } catch (err) {
       setError(err.message || 'Failed to load featured products');
     } finally {

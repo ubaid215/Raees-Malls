@@ -5,8 +5,11 @@ import { AdminAuthContext } from '../context/AdminAuthContext';
 const ProtectedAdminRoute = () => {
   const { isAdminAuthenticated, loading } = useContext(AdminAuthContext);
 
-  if (loading) return <div>Loading...</div>;
-  return isAdminAuthenticated ? <Outlet /> : <Navigate to="/admin/login" />;
+  if (loading) return <div className="flex justify-center items-center h-screen">
+    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-500"></div>
+  </div>;
+
+  return isAdminAuthenticated ? <Outlet /> : <Navigate to="/admin/login" replace />;
 };
 
 export default ProtectedAdminRoute;

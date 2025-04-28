@@ -32,6 +32,17 @@ const createCategoryValidator = [
       return true;
     }),
   (req, res, next) => {
+    // Check if image is provided and validate it
+    if (req.file) {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(req.file.mimetype)) {
+        return next(new ApiError(400, 'Only JPEG, PNG, and WebP images are allowed'));
+      }
+      if (req.file.size > 5 * 1024 * 1024) { // 5MB limit
+        return next(new ApiError(400, 'Image size must be less than 5MB'));
+      }
+    }
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return next(new ApiError(400, 'Validation failed', errors.array()));
@@ -39,6 +50,7 @@ const createCategoryValidator = [
     next();
   }
 ];
+
 
 // Validator for updating a category
 const updateCategoryValidator = [
@@ -70,6 +82,17 @@ const updateCategoryValidator = [
       return true;
     }),
   (req, res, next) => {
+    // Check if image is provided and validate it
+    if (req.file) {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!allowedTypes.includes(req.file.mimetype)) {
+        return next(new ApiError(400, 'Only JPEG, PNG, and WebP images are allowed'));
+      }
+      if (req.file.size > 5 * 1024 * 1024) { // 5MB limit
+        return next(new ApiError(400, 'Image size must be less than 5MB'));
+      }
+    }
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return next(new ApiError(400, 'Validation failed', errors.array()));
@@ -77,6 +100,7 @@ const updateCategoryValidator = [
     next();
   }
 ];
+
 
 // Validator for category ID in params
 const categoryIdValidator = [

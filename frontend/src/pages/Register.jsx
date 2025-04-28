@@ -1,32 +1,80 @@
-import React, { useState, useContext } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { FaEye, FaEyeSlash, FaUserPlus, FaRocket, FaShieldAlt, FaGift } from 'react-icons/fa';
 
-const SignUp = () => {
+const Register = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState(null);
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const { registerUser } = useContext(AuthContext);
+  const { registerUser } = useAuth();
   const navigate = useNavigate();
+
+  // Client-side validation
+  const validateForm = () => {
+    const newErrors = {};
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+
+    if (!name.trim()) {
+      newErrors.name = 'Full name is required';
+    }
+
+    if (!email) {
+      newErrors.email = 'Email is required';
+    } else if (!emailRegex.test(email)) {
+      newErrors.email = 'Invalid email format';
+    }
+
+    if (!password) {
+      newErrors.password = 'Password is required';
+    } else if (password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters';
+    } else if (!passwordRegex.test(password)) {
+      newErrors.password =
+        'Password must contain at least one uppercase, one lowercase, one number, and one special character';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
+    setErrors({});
     setLoading(true);
 
+    if (!validateForm()) {
+      setLoading(false);
+      return;
+    }
+
     try {
-      const result = await registerUser({ name, email, password });
-      if (result.success) {
-        navigate('/login');
-      } else {
-        setError(result.error || 'Registration failed. Please try again.');
-      }
+      await registerUser(name, email, password);
+      navigate('/login');
     } catch (err) {
-      setError(err.message || 'An unexpected error occurred');
+      console.error('Registration error:', err); // Debug log
+      // Handle backend validation errors
+      if (err.message.includes('Validation failed')) {
+        const backendErrors = err.message
+          .split(', ')
+          .reduce((acc, msg) => {
+            if (msg.includes('email')) {
+              acc.email = msg;
+            } else if (msg.includes('password')) {
+              acc.password = msg;
+            } else if (msg.includes('name')) {
+              acc.name = msg;
+            }
+            return acc;
+          }, {});
+        setErrors(backendErrors);
+      } else {
+        setErrors({ general: err.message || 'Registration failed. Please try again.' });
+      }
     } finally {
       setLoading(false);
     }
@@ -83,9 +131,9 @@ const SignUp = () => {
             <p className="text-gray-600">Fill in your details to get started</p>
           </div>
 
-          {error && (
+          {errors.general && (
             <div className="mb-6 p-3 bg-red-50 text-red-700 rounded-lg text-center border border-red-200">
-              {error}
+              {errors.general}
             </div>
           )}
 
@@ -100,9 +148,14 @@ const SignUp = () => {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                className={`w-full px-4 py-3 border ${
+                  errors.name ? 'border-red-300' : 'border-gray-300'
+                } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition`}
                 placeholder="Enter your full name"
               />
+              {errors.name && (
+                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+              )}
             </div>
 
             <div>
@@ -115,9 +168,14 @@ const SignUp = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                className={`w-full px-4 py-3 border ${
+                  errors.email ? 'border-red-300' : 'border-gray-300'
+                } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition`}
                 placeholder="your@email.com"
               />
+              {errors.email && (
+                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
+              )}
             </div>
 
             <div className="relative">
@@ -126,21 +184,26 @@ const SignUp = () => {
               </label>
               <input
                 id="password"
-                type={showPassword ? "text" : "password"}
+                type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => setEmail(e.target.value)}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition pr-12"
+                className={`w-full px-4 py-3 border ${
+                  errors.password ? 'border-red-300' : 'border-gray-300'
+                } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition pr-12`}
                 placeholder="Create a password"
               />
               <button
                 type="button"
                 onClick={togglePasswordVisibility}
                 className="absolute right-3 top-10 text-gray-400 hover:text-indigo-600 transition"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
               </button>
+              {errors.password && (
+                <p className="mt-1 text-sm text-red-600">{errors.password}</p>
+              )}
             </div>
 
             <button
@@ -152,9 +215,25 @@ const SignUp = () => {
             >
               {loading ? (
                 <>
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  <svg
+                    className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
                   </svg>
                   Creating Account...
                 </>
@@ -184,4 +263,4 @@ const SignUp = () => {
   );
 };
 
-export default SignUp;
+export default Register;

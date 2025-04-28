@@ -7,7 +7,7 @@ exports.registerValidator = [
     .trim()
     .notEmpty().withMessage('Name is required')
     .isLength({ min: 2, max: 50 }).withMessage('Name must be between 2-50 characters'),
-  
+
   body('email')
     .trim()
     .notEmpty().withMessage('Email is required')
@@ -17,25 +17,26 @@ exports.registerValidator = [
       if (user) throw new Error('Email already in use');
       return true;
     }),
-    
+
   body('password')
     .notEmpty().withMessage('Password is required')
     .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/)
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
     .withMessage('Password must contain at least one uppercase, one lowercase, one number and one special character'),
-    
+
   body('role')
     .optional()
-    .isIn(['user', 'admin']).withMessage('Invalid role'),
-    
-  (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(new ApiError(400, 'Validation failed', errors.array()));
-    }
-    next();
-  }
+    .isIn(['user', 'admin']).withMessage('Invalid role')
 ];
+
+exports.validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    console.log(errors.array());
+    return next(new ApiError(400, 'Validation failed', errors.array()));
+  }
+  next();
+};
 
 exports.loginValidator = [
   body('email')

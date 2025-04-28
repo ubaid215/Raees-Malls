@@ -2,28 +2,26 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   FiHome,
-  FiTrendingUp,
-  FiUsers,
   FiShoppingBag,
   FiDollarSign,
-  FiPieChart,
 } from 'react-icons/fi';
 import { History, Image, ImagePlus, ListChecks, ShoppingBasket, UserCircle } from 'lucide-react';
+import { useAdminAuth } from '../../context/AdminAuthContext';
 
 const Sidebar = () => {
   const [isExpanded, setIsExpanded] = useState(true);
   const location = useLocation();
+  const { admin } = useAdminAuth();
 
   const navSections = [
     {
       title: 'ANALYTICS',
       items: [
-        { path: '/admin/dashboard', icon: FiHome, label: 'Dashboard' },
+        { path: '/admin/', icon: FiHome, label: 'Dashboard' },
         { path: '/admin/category', icon: ListChecks, label: 'Categories' },
         { path: '/admin/banner-upload', icon: Image, label: 'Banner' },
       ]
     },
-    
     {
       title: 'SHOP',
       items: [
@@ -32,6 +30,12 @@ const Sidebar = () => {
         { path: '/admin/hero-slider', icon: ImagePlus, label: 'Hero Images' },
         { path: '/admin/orders', icon: FiDollarSign, label: 'Orders' },
         { path: '/admin/orders-history', icon: History, label: 'Orders History' },
+      ]
+    },
+    {
+      title: 'PROFILE',
+      items: [
+        { path: '/admin/profile', icon: UserCircle, label: 'Profile' },
       ]
     }
   ];
@@ -43,7 +47,7 @@ const Sidebar = () => {
         {isExpanded ? (
           <h1 className="text-xl font-bold text-gray-800">Dashboard</h1>
         ) : (
-          <div className="w-8 h-8 bg-red-600 rounded-md flex items-center justify-center">
+          <div className="w-8 h-8 bg-[#E63946] rounded-md flex items-center justify-center">
             <FiHome className="text-white" />
           </div>
         )}
@@ -79,17 +83,17 @@ const Sidebar = () => {
                     to={item.path}
                     className={`flex items-center px-4 py-2.5 mx-2 rounded-md transition-colors
                       ${location.pathname === item.path ? 
-                        'bg-red-50 text-red-600' : 
+                        'bg-[#FFE6E8] text-[#E63946]' : 
                         'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                       }
                     `}
                   >
-                    <item.icon className={`h-5 w-5 ${location.pathname === item.path ? 'text-red-600' : 'text-gray-400'}`} />
+                    <item.icon className={`h-5 w-5 ${location.pathname === item.path ? 'text-[#E63946]' : 'text-gray-400'}`} />
                     {isExpanded && (
                       <>
                         <span className="ml-3">{item.label}</span>
                         {item.badge && (
-                          <span className="ml-auto bg-red-100 text-red-800 text-xs px-2 py-0.5 rounded-full">
+                          <span className="ml-auto bg-[#FFE6E8] text-[#E63946] text-xs px-2 py-0.5 rounded-full">
                             {item.badge}
                           </span>
                         )}
@@ -111,14 +115,13 @@ const Sidebar = () => {
       {/* User Profile (Collapsed shows just avatar) */}
       <div className="p-4 border-t border-gray-200">
         <div className="flex items-center">
-          <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center overflow-hidden">
-            {/* Replace with actual avatar */}
-            <FiUsers className="text-gray-600" />
+          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+            <UserCircle className="text-gray-600" />
           </div>
           {isExpanded && (
             <div className="ml-3">
-              <p className="text-sm font-medium text-gray-700">Admin User</p>
-              <p className="text-xs text-gray-500">admin@raeesmalls.com</p>
+              <p className="text-sm font-medium text-gray-700">{admin?.name || 'Admin'}</p>
+              <p className="text-xs text-gray-500">{admin?.email || 'N/A'}</p>
             </div>
           )}
         </div>
