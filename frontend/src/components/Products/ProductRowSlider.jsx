@@ -1,19 +1,17 @@
 /* eslint-disable no-undef */
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import { Helmet } from 'react-helmet';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ProductContext } from '../../context/ProductContext';
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
-import { productService } from '../../services/productAPI';
 
 function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
-  const [products, setProducts] = useState([]);
+  const { products, loading, error, fetchProducts } = useContext(ProductContext);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [visibleItems, setVisibleItems] = useState(4);
   const carouselRef = useRef(null);
   const intervalRef = useRef(null);
@@ -28,32 +26,13 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     return 4;
   }, []);
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = {
-        limit: 12,
-        page: 1,
-        ...(isFeatured && { isFeatured: true }),
-        ...(categoryId && { category: categoryId }),
-      };
-      const response = await productService.getProducts(params);
-      setProducts(response.data);
-    } catch (err) {
-      setError(
-        err.message.includes('Network Error')
-          ? 'Unable to connect to the server. Please check your network or try again later.'
-          : `Failed to load products: ${err.message}`
-      );
-      console.error("Error fetching products:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [isFeatured, categoryId]);
-
   const memoizedProducts = useMemo(() => {
-    return products.map((product) => ({
+    // Filter featured products client-side if isFeatured is true
+    const filteredProducts = isFeatured
+      ? (products || []).filter((product) => product.isFeatured === true)
+      : products || [];
+
+    return filteredProducts.map((product) => ({
       _id: product._id,
       title: product.title,
       price: product.price,
@@ -68,11 +47,14 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
     }));
-  }, [products]);
+  }, [products, isFeatured]);
 
   useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+    // Fetch only if no products are available for these parameters
+    if (!memoizedProducts.length && !loading && !error) {
+      fetchProducts(1, 12, categoryId || null, isFeatured);
+    }
+  }, [fetchProducts, categoryId, isFeatured, memoizedProducts.length, loading, error]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -146,7 +128,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         </div>
         <div className="text-center">
           <p className="text-red-600 mb-2">{error}</p>
-          <Button onClick={fetchProducts} variant="outline" className="mt-2">
+          <Button onClick={() => fetchProducts(1, 12, categoryId || null, isFeatured)} variant="outline" className="mt-2">
             Retry
           </Button>
         </div>

@@ -1,87 +1,99 @@
-import { createContext, useState, useEffect, useContext } from 'react';
-import { adminLogin, getAdminSession, adminLogout, adminChangePassword } from '../services/api';
-import { AuthContext } from '../context/AuthContext';
+import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
+import { adminLogin, adminLogout, getSession } from '../services/authServices';
+import socketService from '../services/socketService';
 
+// Create and export the context as a named export
 export const AdminAuthContext = createContext();
 
 export const AdminAuthProvider = ({ children }) => {
-  const authContext = useContext(AuthContext);
-  const user = authContext ? authContext.user : null;
   const [admin, setAdmin] = useState(null);
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const initializeAdminAuth = async () => {
-      const adminToken = localStorage.getItem('adminToken');
-      if (adminToken && !user) {
-        try {
-          const { data } = await getAdminSession();
-          setAdmin(data.user);
-          setIsAdminAuthenticated(true);
-        } catch (err) {
-          console.error('Admin session initialization failed:', err);
-          localStorage.removeItem('adminToken');
-        }
-      }
-      setLoading(false);
-    };
-    initializeAdminAuth();
-  }, [user]);
+    let isMounted = true;
+    const adminToken = localStorage.getItem('adminToken');
 
-  const loginAdmin = async (credentials) => {
-    try {
-      const { data } = await adminLogin(credentials);
-      console.log('adminLogin response:', data);
-      console.log('adminLogin response.data:', data.data);
-      const token = data.data?.user?.token || data.data?.token || data.user?.token || data.token;
-      if (!token) {
-        throw new Error('No token found in response. Expected token in data.user.token or data.token.');
+    const initializeAuth = async () => {
+      if (!adminToken) {
+        if (isMounted) setLoading(false);
+        return;
       }
-      localStorage.setItem('adminToken', token);
-      const adminData = await getAdminSession();
-      setAdmin(adminData.data.user);
-      setIsAdminAuthenticated(true);
-      return { success: true };
+
+      try {
+        const adminData = await getSession();
+        if (isMounted) {
+          setAdmin(adminData);
+          socketService.connect(adminData._id, 'admin');
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err.message);
+          localStorage.removeItem('adminToken');
+          localStorage.removeItem('userId');
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    initializeAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const loginAdmin = async (email, password) => {
+    setLoading(true);
+    setError('');
+    try {
+      const adminData = await adminLogin(email, password);
+      setAdmin(adminData);
+      socketService.connect(adminData._id, 'admin');
+      return adminData;
     } catch (err) {
-      console.error('Admin login failed:', err);
-      return { success: false, error: err.response?.data?.message || err.message || 'Admin login failed' };
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
   const logoutAdmin = async () => {
+    setLoading(true);
     try {
       await adminLogout();
-      localStorage.removeItem('adminToken');
       setAdmin(null);
-      setIsAdminAuthenticated(false);
+      socketService.disconnect();
     } catch (err) {
-      console.error('Admin logout failed:', err);
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
-  const changeAdminPassword = async (passwordData) => {
-    try {
-      await adminChangePassword(passwordData);
-      return { success: true };
-    } catch (err) {
-      console.error('Admin password change failed:', err);
-      return { success: false, error: err.response?.data?.message || 'Password change failed' };
-    }
-  };
+  const contextValue = useMemo(() => ({
+    admin,
+    loading,
+    error,
+    isAdminAuthenticated: !!admin,
+    loginAdmin,
+    logoutAdmin
+  }), [admin, loading, error]);
 
   return (
-    <AdminAuthContext.Provider
-      value={{
-        admin,
-        isAdminAuthenticated,
-        loading,
-        loginAdmin,
-        logoutAdmin,
-        changeAdminPassword,
-      }}
-    >
+    <AdminAuthContext.Provider value={contextValue}>
       {children}
     </AdminAuthContext.Provider>
   );
+};
+
+export const useAdminAuth = () => {
+  const context = useContext(AdminAuthContext);
+  if (!context) {
+    throw new Error('useAdminAuth must be used within an AdminAuthProvider');
+  }
+  return context;
 };

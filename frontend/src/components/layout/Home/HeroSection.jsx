@@ -1,22 +1,40 @@
-import React, { useEffect, useState } from 'react';
-import { useSlider } from '../../../context/SliderContext';
+import React, { useState, useEffect } from 'react';
 import { useBanners } from '../../../context/BannerContext';
 import Airpods from "../../../assets/images/Airpods.webp";
 import banner1 from "../../../assets/images/banner1.avif";
 import banner2 from "../../../assets/images/banner2.avif";
-import HeroSlider from '../../shared/HeroSlider';
+
+// Dummy images for the slider
+import dummy1 from "../../../assets/images/electronics.webp";
+import dummy2 from "../../../assets/images/headphone1.webp";
+import dummy3 from "../../../assets/images/headphone.webp";
 
 function HeroSection() {
-  const { slides, loading: slidesLoading } = useSlider();
   const { banners, loading: bannersLoading } = useBanners();
+  const [currentSlide, setCurrentSlide] = useState(0);
   
+  // Dummy slider images data
+  const sliderImages = [
+    { src: dummy1, alt: "Summer Collection", title: "Summer Collection", subtitle: "Up to 50% off" },
+    { src: dummy2, alt: "New Arrivals", title: "New Arrivals", subtitle: "Discover the latest trends" },
+    { src: dummy3, alt: "Limited Offer", title: "Limited Time Offer", subtitle: "Don't miss out" }
+  ];
+
   // Default fallback images
   const defaultImages = {
     'hero-side-top': Airpods,
     'hero-side-bottom-left': banner1,
     'hero-side-bottom-right': banner2
   };
-  
+
+  // Auto slide change
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % sliderImages.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [sliderImages.length]);
+
   // Function to get banner by position with fallback
   const getBannerByPosition = (position) => {
     if (!banners || banners.length === 0) return null;
@@ -27,7 +45,42 @@ function HeroSection() {
     <section className='px-6 my-3 pb-5 w-full h-[80vh] flex flex-col md:flex-row items-center justify-between gap-5'>
       {/* Main Slider Section */}
       <div className='w-full md:w-[65%] h-full relative rounded-xl overflow-hidden'>
-        <HeroSlider />
+        <div className="relative w-full h-full">
+          {sliderImages.map((slide, index) => (
+            <div
+              key={index}
+              className={`absolute inset-0 transition-opacity duration-1000 ${
+                index === currentSlide ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              <img
+                src={slide.src}
+                alt={slide.alt}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute bottom-10 left-10 text-white">
+                <h2 className="text-3xl font-bold mb-2">{slide.title}</h2>
+                <p className="text-xl mb-4">{slide.subtitle}</p>
+                <button className="px-6 py-2 bg-white text-black rounded-md hover:bg-opacity-90 transition">
+                  Shop Now
+                </button>
+              </div>
+            </div>
+          ))}
+          {/* Slider indicators */}
+          <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2">
+            {sliderImages.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => setCurrentSlide(index)}
+                className={`w-3 h-3 rounded-full ${
+                  index === currentSlide ? 'bg-white' : 'bg-white bg-opacity-50'
+                }`}
+                aria-label={`Go to slide ${index + 1}`}
+              />
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Side Banner Section */}

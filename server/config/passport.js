@@ -55,3 +55,29 @@ module.exports = function (passport) {
     }
   });
 };
+
+// Add caching with TTL
+const userCache = new Map();
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    // Check cache first
+    if (userCache.has(id)) {
+      console.log('Returning cached user');
+      return done(null, userCache.get(id));
+    }
+
+    const user = await User.findById(id).select('-password');
+    if (!user) return done(null, false);
+
+    // Cache for 5 minutes
+    userCache.set(id, user);
+    setTimeout(() => userCache.delete(id), 300000);
+
+    console.log('Deserialized and cached user:', user.email);
+    done(null, user);
+  } catch (err) {
+    console.error('Deserialize error:', err);
+    done(err);
+  }
+});

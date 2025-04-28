@@ -1,18 +1,19 @@
-/* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { categoryService } from '../../services/categoryAPI';
 import { toast } from 'react-toastify';
-import { FiPlus, FiTrash2, FiEdit2 } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiEdit2, FiX, FiImage } from 'react-icons/fi';
 import Button from '../../components/core/Button';
 import Input from '../../components/core/Input';
 import CategorySelector from '../../admin/pages/CategorySelector';
+import ImagePreview from '../../components/core/ImagePreview';
 
 const CategoryManager = () => {
   const [categories, setCategories] = useState([]);
   const [editCategory, setEditCategory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
@@ -20,21 +21,19 @@ const CategoryManager = () => {
     formState: { errors },
     reset,
     setValue,
+    watch,
   } = useForm({
     defaultValues: {
       name: '',
+      slug: '',
       description: '',
-      seo: {
-        title: '',
-        description: '',
-        slug: '',
-      },
       parentCategories: [],
     },
   });
 
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
+  const [isImageRemoved, setIsImageRemoved] = useState(false);
 
   // Fetch categories
   const fetchCategories = useCallback(async () => {
@@ -66,8 +65,20 @@ const CategoryManager = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Validate image
+      const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      if (!validTypes.includes(file.type)) {
+        toast.error('Only JPEG, PNG, and WebP images are allowed');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) { // 5MB
+        toast.error('Image size must be less than 5MB');
+        return;
+      }
+
       setImageFile(file);
       setImagePreview(URL.createObjectURL(file));
+      setIsImageRemoved(false);
     }
   };
 
@@ -75,75 +86,100 @@ const CategoryManager = () => {
   const clearImage = () => {
     setImageFile(null);
     setImagePreview('');
+    setIsImageRemoved(true);
   };
+
+  // Generate slug from name
+  const generateSlug = (name) => {
+    return name
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/[\s_-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  };
+
+  // Watch name changes to auto-generate slug
+  const nameValue = watch('name');
+  useEffect(() => {
+    if (nameValue && !editCategory) {
+      setValue('slug', generateSlug(nameValue));
+    }
+  }, [nameValue, setValue, editCategory]);
 
   // Handle form submission
   const onSubmit = async (data) => {
+    setIsSubmitting(true);
     try {
       const formData = new FormData();
       formData.append('name', data.name);
+      formData.append('slug', data.slug);
       if (data.description) formData.append('description', data.description);
-      if (data.seo.title) formData.append('seo.title', data.seo.title);
-      if (data.seo.description) formData.append('seo.description', data.seo.description);
-      if (data.seo.slug) formData.append('seo.slug', data.seo.slug);
+      
+      // Handle parent categories
       data.parentCategories.forEach(parent => {
-        formData.append('parents', parent._id);
+        formData.append('parentId', parent._id);
       });
+
+      // Handle image
       if (imageFile) {
         formData.append('image', imageFile);
+      } else if (isImageRemoved && editCategory?.image) {
+        formData.append('removeImage', 'true');
       }
 
       let response;
       if (editCategory) {
         response = await categoryService.updateCategory(editCategory._id, formData);
-        if (response.success) {
-          setCategories(prev =>
-            prev.map(cat => (cat._id === editCategory._id ? response.data : cat))
-          );
-          toast.success(response.message);
-        }
       } else {
         response = await categoryService.createCategory(formData);
-        if (response.success) {
-          setCategories(prev => [...prev, response.data]);
-          toast.success(response.message);
-        }
       }
 
       if (response.success) {
-        reset();
-        setImageFile(null);
-        setImagePreview('');
-        setEditCategory(null);
+        toast.success(response.message);
+        await fetchCategories();
+        resetForm();
       } else {
         throw new Error(response.message);
       }
     } catch (err) {
       toast.error(err.message || 'Failed to save category');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  // Reset form
+  const resetForm = () => {
+    reset();
+    setImageFile(null);
+    setImagePreview('');
+    setEditCategory(null);
+    setIsImageRemoved(false);
   };
 
   // Handle edit category
   const handleEditCategory = useCallback((category) => {
     setEditCategory(category);
     setValue('name', category.name);
+    setValue('slug', category.slug);
     setValue('description', category.description || '');
-    setValue('seo.title', category.seo?.title || '');
-    setValue('seo.description', category.seo?.description || '');
-    setValue('seo.slug', category.seo?.slug || '');
-    setValue('parentCategories', category.parents || []);
+    setValue('parentCategories', category.parentId ? [{ _id: category.parentId }] : []);
     setImageFile(null);
-    setImagePreview(category.image?.url || '');
+    setImagePreview(category.image || '');
+    setIsImageRemoved(false);
   }, [setValue]);
 
   // Handle delete category
   const handleDeleteCategory = async (id) => {
-    if (window.confirm('Are you sure you want to delete this category?')) {
+    if (window.confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
       try {
         const response = await categoryService.deleteCategory(id);
         if (response.success) {
           setCategories(prev => prev.filter(cat => cat._id !== id));
           toast.success(response.message);
+          if (editCategory?._id === id) {
+            resetForm();
+          }
         } else {
           throw new Error(response.message);
         }
@@ -153,37 +189,40 @@ const CategoryManager = () => {
     }
   };
 
-  // Memoized image preview section
-  const ImagePreviewSection = useMemo(() => (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Category Image (Optional)</label>
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleImageChange}
-        className="w-full p-2 border rounded"
-      />
-      {imagePreview && (
-        <div className="mt-2 relative">
-          <img
-            src={imagePreview}
-            alt="Preview"
-            className="h-32 object-contain border rounded"
-          />
-          <button
-            type="button"
-            onClick={clearImage}
-            className="absolute top-1 right-1 p-1 bg-red-500 rounded-full text-white"
-          >
-            <FiTrash2 className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-    </div>
-  ), [imagePreview]);
+  // Memoized categories excluding current edit category and its children
+  const availableParentCategories = useMemo(() => {
+    if (!editCategory) return categories;
+    
+    // Filter out current category and its descendants
+    const filterOutDescendants = (categoryId, allCategories) => {
+      const descendants = new Set();
+      const queue = [categoryId];
+      
+      while (queue.length > 0) {
+        const currentId = queue.pop();
+        const children = allCategories.filter(cat => cat.parentId === currentId);
+        
+        children.forEach(child => {
+          descendants.add(child._id);
+          queue.push(child._id);
+        });
+      }
+      
+      return descendants;
+    };
+    
+    const descendants = filterOutDescendants(editCategory._id, categories);
+    return categories.filter(cat => 
+      cat._id !== editCategory._id && !descendants.has(cat._id)
+    );
+  }, [categories, editCategory]);
 
   if (loading) {
-    return <div className="p-4 text-gray-600">Loading categories...</div>;
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-500"></div>
+      </div>
+    );
   }
 
   if (error) {
@@ -202,9 +241,9 @@ const CategoryManager = () => {
       <h1 className="text-2xl font-bold text-gray-800 mb-6">Category Management</h1>
 
       {/* Add/Edit Category Form */}
-      <form onSubmit={handleSubmit(onSubmit)} className="mb-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
+      <form onSubmit={handleSubmit(onSubmit)} className="mb-8 bg-white rounded-lg shadow p-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
             <Input
               label="Category Name*"
               {...register('name', {
@@ -217,162 +256,208 @@ const CategoryManager = () => {
             {errors.name && (
               <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
             )}
-          </div>
-          <div>
+
+            <Input
+              label="URL Slug*"
+              {...register('slug', {
+                required: 'Slug is required',
+                pattern: {
+                  value: /^[a-z0-9-]+$/,
+                  message: 'Slug can only contain lowercase letters, numbers, and hyphens',
+                },
+              })}
+              placeholder="Enter URL slug"
+            />
+            {errors.slug && (
+              <p className="mt-1 text-sm text-red-600">{errors.slug.message}</p>
+            )}
+
             <Input
               label="Description (Optional)"
               {...register('description', {
-                minLength: { value: 10, message: 'Description must be at least 10 characters' },
-                maxLength: { value: 1000, message: 'Description cannot exceed 1000 characters' },
+                maxLength: { value: 500, message: 'Description cannot exceed 500 characters' },
               })}
               as="textarea"
-              rows={2}
+              rows={3}
               placeholder="Enter category description"
             />
             {errors.description && (
               <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
             )}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Parent Categories (Optional)</label>
-            <CategorySelector
-              selected={editCategory?.parents || []}
-              onChange={handleParentCategoriesChange}
-              categories={categories.filter(cat => !editCategory || cat._id !== editCategory._id)}
-              placeholder="Select parent categories..."
-              maxSelections={3}
-            />
-            {errors.parentCategories && (
-              <p className="mt-1 text-sm text-red-600">{errors.parentCategories.message}</p>
-            )}
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Parent Category (Optional)
+              </label>
+              <CategorySelector
+                selected={watch('parentCategories') || []}
+                onChange={handleParentCategoriesChange}
+                categories={availableParentCategories}
+                placeholder="Select parent category..."
+                maxSelections={1} // Only allow one parent
+                showImages={true}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Category Image (Optional)
+              </label>
+              <div className="mt-1 flex items-center">
+                <label className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                  <FiImage className="inline mr-2" />
+                  {imageFile ? 'Change Image' : 'Upload Image'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                </label>
+                {(imagePreview || (editCategory?.image && !isImageRemoved)) && (
+                  <button
+                    type="button"
+                    onClick={clearImage}
+                    className="ml-2 p-1 text-red-600 hover:text-red-800"
+                    title="Remove image"
+                  >
+                    <FiX className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Recommended size: 600x400px (Max 5MB)
+              </p>
+
+              {(imagePreview || (editCategory?.image && !isImageRemoved)) && (
+                <div className="mt-3">
+                  <ImagePreview 
+                    src={imagePreview || editCategory?.image} 
+                    alt="Category preview"
+                    className="h-40 w-full object-contain border rounded"
+                  />
+                </div>
+              )}
+            </div>
           </div>
-          <div>
-            <Input
-              label="SEO Title (Optional)"
-              {...register('seo.title', {
-                maxLength: { value: 60, message: 'SEO title cannot exceed 60 characters' },
-              })}
-              placeholder="Enter SEO title"
-            />
-            {errors.seo?.title && (
-              <p className="mt-1 text-sm text-red-600">{errors.seo.title.message}</p>
-            )}
-          </div>
-          <div>
-            <Input
-              label="SEO Description (Optional)"
-              {...register('seo.description', {
-                maxLength: { value: 160, message: 'SEO description cannot exceed 160 characters' },
-              })}
-              as="textarea"
-              rows={2}
-              placeholder="Enter SEO description"
-            />
-            {errors.seo?.description && (
-              <p className="mt-1 text-sm text-red-600">{errors.seo.description.message}</p>
-            )}
-          </div>
-          <div>
-            <Input
-              label="SEO Slug (Optional)"
-              {...register('seo.slug', {
-                pattern: {
-                  value: /^[a-z0-9-]+$/,
-                  message: 'SEO slug can only contain lowercase letters, numbers, and hyphens',
-                },
-              })}
-              placeholder="Enter SEO slug"
-            />
-            {errors.seo?.slug && (
-              <p className="mt-1 text-sm text-red-600">{errors.seo.slug.message}</p>
-            )}
-          </div>
-          {ImagePreviewSection}
         </div>
-        <div className="flex space-x-2">
-          <Button type="submit" className="flex items-center">
-            <FiPlus className="mr-2" /> {editCategory ? 'Update Category' : 'Add Category'}
+
+        <div className="mt-6 flex space-x-3">
+          <Button 
+            type="submit" 
+            isLoading={isSubmitting}
+            className="flex items-center"
+          >
+            {editCategory ? (
+              <>
+                <FiEdit2 className="mr-2" /> Update Category
+              </>
+            ) : (
+              <>
+                <FiPlus className="mr-2" /> Add Category
+              </>
+            )}
           </Button>
           {editCategory && (
-            <Button type="button" onClick={() => {
-              reset();
-              setImageFile(null);
-              setImagePreview('');
-              setEditCategory(null);
-            }} variant="outline">
-              Cancel Edit
+            <Button 
+              type="button" 
+              onClick={resetForm}
+              variant="outline"
+              disabled={isSubmitting}
+            >
+              Cancel
             </Button>
           )}
         </div>
       </form>
 
       {/* Category List */}
-      {categories.length === 0 ? (
-        <p className="text-gray-500">No categories found. Add one above!</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full bg-white border border-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parents</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Image</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {categories.map((category) => (
-                <tr key={category._id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{category.name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {category.parents?.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {category.parents.map(parent => (
-                          <span key={parent._id} className="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
-                            {parent.name}
-                          </span>
-                        ))}
-                      </div>
-                    ) : '—'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{category.description || 'N/A'}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {category.image?.url ? (
-                      <img
-                        src={category.image.url}
-                        alt={category.image.alt || category.name}
-                        className="h-16 object-cover"
-                        onError={(e) => (e.target.src = '/placeholder-category.png')}
-                      />
-                    ) : (
-                      'No Image'
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        onClick={() => handleEditCategory(category)}
-                        className="text-indigo-600 hover:text-indigo-900"
-                        title="Edit"
-                      >
-                        <FiEdit2 className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCategory(category._id)}
-                        className="text-red-600 hover:text-red-900"
-                        title="Delete"
-                      >
-                        <FiTrash2 className="h-5 w-5" />
-                      </button>
-                    </div>
-                  </td>
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        {categories.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            No categories found. Add one above!
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Category
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Parent
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Description
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {categories.map((category) => (
+                  <tr key={category._id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        {category.image && (
+                          <div className="flex-shrink-0 h-10 w-10 mr-3">
+                            <img
+                              className="h-10 w-10 rounded object-cover"
+                              src={category.image}
+                              alt={category.name}
+                              onError={(e) => {
+                                e.target.src = '/placeholder-category.png';
+                              }}
+                            />
+                          </div>
+                        )}
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{category.name}</div>
+                          <div className="text-sm text-gray-500">{category.slug}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {category.parentId ? (
+                          categories.find(c => c._id === category.parentId)?.name || 'N/A'
+                        ) : '—'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-500 line-clamp-2">
+                        {category.description || 'N/A'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          onClick={() => handleEditCategory(category)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Edit"
+                        >
+                          <FiEdit2 className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCategory(category._id)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Delete"
+                        >
+                          <FiTrash2 className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

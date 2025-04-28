@@ -1,80 +1,106 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
+import { getBanners } from '../services/bannerService';
 
-const BannerContext = createContext();
+export const BannerContext = createContext();
 
 export const BannerProvider = ({ children }) => {
   const [banners, setBanners] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
 
-  const fetchBanners = async () => {
+  const fetchBanners = useCallback(async () => {
+    const cacheKey = 'banners';
+    const now = Date.now();
+    
+    // Safely retrieve cached data
+    let cachedData = null;
+    let cachedTimestamp = null;
+    
     try {
-      setLoading(true);
-      const { data } = await axios.get('/api/banners');
-      setBanners(data.data);
+      const cachedStr = localStorage.getItem(cacheKey);
+      if (cachedStr) {
+        cachedData = JSON.parse(cachedStr);
+      }
+      
+      const timestampStr = localStorage.getItem(`${cacheKey}_timestamp`);
+      if (timestampStr) {
+        cachedTimestamp = parseInt(timestampStr);
+      }
+    } catch (cacheErr) {
+      console.warn('Banner cache read error:', cacheErr);
+    }
+
+    // Use cache if less than 1 hour old
+    if (cachedData && cachedTimestamp && now - cachedTimestamp < 3600000) {
+      setBanners(cachedData);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const bannerData = await getBanners();
+      
+      // Ensure banner data is an array
+      const validBannerData = Array.isArray(bannerData) ? bannerData : [];
+      
+      setBanners(validBannerData);
+      
+      // Update cache safely
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(validBannerData));
+        localStorage.setItem(`${cacheKey}_timestamp`, now.toString());
+      } catch (cacheErr) {
+        console.warn('Banner cache write error:', cacheErr);
+      }
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.message || 'Failed to fetch banners');
+      // Fallback to cache if available
+      if (cachedData) {
+        setBanners(cachedData);
+      }
     } finally {
       setLoading(false);
     }
-  };
-
-  const createBanner = async (formData) => {
-    try {
-      const { data } = await axios.post('/api/banners', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      await fetchBanners();
-      return { success: true, data: data.data };
-    } catch (err) {
-      return { success: false, error: err.response?.data?.error || err.message };
-    }
-  };
-
-  const updateBanner = async (id, formData) => {
-    try {
-      const { data } = await axios.put(`/api/banners/${id}`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-      await fetchBanners();
-      return { success: true, data: data.data };
-    } catch (err) {
-      return { success: false, error: err.response?.data?.error || err.message };
-    }
-  };
-
-  const deleteBanner = async (id) => {
-    try {
-      await axios.delete(`/api/banners/${id}`);
-      await fetchBanners();
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err.response?.data?.error || err.message };
-    }
-  };
-
-  useEffect(() => {
-    fetchBanners();
   }, []);
 
-  return (
-    <BannerContext.Provider value={{ 
-      banners, 
-      loading, 
-      error, 
-      createBanner, 
-      updateBanner, 
-      deleteBanner,
-      fetchBanners
-    }}>
-      {children}
-    </BannerContext.Provider>
-  );
+  // Effect to fetch banners on mount
+  useEffect(() => {
+    fetchBanners();
+  }, [fetchBanners]);
+  
+  // Effect to clean up stale cache on mount
+  useEffect(() => {
+    try {
+      const now = Date.now();
+      const timestampStr = localStorage.getItem('banners_timestamp');
+      if (timestampStr) {
+        const timestamp = parseInt(timestampStr);
+        if (now - timestamp > 86400000) { // 24 hours
+          localStorage.removeItem('banners');
+          localStorage.removeItem('banners_timestamp');
+        }
+      }
+    } catch (err) {
+      console.warn('Banner cache cleanup error:', err);
+    }
+  }, []);
+
+  const value = useMemo(() => ({
+    banners,
+    loading,
+    error,
+    refreshBanners: fetchBanners // Export the refresh function for manual updates
+  }), [banners, loading, error, fetchBanners]);
+
+  return <BannerContext.Provider value={value}>{children}</BannerContext.Provider>;
 };
 
-export const useBanners = () => useContext(BannerContext);
+export const useBanners = () => {
+  const context = useContext(BannerContext);
+  if (!context) {
+    throw new Error('useBanners must be used within a BannerProvider');
+  }
+  return context;
+};

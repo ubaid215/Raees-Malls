@@ -1,0 +1,2 @@
+{"level":"debug","message":"Passport verifying email: admin@example.com","timestamp":"2025-04-27T20:16:11.170Z"}
+{"level":"info","message":"User authenticated: admin@example.com Role: admin","timestamp":"2025-04-27T20:16:12.207Z"}

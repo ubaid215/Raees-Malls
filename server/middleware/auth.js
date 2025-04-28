@@ -3,10 +3,11 @@ const ApiResponse = require('../utils/apiResponse');
 
 // JWT Authentication
 exports.authenticateJWT = (req, res, next) => {
+  if (req.isAuthenticated()) return next(); 
+  
   const token = req.header('Authorization')?.replace('Bearer ', '') || req.cookies?.token;
-  if (!token) {
-    return ApiResponse.error(res, 401, 'Authentication required');
-  }
+  if (!token) return ApiResponse.error(res, 401, 'Authentication required');
+
   try {
     const decoded = jwtService.verifyAccessToken(token);
     req.user = decoded;

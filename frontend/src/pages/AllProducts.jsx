@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext';
 import { useCartWishlist } from '../context/CartWishlistContext';
 import Button from '../components/core/Button';
 import LoadingSkeleton from '../components/shared/LoadingSkelaton';
 import { toast } from 'react-toastify';
-import { productService } from '../services/productAPI';
-import { categoryService } from '../services/categoryAPI';
-import { addToCart } from '../services/api';
+import { getProducts } from '../services/productService';
+import { getCategories } from '../services/categoryService';
+import { getCart } from '../services/cartService';
 import ProductCard from '../components/Products/ProductCard';
 
 function AllProducts() {
@@ -19,17 +19,13 @@ function AllProducts() {
   const [error, setError] = useState(null);
   const [pagination, setPagination] = useState({ page: 1, limit: 12, pages: 1 });
   const navigate = useNavigate();
-  const { user } = useContext(AuthContext);
+  const { user } = useAuth();
   const { addToCart: addToCartContext } = useCartWishlist();
 
   const fetchCategories = useCallback(async () => {
     try {
-      const response = await categoryService.getAllPublicCategories();
-      if (response.success) {
-        setCategories([{ _id: 'all', name: 'All Categories', slug: 'all' }, ...response.data]);
-      } else {
-        throw new Error(response.message || 'Failed to fetch categories');
-      }
+      const categoriesData = await getCategories();
+      setCategories([{ _id: 'all', name: 'All Categories', slug: 'all' }, ...categoriesData]);
     } catch (err) {
       setError(err.message || 'Failed to fetch categories');
       toast.error(err.message || 'Failed to fetch categories');
@@ -39,21 +35,18 @@ function AllProducts() {
   const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await productService.getAllPublicProducts({
-        page: pagination.page,
-        limit: pagination.limit,
-        category: selectedCategory !== 'all' ? selectedCategory : undefined,
-      });
-      if (response.success) {
-        setProducts(response.data);
-        setPagination({
-          page: pagination.page,
-          limit: pagination.limit,
-          pages: response.pages || 1,
-        });
-      } else {
-        throw new Error(response.message || 'Failed to load products');
-      }
+      const productsData = await getProducts(
+        pagination.page,
+        pagination.limit,
+        selectedCategory !== 'all' ? selectedCategory : null
+      );
+      setProducts(productsData);
+      // Assuming the API returns total pages information somehow
+      // If not, you'll need to adjust this logic
+      setPagination(prev => ({
+        ...prev,
+        pages: Math.ceil(productsData.length / pagination.limit) || 1,
+      }));
     } catch (err) {
       setError(err.message || 'Failed to load products');
       toast.error(err.message || 'Failed to load products');

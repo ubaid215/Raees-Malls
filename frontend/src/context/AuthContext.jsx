@@ -1,206 +1,142 @@
-/* eslint-disable no-unused-vars */
-import { createContext, useState, useEffect, useCallback } from 'react';
-import { 
-  login, 
-  register, 
-  logout, 
-  getMe, 
-  refreshToken 
-} from '../services/api';
-import { useNavigate } from 'react-router-dom';
+import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
+import { login, register, logout, refreshToken, getMe } from '../services/authServices';
+import socketService from '../services/socketService';
 
-export const AuthContext = createContext();
+// Create context separately for better Fast Refresh support
+const AuthContext = createContext();
 
-export const AuthProvider = ({ children }) => {
+// Create a separate provider component
+const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const navigate = useNavigate();
+  const [error, setError] = useState('');
 
-  // Secure storage abstraction
-  const secureStorage = {
-    get: (key) => {
-      try {
-        return localStorage.getItem(key);
-      } catch (error) {
-        console.error('Storage access error:', error);
-        return null;
-      }
-    },
-    set: (key, value) => {
-      try {
-        localStorage.setItem(key, value);
-      } catch (error) {
-        console.error('Storage access error:', error);
-      }
-    },
-    remove: (key) => {
-      try {
-        localStorage.removeItem(key);
-      } catch (error) {
-        console.error('Storage access error:', error);
-      }
-    },
-    clear: () => {
-      try {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-      } catch (error) {
-        console.error('Storage access error:', error);
-      }
-    }
-  };
-
-  // Store tokens from response
-  const storeTokens = (data) => {
-    if (data.accessToken) {
-      secureStorage.set('accessToken', data.accessToken);
-    }
-    if (data.refreshToken) {
-      secureStorage.set('refreshToken', data.refreshToken);
-    }
-  };
-
-  // Clear all auth data
-  const clearAuthData = () => {
-    secureStorage.clear();
-    setUser(null);
-    setIsAuthenticated(false);
-    setError(null);
-  };
-
-  // Fetch and set user data
-  const fetchUser = useCallback(async () => {
-    try {
-      const { data } = await getMe();
-      setUser(data.user);
-      setIsAuthenticated(true);
-      setError(null);
-      return data.user;
-    } catch (err) {
-      clearAuthData();
-      throw err;
-    }
-  }, []);
-
-  // Check for existing session on mount
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    const userId = localStorage.getItem('userId');
+    
     const initializeAuth = async () => {
-      const accessToken = secureStorage.get('accessToken');
-      
-      if (!accessToken) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        await fetchUser();
-      } catch (err) {
-        // Attempt token refresh if access token is invalid
-        const refreshToken = secureStorage.get('refreshToken');
-        if (refreshToken) {
-          try {
-            const { data } = await refreshToken({ refreshToken });
-            storeTokens(data);
-            await fetchUser();
-          } catch (refreshError) {
-            console.error('Token refresh failed:', refreshError);
-            clearAuthData();
-          }
+      if (token && userId) {
+        try {
+          const userData = await getMe();
+          setUser(userData);
+          socketService.connect(userId);
+        } catch (err) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('userId');
+        } finally {
+          setLoading(false);
         }
-      } finally {
+      } else {
         setLoading(false);
       }
     };
 
     initializeAuth();
-  }, [fetchUser]);
 
-  // Handle user login
-  const loginUser = async (credentials) => {
+    return () => {
+      socketService.disconnect();
+    };
+  }, []);
+
+  const loginUser = async (email, password) => {
     setLoading(true);
+    setError('');
     try {
-      const { data } = await login(credentials);
-      storeTokens(data.tokens);
-      await fetchUser();
-      return { success: true };
+      const userData = await login(email, password);
+      setUser(userData);
+      socketService.connect(userData._id || userData.id);
+      return userData;
     } catch (err) {
-      clearAuthData();
-      const errorMessage = err.response?.data?.message || 'Login failed';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
+      setError(err.message);
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle user registration
-  const registerUser = async (userData) => {
+  const registerUser = async (name, email, password) => {
     setLoading(true);
+    setError('');
     try {
-      const { data } = await register(userData);
-      storeTokens(data.tokens);
-      await fetchUser();
-      return { success: true };
+      const userData = await register(name, email, password);
+      setUser(userData);
+      // Connect socket in a try-catch to avoid blocking
+      try {
+        const userId = userData._id || userData.id;
+        if (userId) {
+          socketService.connect(userId);
+        } else {
+          console.warn('User ID not found for socket connection');
+        }
+      } catch (socketError) {
+        console.error('Socket connection failed:', socketError);
+      }
+      return userData;
     } catch (err) {
-      clearAuthData();
-      const errorMessage = err.response?.data?.message || 'Registration failed';
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
+      setError(err.message);
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle logout
   const logoutUser = async () => {
     setLoading(true);
+    setError('');
     try {
       await logout();
-      clearAuthData();
-      navigate('/login');
+      setUser(null);
+      socketService.disconnect();
     } catch (err) {
-      console.error('Logout failed:', err);
-      clearAuthData(); // Force clear even if logout API fails
-      navigate('/login');
+      setError(err.message);
+      throw err;
     } finally {
       setLoading(false);
     }
   };
 
-  // Refresh token
   const refreshUserToken = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const refreshToken = secureStorage.get('refreshToken');
-      if (!refreshToken) {
-        throw new Error('No refresh token available');
-      }
-
-      const { data } = await refreshToken({ refreshToken });
-      storeTokens(data);
-      await fetchUser();
-      return data.accessToken;
+      const userData = await refreshToken();
+      setUser(userData);
+      return userData;
     } catch (err) {
-      console.error('Token refresh failed:', err);
-      clearAuthData();
-      navigate('/login');
+      setError(err.message);
       throw err;
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Value to provide to consumers
-  const contextValue = {
+  const getUserDetails = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const userData = await getMe();
+      setUser(userData);
+      return userData;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const contextValue = useMemo(() => ({
     user,
-    isAuthenticated,
     loading,
     error,
+    isAuthenticated: !!user,
     loginUser,
     registerUser,
     logoutUser,
     refreshUserToken,
-    clearError: () => setError(null)
-  };
+    getUserDetails
+  }), [user, loading, error]);
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -208,3 +144,16 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
+// Create custom hook separately
+const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+// Named exports for better Fast Refresh support
+export { AuthProvider, useAuth };
+export default AuthContext;

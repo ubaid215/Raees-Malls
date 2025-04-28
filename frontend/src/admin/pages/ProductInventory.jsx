@@ -9,6 +9,7 @@ import LoadingSpinner from "../../components/core/LoadingSpinner";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
 import { productService } from "../../services/productAPI";
 import { categoryService } from "../../services/categoryAPI";
+import { socketService } from "../../services/socketService";
 
 const ProductModal = lazy(() => import("../../pages/ProductModal"));
 
@@ -21,11 +22,11 @@ const ProductInventory = memo(() => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
-  const [categoryMap, setCategoryMap] = useState({}); // Cache category names
+  const [categoryMap, setCategoryMap] = useState({});
 
   const PRODUCTS_PER_PAGE = 10;
 
-  // Fetch categories to map _id to name if not populated
+  // Fetch categories
   const loadCategories = useCallback(async () => {
     try {
       const response = await categoryService.getAllCategories();
@@ -70,21 +71,19 @@ const ProductInventory = memo(() => {
     }
   }, [currentPage, searchTerm]);
 
-  // Handle product added event
+  // Handle product added via Socket.IO
   useEffect(() => {
-    const handleProductAdded = () => {
-      setCurrentPage(1); // Reset to first page to show new product
-      loadProducts();
-    };
-    window.addEventListener('productAdded', handleProductAdded);
-    return () => window.removeEventListener('productAdded', handleProductAdded);
-  }, [loadProducts]);
+    socketService.on('productAdded', (newProduct) => {
+      setProducts((prev) => [newProduct, ...prev].slice(0, PRODUCTS_PER_PAGE));
+    });
+    return () => socketService.off('productAdded');
+  }, []);
 
   const handleDelete = useCallback(async (productId) => {
     if (window.confirm("Are you sure you want to delete this product?")) {
       try {
         await productService.deleteProduct(productId);
-        loadProducts();
+        setProducts((prev) => prev.filter((p) => p._id !== productId));
       } catch (err) {
         setError(
           err.message.includes('Network Error')
@@ -94,7 +93,7 @@ const ProductInventory = memo(() => {
         console.error('Error deleting product:', err);
       }
     }
-  }, [loadProducts]);
+  }, []);
 
   useEffect(() => {
     loadCategories();
@@ -106,40 +105,32 @@ const ProductInventory = memo(() => {
       _id: product._id,
       title: product.title,
       price: product.price,
-      originalPrice: product.originalPrice || product.price,
-      discountPercentage:
-        product.originalPrice && product.originalPrice > product.price
-          ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
-          : 0,
+      originalPrice: product.discountPrice ? product.price : product.price,
+      discountPercentage: product.discountPrice
+        ? Math.round(((product.price - product.discountPrice) / product.price) * 100)
+        : 0,
       images: product.images?.map((img) =>
-        img.url ? img.url : `http://localhost:5000${img}`
+        img.url.startsWith('http') ? img.url : `http://localhost:5000${img.url}`
       ) || ['/placeholder-product.png'],
-      rating: product.rating ? parseFloat(product.rating) : 0,
+      rating: product.averageRating || 0,
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
       description: product.description || '',
-      categories: product.categories || [],
+      category: product.categoryId,
+      variants: product.variants || [],
     });
     setShowPreview(true);
   }, []);
 
-  // Map category IDs to names
-  const getCategoryNames = (categories) => {
-    if (!categories || categories.length === 0) return 'No categories';
-    // Handle populated categories (objects with name)
-    if (categories[0]?.name) {
-      return categories.map(cat => cat.name).join(', ');
-    }
-    // Handle unpopulated categories (array of _id)
-    return categories
-      .map(id => categoryMap[id] || 'Unknown')
-      .filter(name => name !== 'Unknown')
-      .join(', ') || 'No categories';
+  // Get category name
+  const getCategoryName = (categoryId) => {
+    if (!categoryId) return 'No category';
+    return categoryMap[categoryId._id || categoryId] || 'Unknown';
   };
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 text-red-600 rounded-lg mx-auto max-w-7xl">
+      <div className="p-4 bg-[#FFE6E8] text-[#E63946] rounded-lg mx-auto max-w-7xl">
         <p>{error}</p>
         <Button onClick={loadProducts} variant="outline" className="mt-2">
           Retry
@@ -155,7 +146,7 @@ const ProductInventory = memo(() => {
         <meta name="description" content="Manage your product inventory, add, edit, or delete products." />
       </Helmet>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-bold text-gray-800">Product Inventory</h1>
+        <h1 className="text-2xl font-bold text-[#E63946]">Product Inventory</h1>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           <Input
             placeholder="Search products..."
@@ -167,7 +158,9 @@ const ProductInventory = memo(() => {
             className="flex-1 min-w-[200px]"
           />
           <Link to="/admin/add-products">
-            <Button className="whitespace-nowrap">Add New Product</Button>
+            <Button className="whitespace-nowrap bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] border">
+              Add New Product
+            </Button>
           </Link>
         </div>
       </div>
@@ -182,7 +175,9 @@ const ProductInventory = memo(() => {
         <div className="text-center py-12">
           <p className="text-gray-500 text-lg">No products found</p>
           <Link to="/admin/add-products">
-            <Button className="mt-4">Create Your First Product</Button>
+            <Button className="mt-4 bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] border">
+              Create Your First Product
+            </Button>
           </Link>
         </div>
       ) : (
@@ -201,6 +196,9 @@ const ProductInventory = memo(() => {
                     Stock
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Variants
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -217,7 +215,7 @@ const ProductInventory = memo(() => {
                           {product.images && product.images[0] ? (
                             <img
                               className="h-10 w-10 rounded-full object-cover"
-                              src={product.images[0].url ? product.images[0].url : `http://localhost:5000${product.images[0]}`}
+                              src={product.images[0].url.startsWith('http') ? product.images[0].url : `http://localhost:5000${product.images[0].url}`}
                               alt={product.title || "Product image"}
                               onError={(e) => (e.target.src = "/placeholder-product.png")}
                             />
@@ -230,7 +228,7 @@ const ProductInventory = memo(() => {
                             {product.title}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {getCategoryNames(product.categories)}
+                            {getCategoryName(product.categoryId)}
                           </div>
                         </div>
                       </div>
@@ -241,12 +239,15 @@ const ProductInventory = memo(() => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {product.stock || 0}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {product.variants?.length || 0}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                           product.stock > 0
-                            ? "bg-green-100 text-green-800"
-                            : "bg-red-100 text-red-800"
+                            ? "bg-[#E6FFE6] text-[#008000]"
+                            : "bg-[#FFE6E8] text-[#E63946]"
                         }`}
                       >
                         {product.stock > 0 ? "In Stock" : "Out of Stock"}
@@ -273,7 +274,7 @@ const ProductInventory = memo(() => {
                         </Link>
                         <button
                           onClick={() => handleDelete(product._id)}
-                          className="text-red-600 hover:text-red-900"
+                          className="text-[#E63946] hover:text-[#B32D38]"
                           title="Delete"
                           aria-label={`Delete ${product.title}`}
                         >
@@ -293,6 +294,7 @@ const ProductInventory = memo(() => {
                 onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
                 variant="outline"
+                className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"
               >
                 Previous
               </Button>
@@ -305,6 +307,7 @@ const ProductInventory = memo(() => {
                 }
                 disabled={currentPage === totalPages}
                 variant="outline"
+                className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"
               >
                 Next
               </Button>

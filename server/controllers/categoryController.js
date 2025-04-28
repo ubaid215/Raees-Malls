@@ -3,17 +3,31 @@ const Product = require('../models/Product');
 const AuditLog = require('../models/AuditLog');
 const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
+const cloudinary = require('../config/cloudinary');
 
 // Create a new category (Admin only)
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, slug, description, parentId } = req.body;
+    let imageUrl = null;
+    let imagePublicId = null;
+
+    // Upload image to Cloudinary if provided
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'categories'
+      });
+      imageUrl = result.secure_url;
+      imagePublicId = result.public_id;
+    }
 
     const category = new Category({
       name,
       slug,
       description,
-      parentId: parentId || null
+      parentId: parentId || null,
+      image: imageUrl,
+      imagePublicId
     });
 
     await category.save();
@@ -32,6 +46,7 @@ exports.createCategory = async (req, res, next) => {
     next(error);
   }
 };
+
 
 // Get all categories for admin with pagination, sorting, and filtering (Admin only)
 exports.getAllCategories = async (req, res, next) => {
@@ -92,6 +107,21 @@ exports.updateCategory = async (req, res, next) => {
 
     const { name, slug, description, parentId } = req.body;
 
+    // Handle image update
+    if (req.file) {
+      // Delete old image if exists
+      if (category.imagePublicId) {
+        await cloudinary.uploader.destroy(category.imagePublicId);
+      }
+
+      // Upload new image
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'categories'
+      });
+      category.image = result.secure_url;
+      category.imagePublicId = result.public_id;
+    }
+
     category.name = name || category.name;
     category.slug = slug || category.slug;
     category.description = description || category.description;
@@ -114,6 +144,7 @@ exports.updateCategory = async (req, res, next) => {
   }
 };
 
+
 // Delete a category (Admin only)
 exports.deleteCategory = async (req, res, next) => {
   try {
@@ -134,6 +165,11 @@ exports.deleteCategory = async (req, res, next) => {
       throw new ApiError(400, 'Cannot delete category with associated products');
     }
 
+    // Delete image from Cloudinary if exists
+    if (category.imagePublicId) {
+      await cloudinary.uploader.destroy(category.imagePublicId);
+    }
+
     await category.deleteOne();
 
     // Log the action
@@ -150,6 +186,7 @@ exports.deleteCategory = async (req, res, next) => {
     next(error);
   }
 };
+
 
 // Get all categories for customers (Public)
 exports.getAllCategoriesForCustomers = async (req, res, next) => {

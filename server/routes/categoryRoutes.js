@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const categoryController = require('../controllers/categoryController');
 const { ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 const {
   createCategoryValidator,
   updateCategoryValidator,
@@ -15,6 +16,7 @@ const { getProductsForCustomersValidator } = require('../validation/productValid
 router.post('/',
   ensureAuthenticated,
   authorizeRoles('admin'),
+  upload.single('image'), // Add this middleware for file upload
   createCategoryValidator,
   categoryController.createCategory
 );
@@ -26,11 +28,13 @@ router.get('/',
   categoryController.getAllCategories
 );
 
-router.get('/:id',
+router.put('/:id',
   ensureAuthenticated,
   authorizeRoles('admin'),
+  upload.single('image'), // Add this middleware for file upload
   categoryIdValidator,
-  categoryController.getCategoryById
+  updateCategoryValidator,
+  categoryController.updateCategory
 );
 
 router.put('/:id',

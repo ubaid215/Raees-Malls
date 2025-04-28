@@ -2,12 +2,12 @@ import React, { memo } from 'react';
 import { CiShoppingCart } from 'react-icons/ci';
 import Button from '../core/Button';
 import { useNavigate } from 'react-router-dom';
-import { useCartWishlist } from '../../context/CartWishlistContext';
+import { useCart } from '../../context/CartContext'; // Changed to useCart
 import PropTypes from 'prop-types';
 
 const ProductCard = memo(({ product }) => {
   const navigate = useNavigate();
-  const { addToCart } = useCartWishlist();
+  const { addItemToCart } = useCart(); // Changed to useCart functions
 
   if (!product || !product._id || !product.title || !product.images?.length) {
     console.warn('Invalid product data:', product);
@@ -23,7 +23,7 @@ const ProductCard = memo(({ product }) => {
 
   const handleAddToCartClick = (e) => {
     e.stopPropagation();
-    addToCart(product);
+    addItemToCart(product._id); // Updated to match CartContext API
   };
 
   // Format price with PKR
