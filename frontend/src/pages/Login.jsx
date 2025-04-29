@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook, FaEye, FaEyeSlash } from 'react-icons/fa';
@@ -10,8 +10,10 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
+  const [isRateLimited, setIsRateLimited] = useState(false);
   const { loginUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Client-side validation
   const validateForm = () => {
@@ -36,19 +38,23 @@ const Login = () => {
     e.preventDefault();
     setErrors({});
     setLoading(true);
-
+  
     if (!validateForm()) {
       setLoading(false);
       return;
     }
-
+  
     try {
-      await loginUser(email, password);
-      navigate('/account');
+      await loginUser({ email, password });
+      const from = location.state?.from || '/account';
+      navigate(from, { replace: true });
     } catch (err) {
-      console.error('Login error:', err); // Debug log
-      // Handle specific backend errors
-      if (err.message.includes('Invalid email or password')) {
+      console.error('Login error:', err, err.response);
+      if (err.message.includes('Too many login attempts')) {
+        setIsRateLimited(true);
+        setErrors({ general: err.message });
+        setTimeout(() => setIsRateLimited(false), 30000); // 30-second lockout
+      } else if (err.message.includes('Invalid email or password')) {
         setErrors({ general: 'Invalid email or password' });
       } else if (err.message.includes('Validation failed')) {
         const backendErrors = err.message
@@ -73,6 +79,15 @@ const Login = () => {
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
   };
+
+  // Prevent rapid resubmissions
+  useEffect(() => {
+    let timer;
+    if (isRateLimited) {
+      timer = setTimeout(() => setIsRateLimited(false), 30000);
+    }
+    return () => clearTimeout(timer);
+  }, [isRateLimited]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center p-4">
@@ -120,6 +135,7 @@ const Login = () => {
                   errors.email ? 'border-red-300' : 'border-gray-300'
                 } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition`}
                 placeholder="Enter your email"
+                disabled={isRateLimited}
               />
               {errors.email && (
                 <p className="mt-1 text-sm text-red-600">{errors.email}</p>
@@ -140,12 +156,14 @@ const Login = () => {
                   errors.password ? 'border-red-300' : 'border-gray-300'
                 } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition pr-12`}
                 placeholder="Enter your password"
+                disabled={isRateLimited}
               />
               <button
                 type="button"
                 onClick={togglePasswordVisibility}
                 className="absolute right-3 top-10 text-gray-400 hover:text-indigo-600 transition"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
+                disabled={isRateLimited}
               >
                 {showPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
               </button>
@@ -162,9 +180,9 @@ const Login = () => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || isRateLimited}
               className={`w-full py-3 px-4 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition duration-200 flex items-center justify-center ${
-                loading ? 'opacity-70 cursor-not-allowed' : ''
+                loading || isRateLimited ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
               {loading ? (
@@ -175,6 +193,8 @@ const Login = () => {
                   </svg>
                   Logging In...
                 </>
+              ) : isRateLimited ? (
+                'Please Wait...'
               ) : (
                 'Login'
               )}
@@ -193,6 +213,7 @@ const Login = () => {
               <button
                 type="button"
                 className="w-full py-2 px-4 bg-white border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition flex items-center justify-center"
+                disabled={isRateLimited}
               >
                 <FcGoogle className="mr-2" size={18} />
                 Google
@@ -200,6 +221,7 @@ const Login = () => {
               <button
                 type="button"
                 className="w-full py-2 px-4 bg-white border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50 transition flex items-center justify-center"
+                disabled={isRateLimited}
               >
                 <FaFacebook className="mr-2 text-blue-600" size={18} />
                 Facebook

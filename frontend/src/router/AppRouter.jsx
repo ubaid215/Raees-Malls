@@ -5,6 +5,8 @@ import CustomerLayout from '../components/layout/CustomerLayout';
 import AdminLayout from '../admin/components/AdminLayout';
 import ProtectedRoute from '../context/ProtectedRoute';
 import ProtectedAdminRoute from '../context/ProtectedAdminRoute';
+import Categories from '../components/layout/Home/Categories';
+import CategorySection from '../components/shared/CategorySection';
 
 // Lazy load pages
 const HomePage = lazy(() => import('../pages/HomePage'));
@@ -38,6 +40,7 @@ const AppRouter = () => {
           <Route index element={<HomePage />} />
           <Route path="products" element={<AllProducts />} />
           <Route path="product/:productId" element={<ProductDetails />} />
+          <Route path="all-categories" element={<CategorySection/>} />
           <Route path="about" element={<About />} />
           <Route path="contact" element={<Contact />} />
           <Route path="login" element={<Login />} />

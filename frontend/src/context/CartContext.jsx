@@ -1,94 +1,181 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { addToCart, getCart, updateCartItem, removeFromCart } from '../services/cartService';
+import React, { 
+  createContext, 
+  useState, 
+  useEffect, 
+  useContext, 
+  useCallback, 
+  useMemo 
+} from 'react';
+import { 
+  addToCart, 
+  getCart, 
+  updateCartItem, 
+  removeFromCart 
+} from '../services/cartService';
+import { useAdminAuth } from './AdminAuthContext';
 
-export const CartContext = createContext();
+// Create context with display name for better debugging
+const CartContext = createContext();
+CartContext.displayName = 'CartContext';
 
-export const CartProvider = ({ children }) => {
+const CartProvider = ({ children }) => {
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
+  const { user } = useAdminAuth();
 
-  useEffect(() => {
-    // Fetch cart on mount if user is logged in
-    const userId = localStorage.getItem('userId');
-    if (userId) {
-      fetchCart();
+  // Fetch cart data
+  const fetchCart = useCallback(async () => {
+    if (!user) {
+      setCart(null);
+      return;
     }
-  }, []);
-
-  const fetchCart = async () => {
+    
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       const cartData = await getCart();
       setCart(cartData);
     } catch (err) {
-      setError(err.message);
+      setError({
+        message: err.message || 'Failed to fetch cart',
+        status: err.response?.status
+      });
+      setCart(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
-  const addItemToCart = async (productId, variantId = null, quantity = 1) => {
+  // Add item to cart
+  const addItemToCart = useCallback(async (productId, variantId = null, quantity = 1) => {
+    if (!user) {
+      throw new Error('Please login to add items to cart');
+    }
+    
     setLoading(true);
-    setError('');
+    setError(null);
     try {
       await addToCart(productId, variantId, quantity);
       await fetchCart();
     } catch (err) {
-      setError(err.message);
+      setError({
+        message: err.message || 'Failed to add item to cart',
+        status: err.response?.status
+      });
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchCart, user]);
 
-  const updateCart = async (productId, variantId = null, quantity) => {
+  // Update item quantity
+  const updateQuantity = useCallback(async (productId, quantity) => {
+    if (quantity <= 0) {
+      return removeItem(productId);
+    }
+    
     setLoading(true);
-    setError('');
+    setError(null);
     try {
-      await updateCartItem(productId, variantId, quantity);
+      await updateCartItem(productId, null, quantity);
       await fetchCart();
     } catch (err) {
-      setError(err.message);
+      setError({
+        message: err.message || 'Failed to update quantity',
+        status: err.response?.status
+      });
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchCart]);
 
-  const removeItemFromCart = async (productId, variantId = null) => {
+  // Remove item from cart
+  const removeItem = useCallback(async (productId) => {
     setLoading(true);
-    setError('');
+    setError(null);
     try {
-      await removeFromCart(productId, variantId);
+      await removeFromCart(productId);
       await fetchCart();
     } catch (err) {
-      setError(err.message);
+      setError({
+        message: err.message || 'Failed to remove item',
+        status: err.response?.status
+      });
       throw err;
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchCart]);
 
-  const value = {
-    cart,
-    loading,
+  // Clear entire cart
+  const clearCart = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      if (cart?.items?.length > 0) {
+        await Promise.all(
+          cart.items.map(item => 
+            removeFromCart(item.productId, item.variantId)
+          )
+        );
+      }
+      await fetchCart();
+    } catch (err) {
+      setError({
+        message: err.message || 'Failed to clear cart',
+        status: err.response?.status
+      });
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [cart?.items, fetchCart]);
+
+  // Fetch cart on user change
+  useEffect(() => {
+    fetchCart();
+  }, [fetchCart]);
+
+  // Memoized context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    cartItems: cart?.items || [],
+    isLoading: loading,
     error,
+    totalPrice: cart?.totalPrice || 0,
+    itemCount: cart?.itemCount || 0,
     addItemToCart,
     fetchCart,
-    updateCart,
-    removeItemFromCart,
-  };
+    updateQuantity,
+    removeItem,
+    clearCart,
+  }), [
+    cart, 
+    loading, 
+    error, 
+    addItemToCart, 
+    fetchCart, 
+    updateQuantity, 
+    removeItem, 
+    clearCart
+  ]);
 
-  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
+  return (
+    <CartContext.Provider value={contextValue}>
+      {children}
+    </CartContext.Provider>
+  );
 };
 
-// Custom hook to use CartContext
-export const useCart = () => {
+// Custom hook for consuming context
+const useCart = () => {
   const context = useContext(CartContext);
   if (!context) {
     throw new Error('useCart must be used within a CartProvider');
   }
   return context;
 };
+
+// Named exports for better HMR compatibility
+export { CartProvider, useCart };

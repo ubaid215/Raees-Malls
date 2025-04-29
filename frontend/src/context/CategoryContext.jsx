@@ -7,6 +7,7 @@ export const CategoryProvider = ({ children }) => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const isPublic = true; // Set to true for public routes; can be overridden by parent component if needed
 
   const fetchCategories = useCallback(async () => {
     // Safely retrieve cached data
@@ -37,7 +38,8 @@ export const CategoryProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
-      const categoryData = await getCategories();
+      // Note: getCategories should bypass authentication if isPublic is true in categoryService
+      const categoryData = await getCategories({ isPublic });
       
       // Validate data is an array
       const validCategoryData = Array.isArray(categoryData) ? categoryData : [];
@@ -62,10 +64,6 @@ export const CategoryProvider = ({ children }) => {
     }
   }, []);
 
-  useEffect(() => {
-    fetchCategories();
-  }, [fetchCategories]);
-
   const getCategory = useCallback(async (id) => {
     // Check cache first
     let cachedCategory = null;
@@ -85,7 +83,8 @@ export const CategoryProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
-      const category = await getCategoryById(id);
+      // Note: getCategoryById should bypass authentication if isPublic is true in categoryService
+      const category = await getCategoryById(id, { isPublic });
       // Cache the individual category
       try {
         if (category) {
@@ -107,6 +106,7 @@ export const CategoryProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
+      // Note: createCategory may still require authentication as it's typically an admin action
       const category = await createCategory(categoryData);
       // Invalidate cache safely
       try {
@@ -129,6 +129,7 @@ export const CategoryProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
+      // Note: updateCategory may still require authentication as it's typically an admin action
       const category = await updateCategory(id, categoryData);
       // Invalidate cache safely
       try {
@@ -152,6 +153,7 @@ export const CategoryProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
+      // Note: deleteCategory may still require authentication as it's typically an admin action
       await deleteCategory(id);
       // Invalidate cache safely
       try {
@@ -199,6 +201,7 @@ export const CategoryProvider = ({ children }) => {
     categories,
     loading,
     error,
+    isPublic,
     fetchCategories,
     getCategory,
     createNewCategory,
@@ -208,6 +211,7 @@ export const CategoryProvider = ({ children }) => {
     categories,
     loading,
     error,
+    isPublic,
     fetchCategories,
     getCategory,
     createNewCategory,

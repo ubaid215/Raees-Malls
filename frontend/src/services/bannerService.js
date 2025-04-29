@@ -6,7 +6,12 @@ export const getBanners = async () => {
     const response = await api.get('/banners');
     return response.data.banners;
   } catch (error) {
-    throw new Error(error.message || 'Failed to fetch banners');
+    console.error('GetBanners error:', error.response?.data, error.message);
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers['retry-after'] || '30';
+      throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
+    }
+    throw new Error(error.response?.data?.message || error.message || 'Failed to fetch banners');
   }
 };
 
@@ -21,7 +26,7 @@ export const createBanner = async (bannerData, image) => {
     const response = await api.post('/admin/banners', formData, { isMultipart: true });
     return response.data.banner;
   } catch (error) {
-    throw new Error(error.message || 'Failed to create banner');
+    throw new Error(error.response?.data?.message || error.message || 'Failed to create banner');
   }
 };
 
@@ -36,7 +41,7 @@ export const updateBanner = async (id, bannerData, image) => {
     const response = await api.put(`/admin/banners/${id}`, formData, { isMultipart: true });
     return response.data.banner;
   } catch (error) {
-    throw new Error(error.message || 'Failed to update banner');
+    throw new Error(error.response?.data?.message || error.message || 'Failed to update banner');
   }
 };
 
@@ -46,6 +51,6 @@ export const deleteBanner = async (id) => {
     const response = await api.delete(`/admin/banners/${id}`);
     return response.data;
   } catch (error) {
-    throw new Error(error.message || 'Failed to delete banner');
+    throw new Error(error.response?.data?.message || error.message || 'Failed to delete banner');
   }
 };

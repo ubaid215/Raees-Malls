@@ -7,12 +7,14 @@ import { ProductContext } from '../../context/ProductContext';
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
+import { API_BASE_URL } from '../shared/config';
 
 function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
   const [visibleItems, setVisibleItems] = useState(4);
+  const [needsFetch, setNeedsFetch] = useState(true);
   const carouselRef = useRef(null);
   const intervalRef = useRef(null);
   const navigate = useNavigate();
@@ -27,34 +29,35 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   }, []);
 
   const memoizedProducts = useMemo(() => {
-    // Filter featured products client-side if isFeatured is true
     const filteredProducts = isFeatured
       ? (products || []).filter((product) => product.isFeatured === true)
       : products || [];
 
     return filteredProducts.map((product) => ({
       _id: product._id,
-      title: product.title,
-      price: product.price,
-      originalPrice: product.originalPrice || product.price,
+      title: product.title || product.name || 'Untitled Product',
+      price: product.discountPrice || product.price || 0,
+      originalPrice: product.originalPrice || product.price || 0,
       discountPercentage: product.originalPrice && product.originalPrice > product.price
         ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
         : 0,
       images: product.images?.map((img) =>
-        img.startsWith('http') ? img : `http://localhost:5000${img}`
+        img.url?.startsWith('http') ? img.url : `${API_BASE_URL}${img.url}`
       ) || ['/placeholder-product.png'],
-      rating: product.rating ? parseFloat(product.rating) : 0,
+      rating: product.rating || product.averageRating || 0,
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
     }));
   }, [products, isFeatured]);
 
-  useEffect(() => {
-    // Fetch only if no products are available for these parameters
-    if (!memoizedProducts.length && !loading && !error) {
-      fetchProducts(1, 12, categoryId || null, isFeatured);
+  const handleFetchProducts = useCallback(async () => {
+    try {
+      await fetchProducts(1, 12, categoryId || null, isFeatured, { isPublic: true });
+      setNeedsFetch(false);
+    } catch (err) {
+      console.error('Fetch error:', err);
     }
-  }, [fetchProducts, categoryId, isFeatured, memoizedProducts.length, loading, error]);
+  }, [fetchProducts, categoryId, isFeatured]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -107,7 +110,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     setIsAutoPlaying(true);
   }, []);
 
-  if (loading) {
+  if (loading && products.length === 0) {
     return (
       <section aria-label={`${title} Slider Loading`} className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
@@ -120,29 +123,35 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     );
   }
 
-  if (error) {
+  if (error || products.length === 0 || needsFetch) {
     return (
-      <section aria-label={`${title} Slider Error`} className="relative w-full px-4 py-8 rounded-lg shadow-sm">
+      <section aria-label={`${title} Slider Empty or Error`} className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
           {title && <h2 className="text-2xl font-bold text-gray-800">{title}</h2>}
+          <nav>
+            <Button
+              variant="ghost"
+              className="flex items-center gap-2 text-red-500 hover:text-red-600 hover:underline transition-colors"
+              onClick={() => navigate(categoryId ? `/products?category=${categoryId}` : '/products')}
+              aria-label="View all products"
+            >
+              <span className="text-sm font-medium">View All</span>
+              <ArrowRight size={16} />
+            </Button>
+          </nav>
         </div>
         <div className="text-center">
-          <p className="text-red-600 mb-2">{error}</p>
-          <Button onClick={() => fetchProducts(1, 12, categoryId || null, isFeatured)} variant="outline" className="mt-2">
-            Retry
+          <p className="text-lg text-gray-500 mb-4">
+            {error ? 'Failed to load products.' : 'No products loaded.'}
+          </p>
+          <Button
+            onClick={handleFetchProducts}
+            variant="outline"
+            disabled={loading}
+          >
+            {loading ? 'Loading...' : error ? 'Retry Now' : 'Load Products'}
           </Button>
         </div>
-      </section>
-    );
-  }
-
-  if (memoizedProducts.length === 0) {
-    return (
-      <section aria-label={`${title} Slider Empty`} className="relative w-full px-4 py-8 rounded-lg shadow-sm">
-        <div className="flex justify-between items-center mb-6 px-4">
-          {title && <h2 className="text-2xl font-bold text-gray-800">{title}</h2>}
-        </div>
-        <p className="text-center text-gray-500">No products available.</p>
       </section>
     );
   }

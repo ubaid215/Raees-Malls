@@ -71,7 +71,7 @@ exports.changePasswordValidator = [
         throw new Error('Confirm password does not match new password');
       }
       return true;
-    }),
+    }), 
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

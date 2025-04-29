@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   FiHome,
   FiShoppingBag,
   FiDollarSign,
+  FiLogOut,
 } from 'react-icons/fi';
 import { History, Image, ImagePlus, ListChecks, ShoppingBasket, UserCircle } from 'lucide-react';
 import { useAdminAuth } from '../../context/AdminAuthContext';
@@ -11,13 +12,14 @@ import { useAdminAuth } from '../../context/AdminAuthContext';
 const Sidebar = () => {
   const [isExpanded, setIsExpanded] = useState(true);
   const location = useLocation();
-  const { admin } = useAdminAuth();
+  const navigate = useNavigate();
+  const { admin, logoutAdmin } = useAdminAuth();
 
   const navSections = [
     {
       title: 'ANALYTICS',
       items: [
-        { path: '/admin/', icon: FiHome, label: 'Dashboard' },
+        { path: '/admin', icon: FiHome, label: 'Dashboard' },
         { path: '/admin/category', icon: ListChecks, label: 'Categories' },
         { path: '/admin/banner-upload', icon: Image, label: 'Banner' },
       ]
@@ -39,6 +41,15 @@ const Sidebar = () => {
       ]
     }
   ];
+
+  const handleLogout = async () => {
+    try {
+      await logoutAdmin();
+      navigate('/admin/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
 
   return (
     <div className={`h-full bg-white border-r border-gray-200 flex flex-col ${isExpanded ? 'w-64' : 'w-20'} transition-all duration-300`}>
@@ -112,18 +123,32 @@ const Sidebar = () => {
         ))}
       </div>
 
-      {/* User Profile (Collapsed shows just avatar) */}
-      <div className="p-4 border-t border-gray-200">
-        <div className="flex items-center">
-          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-            <UserCircle className="text-gray-600" />
-          </div>
+      {/* Bottom Section - Profile and Logout */}
+      <div className="mt-auto">
+        {/* Logout Button */}
+        <button
+          onClick={handleLogout}
+          className={`flex items-center w-full px-4 py-3 mx-2 rounded-md text-red-600 hover:bg-red-50 hover:text-red-900 transition-colors`}
+        >
+          <FiLogOut className="h-5 w-5 text-gray-400" />
           {isExpanded && (
-            <div className="ml-3">
-              <p className="text-sm font-medium text-gray-700">{admin?.name || 'Admin'}</p>
-              <p className="text-xs text-gray-500">{admin?.email || 'N/A'}</p>
-            </div>
+            <span className="ml-3">Logout</span>
           )}
+        </button>
+
+        {/* User Profile */}
+        <div className="p-4 border-t border-gray-200">
+          <div className="flex items-center">
+            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+              <UserCircle className="text-gray-600" />
+            </div>
+            {isExpanded && (
+              <div className="ml-3">
+                <p className="text-sm font-medium text-gray-700">{admin?.name || 'Admin'}</p>
+                <p className="text-xs text-gray-500">{admin?.email || 'N/A'}</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

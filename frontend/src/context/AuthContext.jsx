@@ -1,142 +1,162 @@
-import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
+import React, { createContext, useState, useContext, useMemo } from 'react';
 import { login, register, logout, refreshToken, getMe } from '../services/authServices';
 import socketService from '../services/socketService';
 
-// Create context separately for better Fast Refresh support
 const AuthContext = createContext();
 
-// Create a separate provider component
 const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [authState, setAuthState] = useState({
+    user: null,
+    loading: false,
+    error: null,
+    needsFetch: true,
+  });
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    const userId = localStorage.getItem('userId');
-    
-    const initializeAuth = async () => {
-      if (token && userId) {
-        try {
-          const userData = await getMe();
-          setUser(userData);
-          socketService.connect(userId);
-        } catch (err) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('userId');
-        } finally {
-          setLoading(false);
-        }
-      } else {
-        setLoading(false);
-      }
-    };
+  const setupSocketConnection = (user) => {
+    const userId = user._id || user.id;
+    if (userId) socketService.connect(userId);
+  };
 
-    initializeAuth();
+  const handleAuthError = (error) => {
+    console.error('Auth error:', error);
+    setAuthState(prev => ({
+      ...prev,
+      error: error.message,
+      loading: false,
+      needsFetch: true,
+    }));
+    if (error.message.includes('Too many requests')) {
+      // Keep tokens for retry, don't reset
+      return;
+    }
+    resetAuthState();
+  };
 
-    return () => {
-      socketService.disconnect();
-    };
-  }, []);
+  const resetAuthState = () => {
+    setAuthState({
+      user: null,
+      loading: false,
+      error: null,
+      needsFetch: true,
+    });
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('userData');
+    localStorage.removeItem('userDataTimestamp');
+    socketService.disconnect();
+  };
 
-  const loginUser = async (email, password) => {
-    setLoading(true);
-    setError('');
+  const fetchUser = async () => {
+    setAuthState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const userData = await login(email, password);
-      setUser(userData);
-      socketService.connect(userData._id || userData.id);
+      // Check cache first
+      const cachedUser = localStorage.getItem('userData');
+      const cachedTimestamp = localStorage.getItem('userDataTimestamp');
+      const now = Date.now();
+      if (cachedUser && cachedTimestamp && now - parseInt(cachedTimestamp) < 300000) { // 5 minutes
+        const userData = JSON.parse(cachedUser);
+        setAuthState({
+          user: userData,
+          loading: false,
+          error: null,
+          needsFetch: false,
+        });
+        setupSocketConnection(userData);
+        return userData;
+      }
+
+      const userData = await getMe();
+      setAuthState({
+        user: userData,
+        loading: false,
+        error: null,
+        needsFetch: false,
+      });
+      setupSocketConnection(userData);
       return userData;
     } catch (err) {
-      setError(err.message);
+      handleAuthError(err);
       throw err;
-    } finally {
-      setLoading(false);
     }
   };
 
-  const registerUser = async (name, email, password) => {
-    setLoading(true);
-    setError('');
+  const loginUser = async (credentials) => {
+    setAuthState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const userData = await register(name, email, password);
-      setUser(userData);
-      // Connect socket in a try-catch to avoid blocking
-      try {
-        const userId = userData._id || userData.id;
-        if (userId) {
-          socketService.connect(userId);
-        } else {
-          console.warn('User ID not found for socket connection');
-        }
-      } catch (socketError) {
-        console.error('Socket connection failed:', socketError);
-      }
+      const userData = await login(credentials);
+      setAuthState({
+        user: userData,
+        loading: false,
+        error: null,
+        needsFetch: false,
+      });
+      setupSocketConnection(userData);
       return userData;
     } catch (err) {
-      setError(err.message);
+      handleAuthError(err);
       throw err;
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  const registerUser = async (userData) => {
+    setAuthState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const newUser = await register(userData);
+      setAuthState({
+        user: newUser,
+        loading: false,
+        error: null,
+        needsFetch: false,
+      });
+      setupSocketConnection(newUser);
+      return newUser;
+    } catch (err) {
+      handleAuthError(err);
+      throw err;
     }
   };
 
   const logoutUser = async () => {
-    setLoading(true);
-    setError('');
+    setAuthState(prev => ({ ...prev, loading: true, error: null }));
     try {
       await logout();
-      setUser(null);
-      socketService.disconnect();
+      resetAuthState();
     } catch (err) {
-      setError(err.message);
+      setAuthState(prev => ({ ...prev, error: err.message }));
       throw err;
     } finally {
-      setLoading(false);
+      setAuthState(prev => ({ ...prev, loading: false }));
     }
   };
 
   const refreshUserToken = async () => {
-    setLoading(true);
-    setError('');
+    setAuthState(prev => ({ ...prev, loading: true, error: null }));
     try {
       const userData = await refreshToken();
-      setUser(userData);
+      setAuthState(prev => ({
+        ...prev,
+        user: userData || prev.user,
+        loading: false,
+        needsFetch: !userData, // Fetch user if no user data returned
+      }));
+      if (userData) setupSocketConnection(userData);
       return userData;
     } catch (err) {
-      setError(err.message);
+      handleAuthError(err);
       throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getUserDetails = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const userData = await getMe();
-      setUser(userData);
-      return userData;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
     }
   };
 
   const contextValue = useMemo(() => ({
-    user,
-    loading,
-    error,
-    isAuthenticated: !!user,
+    ...authState,
+    isAuthenticated: !!authState.user,
     loginUser,
     registerUser,
     logoutUser,
     refreshUserToken,
-    getUserDetails
-  }), [user, loading, error]);
+    fetchUser,
+  }), [authState]);
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -145,7 +165,6 @@ const AuthProvider = ({ children }) => {
   );
 };
 
-// Create custom hook separately
 const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -154,6 +173,5 @@ const useAuth = () => {
   return context;
 };
 
-// Named exports for better Fast Refresh support
 export { AuthProvider, useAuth };
 export default AuthContext;

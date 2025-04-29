@@ -1,182 +1,142 @@
 import api from './api';
 
-// Cache implementation for admin
-let cachedAdmin = null;
-let activeAdminRequests = {};
-
-// User login
+// User authentication services
 export const login = async (email, password) => {
   try {
     const response = await api.post('/auth/login', { email, password });
-    const { token, user } = response.data;
-    if (!token || !user?._id) {
+    console.log('Login response:', response.data);
+    const { success, data } = response.data;
+    
+    if (!success || !data?.tokens?.accessToken || !data?.user?._id) {
+      console.error('Invalid response data:', response.data);
       throw new Error('Invalid response from server');
     }
-    localStorage.setItem('token', token);
+
+    const { accessToken, refreshToken } = data.tokens;
+    const user = data.user;
+    
+    localStorage.setItem('token', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('userId', user._id);
+    
     return user;
   } catch (error) {
-    throw new Error(error.message || 'Login failed');
+    console.error('Login error:', error.response?.data, error.message);
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers['retry-after'] || '30';
+      throw new Error(`Too many login attempts. Please try again in ${retryAfter} seconds.`);
+    }
+    throw new Error(error.response?.data?.message || error.message || 'Login failed');
   }
 };
 
-// User register
 export const register = async (name, email, password) => {
   try {
     const response = await api.post('/auth/register', { name, email, password });
-    console.log('Register response:', response.data); // Debug log
-    const { token, user } = response.data;
-
-    // Validate response
-    if (!token || !user) {
+    console.log('Register response:', response.data);
+    const { success, data } = response.data;
+    
+    if (!success || !data?.tokens?.accessToken || !data?.user) {
+      console.error('Invalid response data:', response.data);
       throw new Error('Invalid response: Missing token or user data');
     }
 
-    // Handle different _id field names
+    const { accessToken, refreshToken } = data.tokens;
+    const user = data.user;
     const userId = user._id || user.id;
+    
     if (!userId) {
       throw new Error('Invalid response: Missing user ID');
     }
 
-    localStorage.setItem('token', token);
+    localStorage.setItem('token', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('userId', userId);
+    
     return user;
   } catch (error) {
-    throw new Error(error.message || 'Registration failed');
+    console.error('Register error:', error.response?.data, error.message);
+    throw new Error(error.response?.data?.message || error.message || 'Registration failed');
   }
 };
 
-// Refresh token
 export const refreshToken = async () => {
   try {
-    const response = await api.post('/auth/refresh-token');
-    const { token, user } = response.data;
-    localStorage.setItem('token', token);
-    localStorage.setItem('userId', user._id);
-    return user;
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const response = await api.post('/auth/refresh-token', { refreshToken });
+    console.log('Refresh token response:', response.data);
+    const { success, data } = response.data;
+    
+    if (!success || !data?.tokens?.accessToken) {
+      console.error('Invalid refresh response:', response.data);
+      throw new Error('Invalid response: Missing access token');
+    }
+
+    const { accessToken, refreshToken: newRefreshToken } = data.tokens;
+    
+    localStorage.setItem('token', accessToken);
+    localStorage.setItem('refreshToken', newRefreshToken);
+    
+    return data.user || null;
   } catch (error) {
-    throw new Error(error.message || 'Token refresh failed');
+    console.error('Refresh token error:', error.response?.data, error.message);
+    // Clear tokens if refresh fails
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    throw new Error(error.response?.data?.message || error.message || 'Token refresh failed');
   }
 };
 
-// User logout
 export const logout = async () => {
   try {
-    await api.post('/auth/logout');
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (refreshToken) {
+      await api.post('/auth/logout', { refreshToken });
+    }
+    
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('userId');
   } catch (error) {
-    throw new Error(error.message || 'Logout failed');
+    console.error('Logout error:', error.response?.data, error.message);
+    // Ensure we clear local storage even if logout fails
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('userId');
+    throw new Error(error.response?.data?.message || error.message || 'Logout failed');
   }
 };
 
-// Get authenticated user
 export const getMe = async () => {
   try {
     const response = await api.get('/auth/me');
-    return response.data.user;
+    console.log('GetMe response:', response.data);
+    const { success, data } = response.data;
+    
+    if (!success || !data?.user) {
+      console.error('Invalid response data:', response.data);
+      throw new Error('Invalid response: Missing user data');
+    }
+    
+    // Cache user data with timestamp
+    try {
+      localStorage.setItem('userData', JSON.stringify(data.user));
+      localStorage.setItem('userDataTimestamp', Date.now().toString());
+    } catch (cacheErr) {
+      console.warn('Failed to cache user data:', cacheErr);
+    }
+    
+    return data.user;
   } catch (error) {
-    throw new Error(error.message || 'Failed to fetch user details');
-  }
-};
-
-// Admin login
-export const adminLogin = async (email, password) => {
-  try {
-    const response = await api.post('/admin/login', { email, password });
-    const { token, user } = response.data;
-    
-    // Store tokens
-    localStorage.setItem('adminToken', token);
-    localStorage.setItem('userId', user._id);
-    
-    // Cache the admin data
-    cachedAdmin = user;
-    
-    return user;
-  } catch (error) {
-    // Clear cache on failure
-    cachedAdmin = null;
-    throw new Error(error.message || 'Admin login failed');
-  }
-};
-
-// Admin logout
-export const adminLogout = async () => {
-  try {
-    await api.post('/admin/logout');
-    
-    // Clear storage and cache
-    localStorage.removeItem('adminToken');
-    localStorage.removeItem('userId');
-    cachedAdmin = null;
-    
-  } catch (error) {
-    throw new Error(error.message || 'Admin logout failed');
-  }
-};
-
-// Get admin session user
-export const getSession = async () => {
-  // Return cached data if available
-  if (cachedAdmin) return cachedAdmin;
-  
-  // Deduplicate simultaneous requests
-  if (activeAdminRequests.session) {
-    return activeAdminRequests.session;
-  }
-
-  try {
-    // Create the request promise
-    activeAdminRequests.session = api.get('/admin/session')
-      .then(response => {
-        cachedAdmin = response.data.user;
-        return cachedAdmin;
-      })
-      .finally(() => {
-        delete activeAdminRequests.session;
-      });
-
-    return await activeAdminRequests.session;
-  } catch (error) {
-    // Clear cache on error
-    cachedAdmin = null;
-    throw new Error(error.message || 'Failed to fetch admin session');
-  }
-};
-
-// Change admin password
-export const changePassword = async (currentPassword, newPassword) => {
-  try {
-    const response = await api.post('/admin/change-password', { 
-      currentPassword, 
-      newPassword 
-    });
-    
-    // Invalidate cache since user data may have changed
-    cachedAdmin = null;
-    
-    return response.data;
-  } catch (error) {
-    throw new Error(error.message || 'Failed to change password');
-  }
-};
-
-// Get admin dashboard with request deduplication
-export const getDashboard = async () => {
-  if (activeAdminRequests.dashboard) {
-    return activeAdminRequests.dashboard;
-  }
-
-  try {
-    activeAdminRequests.dashboard = api.get('/admin/dashboard')
-      .then(response => response.data)
-      .finally(() => {
-        delete activeAdminRequests.dashboard;
-      });
-
-    return await activeAdminRequests.dashboard;
-  } catch (error) {
-    throw new Error(error.message || 'Failed to fetch dashboard');
+    console.error('GetMe error:', error.response?.data, error.message);
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers['retry-after'] || '30';
+      throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
+    }
+    throw new Error(error.response?.data?.message || error.message || 'Failed to fetch user details');
   }
 };

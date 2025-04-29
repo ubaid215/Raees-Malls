@@ -4,62 +4,106 @@ import { useAdminAuth } from '../../context/AdminAuthContext';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 
 const AdminLogin = () => {
-  const { loginAdmin, error: contextError } = useAdminAuth();
+  const {
+    admin,
+    isAdminAuthenticated,
+    loading: authLoading,
+    error: authError,
+    isRateLimited,
+    retryAfter,
+    loginAdmin,
+  } = useAdminAuth();
+
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [localError, setLocalError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Check for existing token
+  // Redirect if already authenticated
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      navigate('/admin/dashboard', { replace: true });
+    if (isAdminAuthenticated) {
+      console.log('Redirecting authenticated admin');
+      navigate('/admin', { replace: true });
     }
-  }, [navigate]);
+  }, [isAdminAuthenticated, navigate]);
 
-  const validateEmail = (email) => {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return re.test(email);
+  // Handle rate limiting
+  useEffect(() => {
+    let timer;
+    if (isRateLimited && retryAfter) {
+      const delay = parseInt(retryAfter, 10) * 1000 || 30000;
+      console.log('Rate limited, waiting for:', delay, 'ms');
+      timer = setTimeout(() => {
+        console.log('Rate limit timeout expired');
+      }, delay);
+    }
+    return () => clearTimeout(timer);
+  }, [isRateLimited, retryAfter]);
+
+  const validateForm = () => {
+    if (!formData.email || !formData.password) {
+      return 'Both email and password are required';
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      return 'Please enter a valid email address';
+    }
+    return '';
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || isRateLimited) return;
+
     setLocalError('');
     setIsSubmitting(true);
 
-    if (!validateEmail(formData.email)) {
-      setLocalError('Please enter a valid email address');
+    const validationError = validateForm();
+    if (validationError) {
+      console.log('Client-side validation failed:', validationError);
+      setLocalError(validationError);
       setIsSubmitting(false);
       return;
     }
 
     try {
-      await loginAdmin(formData.email, formData.password);
-      navigate('/admin/', { replace: true });
+      console.log('Attempting login with:', formData.email);
+      await loginAdmin(formData);
+      console.log('Login successful - redirecting');
     } catch (err) {
-      setLocalError(err.response?.data?.message || err.message || 'Admin login failed');
+      console.error('Login failed:', err);
+      setLocalError(err.message || 'Admin login failed');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const togglePasswordVisibility = () => {
-    setShowPassword(!showPassword);
-  };
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#E63946]"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="w-full max-w-md p-8 bg-white shadow-lg rounded-lg">
         <h2 className="text-2xl font-bold text-center text-[#E63946] mb-6">Admin Login</h2>
-        {(localError || contextError) && (
-          <p className="text-red-500 text-sm text-center mb-4">{localError || contextError}</p>
+
+        {(localError || authError) && (
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-md">
+            {localError || authError}
+          </div>
         )}
+
+        {isRateLimited && retryAfter && (
+          <p className="mb-4 text-gray-600">Please wait {retryAfter} seconds before retrying.</p>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
               Email
             </label>
             <input
@@ -67,14 +111,16 @@ const AdminLogin = () => {
               type="email"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              placeholder="Enter email"
+              placeholder="admin@example.com"
               required
-              disabled={isSubmitting}
+              disabled={isSubmitting || authLoading || isRateLimited}
               className="mt-1 w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#E63946] disabled:bg-gray-100"
+              autoComplete="admin-email"
             />
           </div>
+
           <div className="relative">
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
               Password
             </label>
             <input
@@ -82,30 +128,36 @@ const AdminLogin = () => {
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              placeholder="Enter password"
+              placeholder="••••••••"
               required
-              disabled={isSubmitting}
+              disabled={isSubmitting || authLoading || isRateLimited}
               className="mt-1 w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#E63946] disabled:bg-gray-100"
+              autoComplete="current-password"
             />
             <button
               type="button"
-              onClick={togglePasswordVisibility}
-              className="absolute inset-y-0 right-0 flex items-center pr-3 mt-6"
-              disabled={isSubmitting}
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-9 text-gray-500 hover:text-gray-700"
+              disabled={isSubmitting || authLoading || isRateLimited}
             >
               {showPassword ? (
-                <EyeSlashIcon className="h-5 w-5 text-gray-500" />
+                <EyeSlashIcon className="h-5 w-5" />
               ) : (
-                <EyeIcon className="h-5 w-5 text-gray-500" />
+                <EyeIcon className="h-5 w-5" />
               )}
             </button>
           </div>
+
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-[#E63946] text-white py-2 rounded-md hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] border transition-colors disabled:bg-gray-400 disabled:text-white disabled:cursor-not-allowed"
+            disabled={isSubmitting || authLoading || isRateLimited}
+            className={`w-full py-2 px-4 rounded-md transition-colors ${
+              isSubmitting || authLoading || isRateLimited
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-[#E63946] text-white hover:bg-[#d62c3a]'
+            }`}
           >
-            {isSubmitting ? 'Logging in...' : 'Login'}
+            {isSubmitting ? 'Authenticating...' : isRateLimited ? `Please Wait (${retryAfter || '30'}s)` : 'Login'}
           </button>
         </form>
       </div>

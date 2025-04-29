@@ -142,3 +142,77 @@ exports.changePassword = async (req, res, next) => {
     next(error);
   }
 };
+
+
+exports.verifyToken = (req, res, next) => {
+  try {
+    // If this point is reached, it means middleware has already verified the user session
+    if (!req.isAuthenticated()) {
+      console.log('Token verification: Not authenticated');
+      throw new ApiError(401, 'Not authenticated');
+    }
+    
+    if (req.user.role !== 'admin') {
+      console.log('Token verification: User not an admin:', req.user.email, 'Role:', req.user.role);
+      throw new ApiError(403, 'Access restricted to admins');
+    }
+
+    console.log('Token verified for admin:', req.user.email);
+    
+    // Log verification action
+    AuditLog.create({
+      userId: req.user._id,
+      action: 'ADMIN_TOKEN_VERIFY',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    }).catch(err => console.error('Failed to log token verification:', err));
+
+    ApiResponse.success(res, 200, 'Token is valid', {
+      user: authService.sanitizeUser(req.user)
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+exports.refreshToken = async (req, res, next) => {
+  try {
+    // Verify user is authenticated
+    if (!req.isAuthenticated()) {
+      console.log('Token refresh: Not authenticated');
+      throw new ApiError(401, 'Not authenticated');
+    }
+    
+    // Verify user is an admin
+    if (req.user.role !== 'admin') {
+      console.log('Token refresh: User not an admin:', req.user.email, 'Role:', req.user.role);
+      throw new ApiError(403, 'Access restricted to admins');
+    }
+
+    // Generate new tokens
+    const { accessToken, refreshToken } = jwtService.generateTokens({
+      id: req.user._id,
+      role: req.user.role
+    });
+
+    // Log refresh action
+    await AuditLog.create({
+      userId: req.user._id,
+      action: 'ADMIN_TOKEN_REFRESH',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    console.log('Token refreshed for admin:', req.user.email);
+    
+    // Return new tokens
+    ApiResponse.success(res, 200, 'Token refreshed successfully', {
+      user: authService.sanitizeUser(req.user),
+      token: accessToken,
+      refreshToken: refreshToken
+    });
+  } catch (error) {
+    next(error);
+  }
+};

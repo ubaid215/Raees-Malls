@@ -1,9 +1,8 @@
-import React from 'react'
-import HeroSection from '../components/layout/Home/HeroSection'
-import Categories from '../components/layout/Home/Categories'
-import FeaturedProducts from '../components/Products/FeaturedProducts'
-import ProductRowSlider from '../components/Products/ProductRowSlider'
-
+import React from 'react';
+import HeroSection from '../components/layout/Home/HeroSection';
+import Categories from '../components/layout/Home/Categories';
+import FeaturedProducts from '../components/Products/FeaturedProducts';
+import ProductRowSlider from '../components/Products/ProductRowSlider';
 
 function HomePage() {
   return (
@@ -11,16 +10,9 @@ function HomePage() {
       <HeroSection />
       <Categories />
       <FeaturedProducts />
-      
-      
-      
-      <ProductRowSlider 
-        title="All Products"
-      />
-
-      
+      <ProductRowSlider title="New Products" />
     </div>
-  )
+  );
 }
 
-export default HomePage
+export default HomePage;

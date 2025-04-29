@@ -16,7 +16,7 @@ const uploadFields = upload.fields([
   { name: 'baseImages', maxCount: 5 },
   { name: 'variantImages[0]', maxCount: 5 },
   { name: 'variantImages[1]', maxCount: 5 },
-  { name: 'variantImages[2]', maxCount: 5 } // Adjust maxCount and indices based on needs
+  { name: 'variantImages[2]', maxCount: 5 } 
 ]);
 
 // Public product routes (mounted under /api/products)

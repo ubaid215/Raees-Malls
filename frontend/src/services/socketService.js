@@ -13,7 +13,7 @@ class SocketService {
   connect(userId = null, role = null) {
     if (this.isConnected) return this.socket;
 
-    this.socket = io(process.env.VITE_API_BASE_URL || 'http://localhost:5000', {
+    this.socket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
       query: { userId, role },
       withCredentials: true,
       reconnectionAttempts: 5,

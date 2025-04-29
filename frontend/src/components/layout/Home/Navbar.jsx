@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import Logo from '../../shared/Logo';
 import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
 import { FiPhoneCall } from 'react-icons/fi';
-import { getCategories } from '../../../services/categoryService';
+import { CategoryContext } from '../../../context/CategoryContext';
 import { useCart } from '../../../context/CartContext';
 
 const navLinks = [
   { name: 'Home', path: '/' },
   { name: 'Shop', path: '/products' },
-  { name: 'Categories', path: '/categories' },
+  { name: 'Categories', path: '/all-categories' },
   { name: 'About', path: '/about' },
   { name: 'Contact', path: '/contact' },
 ];
@@ -21,73 +21,14 @@ function Navbar() {
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
-  const [categories, setCategories] = useState([]);
-  const [loadingCategories, setLoadingCategories] = useState(false);
-  const [error, setError] = useState(null);
   const navigate = useNavigate();
   const { cart } = useCart();
+  const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
 
   // Safely calculate cart count
   const cartCount = Array.isArray(cart?.items)
     ? cart.items.reduce((count, item) => count + (item.quantity || 0), 0)
     : 0;
-
-  // Fetch categories with caching and request cancellation
-  useEffect(() => {
-    const controller = new AbortController();
-    let isMounted = true;
-
-    const fetchCategories = async () => {
-      // Check cache first
-      const cachedCategories = localStorage.getItem('categories');
-      if (cachedCategories) {
-        try {
-          const parsedCategories = JSON.parse(cachedCategories);
-          if (isMounted) {
-            setCategories(parsedCategories);
-          }
-          return;
-        } catch (err) {
-          console.error('Invalid cached categories:', cachedCategories, err);
-          localStorage.removeItem('categories');
-        }
-      }
-
-      if (isMounted) {
-        setLoadingCategories(true);
-        setError(null);
-      }
-
-      try {
-        const categoriesData = await getCategories({ signal: controller.signal });
-        const formattedCategories = categoriesData.map((cat) => ({
-          name: cat.name,
-          path: `/categories/${cat.slug || cat._id}`,
-        }));
-
-        if (isMounted) {
-          setCategories(formattedCategories);
-          localStorage.setItem('categories', JSON.stringify(formattedCategories || []));
-        }
-      } catch (err) {
-        if (isMounted && err.name !== 'AbortError') {
-          setError('Failed to load categories. Please refresh the page.');
-          console.error('Failed to fetch categories:', err.message);
-        }
-      } finally {
-        if (isMounted) {
-          setLoadingCategories(false);
-        }
-      }
-    };
-
-    fetchCategories();
-
-    return () => {
-      isMounted = false;
-      controller.abort();
-    };
-  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -102,6 +43,14 @@ function Navbar() {
     setSelectedCategory(category.name);
     setShowDropdown(false);
     navigate(category.path);
+  };
+
+  const handleFetchCategories = async () => {
+    try {
+      await fetchCategories({ isPublic: true });
+    } catch (err) {
+      console.error('Failed to fetch categories:', err.message);
+    }
   };
 
   const closeMobileMenu = () => {
@@ -218,9 +167,9 @@ function Navbar() {
               </NavLink>
             ))}
           </div>
-          {categories.length > 0 && (
-            <div className="px-4 py-2 border-t">
-              {categories.slice(0, 5).map((category) => (
+          <div className="px-4 py-2 border-t">
+            {categories.length > 0 ? (
+              categories.slice(0, 5).map((category) => (
                 <Link
                   key={category.path}
                   to={category.path}
@@ -229,9 +178,16 @@ function Navbar() {
                 >
                   {category.name}
                 </Link>
-              ))}
-            </div>
-          )}
+              ))
+            ) : (
+              <button
+                onClick={handleFetchCategories}
+                className="block px-2 py-2 text-gray-700 hover:text-red-600"
+              >
+                Load Categories
+              </button>
+            )}
+          </div>
           <div className="px-4 py-3 flex items-center gap-2 text-gray-700">
             <FiPhoneCall size={18} />
             <span>+923006530063</span>
@@ -253,10 +209,10 @@ function Navbar() {
               onClick={() => setShowDropdown(!showDropdown)}
               className="px-4 py-3 flex items-center gap-2 bg-white text-[#232F3F] rounded-l-md border-r hover:bg-gray-100 transition-colors hover:shadow-md min-w-[180px] justify-between"
               aria-label="Select category"
-              disabled={loadingCategories}
+              disabled={loading}
             >
               <span className="truncate">
-                {loadingCategories ? 'Loading...' : selectedCategory}
+                {loading ? 'Loading...' : selectedCategory}
               </span>
               <RiArrowDownLine
                 size={18}
@@ -264,17 +220,26 @@ function Navbar() {
               />
             </button>
 
-            {showDropdown && categories.length > 0 && (
+            {showDropdown && (
               <div className="absolute left-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
-                {categories.map((category) => (
+                {categories.length > 0 ? (
+                  categories.map((category) => (
+                    <button
+                      key={category.path}
+                      onClick={() => handleCategorySelect(category)}
+                      className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100 truncate"
+                    >
+                      {category.name}
+                    </button>
+                  ))
+                ) : (
                   <button
-                    key={category.path}
-                    onClick={() => handleCategorySelect(category)}
-                    className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100 truncate"
+                    onClick={handleFetchCategories}
+                    className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100"
                   >
-                    {category.name}
+                    Load Categories
                   </button>
-                ))}
+                )}
               </div>
             )}
           </div>
@@ -330,9 +295,9 @@ function Navbar() {
             <span>Categories</span>
             <RiArrowDownLine size={16} />
           </button>
-          {categories.length > 0 && (
-            <div className="absolute left-0 mt-1 w-56 bg-white rounded-md shadow-lg z-10 hidden group-hover:block max-h-96 overflow-y-auto">
-              {categories.map((category) => (
+          <div className="absolute left-0 mt-1 w-56 bg-white rounded-md shadow-lg z-10 hidden group-hover:block max-h-96 overflow-y-auto">
+            {categories.length > 0 ? (
+              categories.map((category) => (
                 <Link
                   key={category.path}
                   to={category.path}
@@ -340,9 +305,16 @@ function Navbar() {
                 >
                   {category.name}
                 </Link>
-              ))}
-            </div>
-          )}
+              ))
+            ) : (
+              <button
+                onClick={handleFetchCategories}
+                className="block px-4 py-2 text-gray-800 hover:bg-gray-100"
+              >
+                Load Categories
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center space-x-4 lg:space-x-6">
