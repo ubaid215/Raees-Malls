@@ -1,87 +1,147 @@
-import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
-import { adminLogin, adminLogout, getSession } from '../services/authServices';
+import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
+import AdminAuthService from '../services/adminAuthService';
 import socketService from '../services/socketService';
 
-// Create and export the context as a named export
-export const AdminAuthContext = createContext();
+const AdminAuthContext = createContext();
 
-export const AdminAuthProvider = ({ children }) => {
-  const [admin, setAdmin] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+const AdminAuthProvider = ({ children }) => {
+  const [authState, setAuthState] = useState({
+    admin: null,
+    loading: false,
+    error: null,
+    errors: [],
+    isRateLimited: false,
+    retryAfter: null,
+    isRefreshingToken: false
+  });
 
+  // Initialize auth state based on localStorage
   useEffect(() => {
-    let isMounted = true;
-    const adminToken = localStorage.getItem('adminToken');
-
-    const initializeAuth = async () => {
-      if (!adminToken) {
-        if (isMounted) setLoading(false);
-        return;
-      }
-
-      try {
-        const adminData = await getSession();
-        if (isMounted) {
-          setAdmin(adminData);
-          socketService.connect(adminData._id, 'admin');
-        }
-      } catch (err) {
-        if (isMounted) {
-          setError(err.message);
-          localStorage.removeItem('adminToken');
-          localStorage.removeItem('userId');
-        }
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    initializeAuth();
-
-    return () => {
-      isMounted = false;
-    };
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+      // If token exists but no admin data, set loading state
+      setAuthState(prev => ({ ...prev, loading: true }));
+    }
   }, []);
 
-  const loginAdmin = async (email, password) => {
-    setLoading(true);
-    setError('');
+  const setupSocketConnection = (admin) => {
+    const adminId = admin?._id || admin?.id;
+    if (adminId) {
+      try {
+        socketService.connect(adminId, 'admin');
+      } catch (err) {
+        console.error('Failed to setup socket connection:', err);
+        setAuthState(prev => ({
+          ...prev,
+          error: 'Socket connection failed',
+          errors: [err.message],
+        }));
+      }
+    }
+  };
+
+  const handleAuthError = (error) => {
+    console.error('Admin auth error:', error);
+    const isRateLimitError = error.message.includes('Too many requests');
+    const retryAfter = error.message.match(/try again in (\d+)/)?.[1] || null;
+    
+    setAuthState(prev => ({
+      ...prev,
+      error: error.message,
+      errors: error.errors || [],
+      isRateLimited: isRateLimitError,
+      retryAfter: isRateLimitError ? retryAfter : null,
+    }));
+    
+    if (!isRateLimitError) {
+      resetAuthState();
+    }
+  };
+
+  const resetAuthState = () => {
+    setAuthState({
+      admin: null,
+      loading: false,
+      error: null,
+      errors: [],
+      isRateLimited: false,
+      retryAfter: null,
+      isRefreshingToken: false
+    });
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('refreshToken');
     try {
-      const adminData = await adminLogin(email, password);
-      setAdmin(adminData);
-      socketService.connect(adminData._id, 'admin');
+      socketService.disconnect();
+    } catch (err) {
+      console.error('Failed to disconnect socket:', err);
+    }
+  };
+
+  const loginAdmin = async (credentials) => {
+    setAuthState(prev => ({ ...prev, loading: true, error: null, errors: [] }));
+    try {
+      const adminData = await AdminAuthService.login(credentials);
+      setAuthState({
+        admin: adminData.user,
+        loading: false,
+        error: null,
+        errors: [],
+        isRateLimited: false,
+        retryAfter: null,
+      });
+      setupSocketConnection(adminData.user);
       return adminData;
     } catch (err) {
-      setError(err.message);
+      handleAuthError(err);
       throw err;
     } finally {
-      setLoading(false);
+      setAuthState(prev => ({ ...prev, loading: false }));
     }
   };
 
   const logoutAdmin = async () => {
-    setLoading(true);
+    setAuthState(prev => ({ ...prev, loading: true }));
     try {
-      await adminLogout();
-      setAdmin(null);
-      socketService.disconnect();
+      await AdminAuthService.logout();
+      resetAuthState();
     } catch (err) {
-      setError(err.message);
+      handleAuthError(err);
       throw err;
     } finally {
-      setLoading(false);
+      setAuthState(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const refreshAdminToken = async () => {
+    setAuthState(prev => ({ ...prev, isRefreshingToken: true }));
+    try {
+      const adminData = await AdminAuthService.refreshToken();
+      setAuthState(prev => ({
+        ...prev,
+        admin: adminData.user || prev.admin,
+        isRefreshingToken: false,
+        error: null,
+        errors: [],
+        isRateLimited: false,
+        retryAfter: null,
+      }));
+      return adminData;
+    } catch (err) {
+      handleAuthError(err);
+      throw err;
+    } finally {
+      setAuthState(prev => ({ ...prev, isRefreshingToken: false }));
     }
   };
 
   const contextValue = useMemo(() => ({
-    admin,
-    loading,
-    error,
-    isAdminAuthenticated: !!admin,
+    ...authState,
+    isAdminAuthenticated: !!authState.admin && !!localStorage.getItem('adminToken'),
     loginAdmin,
-    logoutAdmin
-  }), [admin, loading, error]);
+    logoutAdmin,
+    refreshAdminToken,
+    resetAuthState
+  }), [authState]);
 
   return (
     <AdminAuthContext.Provider value={contextValue}>
@@ -90,10 +150,13 @@ export const AdminAuthProvider = ({ children }) => {
   );
 };
 
-export const useAdminAuth = () => {
+const useAdminAuth = () => {
   const context = useContext(AdminAuthContext);
   if (!context) {
     throw new Error('useAdminAuth must be used within an AdminAuthProvider');
   }
   return context;
 };
+
+export { AdminAuthProvider, useAdminAuth };
+export default AdminAuthContext;

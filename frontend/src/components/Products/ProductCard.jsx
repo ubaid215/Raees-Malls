@@ -2,12 +2,12 @@ import React, { memo } from 'react';
 import { CiShoppingCart } from 'react-icons/ci';
 import Button from '../core/Button';
 import { useNavigate } from 'react-router-dom';
-import { useCart } from '../../context/CartContext'; // Changed to useCart
+import { useCart } from '../../context/CartContext'; 
 import PropTypes from 'prop-types';
 
 const ProductCard = memo(({ product }) => {
   const navigate = useNavigate();
-  const { addItemToCart } = useCart(); // Changed to useCart functions
+  const { addItemToCart } = useCart(); 
 
   if (!product || !product._id || !product.title || !product.images?.length) {
     console.warn('Invalid product data:', product);

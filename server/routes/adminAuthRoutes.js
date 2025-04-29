@@ -31,6 +31,18 @@ router.post('/change-password',
   adminAuthController.changePassword
 );
 
+router.get('/verify-token', 
+  ensureAuthenticated,
+  authorizeRoles('admin'),
+  adminAuthController.verifyToken
+);
+
+router.post('/refresh-token',
+  ensureAuthenticated,
+  authorizeRoles('admin'),
+  adminAuthController.refreshToken
+);
+
 // Protected admin routes
 router.get('/dashboard', 
   ensureAuthenticated, 

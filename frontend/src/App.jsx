@@ -14,9 +14,9 @@ import { BannerProvider } from './context/BannerContext';
 
 function App() {
   return (
-    <AuthProvider>
-      <AdminAuthProvider>
-        <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
+        <AdminAuthProvider>
           {/* Data providers that don't depend on user auth */}
           <BannerProvider>
             <CategoryProvider>
@@ -37,9 +37,9 @@ function App() {
               </ProductProvider>
             </CategoryProvider>
           </BannerProvider>
-        </BrowserRouter>
-      </AdminAuthProvider>
-    </AuthProvider>
+        </AdminAuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 

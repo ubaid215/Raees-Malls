@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CiShoppingCart, CiTrash, CiCirclePlus, CiCircleMinus } from 'react-icons/ci';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { useCart } from '../context/CartContext';
-import Button from '../components/core/Button';
-import LoadingSkeleton from '../components/shared/LoadingSkelaton';
+import { useAuth } from '../../context/AuthContext';
+import { useCart } from '../../context/CartContext';
+import Button from '../core/Button';
+import LoadingSkeleton from '../shared/LoadingSkelaton';
 
 function CartProductCard({ item, onUpdateQuantity, onRemove }) {
   const formattedPrice = new Intl.NumberFormat('en-PK', {
@@ -80,16 +80,18 @@ function Cart() {
     updateQuantity, 
     removeItem, 
     clearCart, 
-    getTotalPrice,
+    totalPrice,
     fetchCart
   } = useCart();
   const navigate = useNavigate();
+  const [redirectCount, setRedirectCount] = useState(0);
 
   useEffect(() => {
-    if (!user) {
-      navigate('/login');
+    if (!user && redirectCount < 2) {
+      setRedirectCount(prev => prev + 1);
+      navigate('/login', { state: { from: '/cart' } });
     }
-  }, [user, navigate]);
+  }, [user, navigate, redirectCount]);
 
   const handleCheckout = () => {
     navigate('/checkout', { state: { cartItems } });
@@ -99,25 +101,13 @@ function Cart() {
     style: 'currency',
     currency: 'PKR',
     minimumFractionDigits: 0,
-  }).format(getTotalPrice());
+  }).format(totalPrice);
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
-        <div className="bg-white rounded-lg shadow-sm p-6 text-center max-w-md w-full">
-          <p className="text-red-600 text-lg font-medium">{error}</p>
-          <Button
-            onClick={() => navigate('/login')}
-            className="mt-4 w-full bg-red-600 text-white hover:bg-red-700"
-          >
-            Go to Login
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const handleRetry = () => {
+    fetchCart();
+  };
 
-  if (isLoading) {
+  if (isLoading && !cartItems.length) {
     return (
       <div className="min-h-screen bg-gray-100 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
@@ -140,20 +130,71 @@ function Cart() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
+        <div className="bg-white rounded-lg shadow-sm p-8 text-center max-w-md w-full">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CiShoppingCart className="w-8 h-8 text-red-500" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-700 mb-2">Unable to load your cart</h3>
+          <p className="text-gray-500 mb-6">
+            {error.status === 403 
+              ? 'Please login to view your cart' 
+              : error.message || 'An error occurred'}
+          </p>
+          <div className="space-y-3">
+            {error.status === 403 ? (
+              <Button
+                onClick={() => navigate('/login', { state: { from: '/cart' } })}
+                className="w-full bg-red-600 text-white hover:bg-red-700"
+              >
+                Login
+              </Button>
+            ) : (
+              <Button
+                onClick={handleRetry}
+                className="w-full bg-red-600 text-white hover:bg-red-700"
+              >
+                Try Again
+              </Button>
+            )}
+            <Button
+              onClick={() => navigate('/products')}
+              className="w-full bg-white text-gray-700 border border-red-500 hover:bg-red-50"
+            >
+              Continue Shopping
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">
           Your Shopping Cart
+          {cartItems.length > 0 && (
+            <span className="block text-sm font-normal text-gray-500 mt-1">
+              {cartItems.length} item{cartItems.length !== 1 ? 's' : ''}
+            </span>
+          )}
         </h1>
+        
         {cartItems.length === 0 ? (
-          <div className="text-center">
-            <p className="text-gray-600 text-base sm:text-lg mb-4">Your cart is empty.</p>
+          <div className="bg-white rounded-lg shadow-sm p-8 text-center max-w-md mx-auto">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CiShoppingCart className="w-8 h-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Your cart is empty</h3>
+            <p className="text-gray-500 mb-6">Looks like you haven't added any items yet</p>
             <Button
               onClick={() => navigate('/products')}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="w-full bg-red-600 text-white hover:bg-red-700"
             >
-              Shop Now
+              Browse Products
             </Button>
           </div>
         ) : (
@@ -244,21 +285,23 @@ function Cart() {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
               <div className="flex flex-col sm:flex-row items-center gap-4">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900">
-                  Total Price: {formattedTotalPrice}
+                  Total: {formattedTotalPrice}
                 </h3>
                 <Button
                   onClick={clearCart}
                   className="bg-gray-600 text-white hover:bg-gray-700"
+                  disabled={isLoading}
                 >
-                  Clear Cart
+                  {isLoading ? 'Clearing...' : 'Clear Cart'}
                 </Button>
               </div>
               <Button
                 onClick={handleCheckout}
                 className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
                 aria-label="Proceed to checkout"
+                disabled={isLoading}
               >
-                Proceed to Checkout
+                {isLoading ? 'Processing...' : 'Proceed to Checkout'}
               </Button>
             </div>
           </div>
