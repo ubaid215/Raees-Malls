@@ -7,8 +7,8 @@ import Button from "../../components/core/Button";
 import Input from "../../components/core/Input";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
-import { productService } from "../../services/productAPI";
-import { categoryService } from "../../services/categoryAPI";
+import { productService } from "../../services/productService";
+import { getCategories } from "../../services/categoryService"; 
 import { socketService } from "../../services/socketService";
 
 const ProductModal = lazy(() => import("../../pages/ProductModal"));
@@ -29,7 +29,7 @@ const ProductInventory = memo(() => {
   // Fetch categories
   const loadCategories = useCallback(async () => {
     try {
-      const response = await categoryService.getAllCategories();
+      const response = await  getCategories.getAllCategories();
       if (response.success) {
         const map = response.data.reduce((acc, cat) => {
           acc[cat._id] = cat.name;

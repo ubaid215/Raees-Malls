@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { CategoryContext } from '../../context/CategoryContext';
 import LoadingSkeleton from '../shared/LoadingSkelaton';
@@ -7,6 +7,21 @@ import { FiGrid, FiRefreshCw } from 'react-icons/fi';
 
 const CategorySection = () => {
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
+
+  // Automatically fetch categories on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        await fetchCategories({ isPublic: true });
+      } catch (err) {
+        console.error("Category fetch error:", err);
+        toast.error(err.message || 'Failed to fetch categories');
+      }
+    };
+    if (categories.length === 0 && !loading && !error) {
+      loadCategories();
+    }
+  }, [fetchCategories, categories, loading, error]);
 
   const handleFetchCategories = async () => {
     try {
@@ -25,11 +40,11 @@ const CategorySection = () => {
             <LoadingSkeleton type="text" width="64" height="10" className="mx-auto" />
             <LoadingSkeleton type="text" width="96" height="4" className="mx-auto mt-2" />
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
-            {[...Array(4)].map((_, index) => (
-              <div key={index} className="flex flex-col items-center">
-                <LoadingSkeleton type="circle" size="32" className="mb-4" />
-                <LoadingSkeleton type="text" width="20" height="6" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+            {[...Array(5)].map((_, index) => (
+              <div key={index} className="flex flex-col">
+                <LoadingSkeleton type="rect" width="full" height="40" className="mb-4 rounded-lg" />
+                <LoadingSkeleton type="text" width="20" height="6" className="mx-auto" />
               </div>
             ))}
           </div>
@@ -103,30 +118,31 @@ const CategorySection = () => {
             <Link
               key={category._id}
               to={`/products?category=${category.slug || category._id}`}
-              className="group flex flex-col items-center text-center p-6 rounded-xl hover:bg-gray-50 transition-colors duration-200"
+              className="group flex flex-col rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200 bg-white"
             >
-              <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-4 overflow-hidden group-hover:bg-gray-200 transition-colors duration-200">
-                {category.image?.url ? (
+              <div className="relative w-full h-40 bg-gray-100 overflow-hidden">
+                {category.image ? (
                   <img
-                    src={category.image.url}
+                    src={category.image}
                     alt={category.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
                     onError={(e) => {
                       e.target.src = '/placeholder-category.png';
-                      e.target.className = 'w-12 h-12 object-contain';
+                      e.target.className = 'w-full h-full object-contain p-4';
                     }}
                   />
                 ) : (
-                  <FiGrid className="w-8 h-8 text-gray-400" />
+                  <div className="w-full h-full flex items-center justify-center">
+                    <FiGrid className="w-12 h-12 text-gray-400" />
+                  </div>
                 )}
               </div>
-              <h3 className="font-medium text-gray-900 group-hover:text-red-600 transition-colors duration-200">
-                {category.name}
-              </h3>
-              <span className="text-sm text-gray-500 mt-1">
-                {category.productCount || 0} items
-              </span>
+              <div className="p-4 text-center">
+                <h3 className="font-medium text-gray-900 group-hover:text-red-600 transition-colors duration-200">
+                  {category.name}
+                </h3>
+              </div>
             </Link>
           ))}
         </div>

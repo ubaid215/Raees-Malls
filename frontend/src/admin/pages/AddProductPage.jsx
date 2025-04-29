@@ -2,19 +2,21 @@ import React, { useState, useCallback } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import ProductForm from "./ProductForm";
-import { productService } from "../../services/productAPI";
+import { createProduct } from "../../services/productService";
+import  socketService  from "../../services/socketService";
 
 const AddProductPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const navigate = useNavigate();
 
-  const handleSubmit = useCallback(async (productData) => {
+  const handleSubmit = useCallback(async (productData, images) => {
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      const response = await productService.createProduct(productData);
+      const response = await createProduct(productData, images);
       console.log("Product created:", response);
+      socketService.emit('productAdded', response);
       navigate("/admin/inventory");
     } catch (err) {
       console.error("Submission failed:", err);
@@ -39,9 +41,8 @@ const AddProductPage = () => {
           </div>
         )}
         <ProductForm
-          initialData={null}
+          product={null}
           onSubmit={handleSubmit}
-          isSubmitting={isSubmitting}
         />
       </div>
     </section>

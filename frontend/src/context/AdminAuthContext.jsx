@@ -12,16 +12,35 @@ const AdminAuthProvider = ({ children }) => {
     errors: [],
     isRateLimited: false,
     retryAfter: null,
-    isRefreshingToken: false
+    isRefreshingToken: false,
+    isAdminAuthenticated: false
   });
 
-  // Initialize auth state based on localStorage
+  // Initialize auth state based on localStorage token
   useEffect(() => {
-    const token = localStorage.getItem('adminToken');
-    if (token) {
-      // If token exists but no admin data, set loading state
-      setAuthState(prev => ({ ...prev, loading: true }));
-    }
+    const initializeAuth = async () => {
+      const token = localStorage.getItem('adminToken');
+      if (token) {
+        setAuthState(prev => ({ 
+          ...prev, 
+          loading: true
+          // Don't set isAdminAuthenticated until we verify the token
+        }));
+        
+        try {
+          // Attempt to refresh token to validate it and get user data
+          await refreshAdminToken();
+        } catch (err) {
+          console.error('Token validation failed during initialization:', err);
+          resetAuthState(); // Clear state if token is invalid
+        } finally {
+          // Ensure loading state is cleared even if there's an error
+          setAuthState(prev => ({ ...prev, loading: false }));
+        }
+      }
+    };
+    
+    initializeAuth();
   }, []);
 
   const setupSocketConnection = (admin) => {
@@ -66,7 +85,8 @@ const AdminAuthProvider = ({ children }) => {
       errors: [],
       isRateLimited: false,
       retryAfter: null,
-      isRefreshingToken: false
+      isRefreshingToken: false,
+      isAdminAuthenticated: false
     });
     localStorage.removeItem('adminToken');
     localStorage.removeItem('refreshToken');
@@ -78,9 +98,24 @@ const AdminAuthProvider = ({ children }) => {
   };
 
   const loginAdmin = async (credentials) => {
-    setAuthState(prev => ({ ...prev, loading: true, error: null, errors: [] }));
+    setAuthState(prev => ({ 
+      ...prev, 
+      loading: true, 
+      error: null, 
+      errors: [] 
+    }));
+    
     try {
       const adminData = await AdminAuthService.login(credentials);
+      
+      // Ensure tokens are stored before updating state
+      if (adminData.token) {
+        localStorage.setItem('adminToken', adminData.token);
+      }
+      if (adminData.refreshToken) {
+        localStorage.setItem('refreshToken', adminData.refreshToken);
+      }
+
       setAuthState({
         admin: adminData.user,
         loading: false,
@@ -88,7 +123,10 @@ const AdminAuthProvider = ({ children }) => {
         errors: [],
         isRateLimited: false,
         retryAfter: null,
+        isRefreshingToken: false,
+        isAdminAuthenticated: true 
       });
+      
       setupSocketConnection(adminData.user);
       return adminData;
     } catch (err) {
@@ -112,36 +150,58 @@ const AdminAuthProvider = ({ children }) => {
     }
   };
 
+  // This reference allows us to call refreshAdminToken within useEffect
   const refreshAdminToken = async () => {
-    setAuthState(prev => ({ ...prev, isRefreshingToken: true }));
+    setAuthState(prev => ({ ...prev, isRefreshingToken: true, loading: true }));
+    
     try {
       const adminData = await AdminAuthService.refreshToken();
+      
+      // Update tokens in localStorage if new ones are returned
+      if (adminData.token) {
+        localStorage.setItem('adminToken', adminData.token);
+      }
+      if (adminData.refreshToken) {
+        localStorage.setItem('refreshToken', adminData.refreshToken);
+      }
+
       setAuthState(prev => ({
         ...prev,
-        admin: adminData.user || prev.admin,
+        admin: adminData.user,
         isRefreshingToken: false,
+        loading: false,
         error: null,
         errors: [],
         isRateLimited: false,
         retryAfter: null,
+        isAdminAuthenticated: true
       }));
+      
       return adminData;
     } catch (err) {
+      console.error('Token refresh failed:', err);
       handleAuthError(err);
       throw err;
     } finally {
-      setAuthState(prev => ({ ...prev, isRefreshingToken: false }));
+      setAuthState(prev => ({ 
+        ...prev, 
+        isRefreshingToken: false,
+        loading: false  // Ensure loading is false even on error
+      }));
     }
   };
 
+  // Simplified and consistent auth check
+  const isAuthenticated = authState.isAdminAuthenticated && authState.admin;
+
   const contextValue = useMemo(() => ({
     ...authState,
-    isAdminAuthenticated: !!authState.admin && !!localStorage.getItem('adminToken'),
+    isAdminAuthenticated: isAuthenticated,
     loginAdmin,
     logoutAdmin,
     refreshAdminToken,
     resetAuthState
-  }), [authState]);
+  }), [authState, isAuthenticated]);
 
   return (
     <AdminAuthContext.Provider value={contextValue}>

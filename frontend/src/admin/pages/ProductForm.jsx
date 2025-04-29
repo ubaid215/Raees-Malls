@@ -1,18 +1,15 @@
 /* eslint-disable no-unused-vars */
 import React, { useState, useMemo, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { productService } from '../../services/productAPI';
-import { categoryService } from '../../services/categoryAPI';
-import { socketService } from '../../services/socketService';
-import { useAdminAuth } from '../../contexts/AdminAuthContext';
+import { getCategories } from '../../services/categoryService'; 
+import { useAdminAuth } from '../../context/AdminAuthContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { XMarkIcon, PhotoIcon } from '@heroicons/react/24/outline';
 
-const ProductForm = React.memo(({ product = null }) => {
+const ProductForm = React.memo(({ product = null, onSubmit }) => {
   const navigate = useNavigate();
   const { admin } = useAdminAuth();
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [images, setImages] = useState(product?.images || []);
   const [newImageFiles, setNewImageFiles] = useState([]);
   const [specifications, setSpecifications] = useState(
@@ -71,14 +68,15 @@ const ProductForm = React.memo(({ product = null }) => {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await categoryService.getAllCategories();
-        if (response.success) {
-          setCategories(response.data);
+        const categories = await getCategories();
+        if (Array.isArray(categories)) {
+          setCategories(categories);
         } else {
-          setCategoryError(response.message || 'Failed to fetch categories');
-          toast.error(response.message || 'Failed to fetch categories');
+          setCategoryError('Invalid category data received');
+          toast.error('Invalid category data received');
         }
       } catch (error) {
+        console.error(error.message);
         setCategoryError(error.message || 'Failed to fetch categories');
         toast.error(error.message || 'Failed to fetch categories');
       }
@@ -87,81 +85,54 @@ const ProductForm = React.memo(({ product = null }) => {
   }, []);
 
   // Handle form submission
-  const onSubmit = async (data) => {
+  const handleFormSubmit = async (data) => {
     if (!admin) {
       toast.error('You must be logged in as an admin');
       navigate('/admin/login');
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const formData = new FormData();
+    // Prepare productData object
+    const productData = {
+      title: data.title,
+      description: data.description,
+      price: parseFloat(data.price),
+      discountPrice: data.discountPrice ? parseFloat(data.discountPrice) : undefined,
+      categoryId: data.categoryId,
+      brand: data.brand || undefined,
+      stock: parseInt(data.stock),
+      sku: data.sku,
+      seo: {
+        title: data.seo.title || undefined,
+        description: data.seo.description || undefined,
+        slug: data.seo.slug || undefined,
+      },
+    };
 
-      // Append basic fields
-      formData.append('title', data.title);
-      formData.append('description', data.description);
-      formData.append('price', data.price);
-      if (data.discountPrice) formData.append('discountPrice', data.discountPrice);
-      formData.append('categoryId', data.categoryId);
-      if (data.brand) formData.append('brand', data.brand);
-      formData.append('stock', data.stock);
-      formData.append('sku', data.sku);
-
-      // Append SEO fields
-      if (data.seo.title) formData.append('seo.title', data.seo.title);
-      if (data.seo.description) formData.append('seo.description', data.seo.description);
-      if (data.seo.slug) formData.append('seo.slug', data.seo.slug);
-
-      // Append specifications
-      const validSpecs = specifications.filter(spec => spec.key.trim() && spec.value.trim());
-      if (validSpecs.length > 0) {
-        formData.append('specifications', JSON.stringify(validSpecs));
-      }
-
-      // Append base product images
-      newImageFiles.forEach(file => {
-        formData.append('images', file);
-      });
-
-      // Append variants
-      const validVariants = variants.filter(v => 
-        v.sku.trim() && v.price && v.stock && 
-        v.attributes.every(attr => attr.key && attr.value.trim())
-      );
-      if (validVariants.length > 0) {
-        validVariants.forEach((variant, index) => {
-          formData.append(`variants[${index}][sku]`, variant.sku);
-          formData.append(`variants[${index}][price]`, variant.price);
-          if (variant.discountPrice) formData.append(`variants[${index}][discountPrice]`, variant.discountPrice);
-          formData.append(`variants[${index}][stock]`, variant.stock);
-          formData.append(`variants[${index}][attributes]`, JSON.stringify(variant.attributes));
-          variant.newImageFiles?.forEach(file => {
-            formData.append(`variants[${index}][images]`, file);
-          });
-        });
-      }
-
-      let response;
-      if (product) {
-        response = await productService.updateProduct(product._id, formData);
-        toast.success(response.message || 'Product updated successfully');
-      } else {
-        response = await productService.createProduct(formData);
-        toast.success(response.message || 'Product created successfully');
-        socketService.emit('productAdded', response.data);
-      }
-
-      if (response.success) {
-        navigate('/admin/inventory');
-      } else {
-        throw new Error(response.message);
-      }
-    } catch (error) {
-      toast.error(error.message || 'Failed to save product');
-    } finally {
-      setIsSubmitting(false);
+    // Append specifications
+    const validSpecs = specifications.filter(spec => spec.key.trim() && spec.value.trim());
+    if (validSpecs.length > 0) {
+      productData.specifications = validSpecs;
     }
+
+    // Append variants
+    const validVariants = variants.filter(v => 
+      v.sku.trim() && v.price && v.stock && 
+      v.attributes.every(attr => attr.key && attr.value.trim())
+    );
+    if (validVariants.length > 0) {
+      productData.variants = validVariants.map(variant => ({
+        sku: variant.sku,
+        price: parseFloat(variant.price),
+        discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : undefined,
+        stock: parseInt(variant.stock),
+        attributes: variant.attributes,
+        images: variant.images || [],
+      }));
+    }
+
+    // Call the onSubmit prop with productData and images
+    await onSubmit(productData, newImageFiles);
   };
 
   // Handle base product image selection
@@ -554,7 +525,7 @@ const ProductForm = React.memo(({ product = null }) => {
           {product ? 'Edit Product' : 'Add New Product'}
         </h2>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8">
           <div className="space-y-6">
             <h3 className="text-lg font-medium text-gray-900">Basic Information</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
@@ -801,20 +772,9 @@ const ProductForm = React.memo(({ product = null }) => {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
               className="w-full sm:w-auto px-6 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSubmitting ? (
-                <span className="flex items-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  {product ? 'Updating...' : 'Creating...'}
-                </span>
-              ) : (
-                product ? 'Update Product' : 'Create Product'
-              )}
+              {product ? 'Update Product' : 'Create Product'}
             </button>
           </div>
         </form>

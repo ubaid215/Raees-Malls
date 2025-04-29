@@ -5,7 +5,6 @@ import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 
 const AdminLogin = () => {
   const {
-    admin,
     isAdminAuthenticated,
     loading: authLoading,
     error: authError,
@@ -20,10 +19,18 @@ const AdminLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Redirect if already authenticated
+  // useEffect(() => {
+  //   console.log('Auth state changed', {
+  //     isAdminAuthenticated,
+  //     token: localStorage.getItem('adminToken') || null,
+  //     loading: authLoading
+  //   });
+  // }, [isAdminAuthenticated, authLoading]);
+
+  // Redirect effect based on authentication state
   useEffect(() => {
     if (isAdminAuthenticated) {
-      console.log('Redirecting authenticated admin');
+      // console.log('Redirecting to /admin - authenticated with valid token');
       navigate('/admin', { replace: true });
     }
   }, [isAdminAuthenticated, navigate]);
@@ -33,7 +40,7 @@ const AdminLogin = () => {
     let timer;
     if (isRateLimited && retryAfter) {
       const delay = parseInt(retryAfter, 10) * 1000 || 30000;
-      console.log('Rate limited, waiting for:', delay, 'ms');
+      // console.log('Rate limited, waiting for:', delay, 'ms');
       timer = setTimeout(() => {
         console.log('Rate limit timeout expired');
       }, delay);
@@ -60,7 +67,6 @@ const AdminLogin = () => {
 
     const validationError = validateForm();
     if (validationError) {
-      console.log('Client-side validation failed:', validationError);
       setLocalError(validationError);
       setIsSubmitting(false);
       return;
@@ -68,11 +74,11 @@ const AdminLogin = () => {
 
     try {
       console.log('Attempting login with:', formData.email);
-      await loginAdmin(formData);
-      console.log('Login successful - redirecting');
+      const result = await loginAdmin(formData);
+      console.log('Login result:', result);
     } catch (err) {
       console.error('Login failed:', err);
-      setLocalError(err.message || 'Admin login failed');
+      setLocalError(err.message || 'Admin login failed. Please try again or contact support.');
     } finally {
       setIsSubmitting(false);
     }

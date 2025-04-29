@@ -30,6 +30,28 @@ function Navbar() {
     ? cart.items.reduce((count, item) => count + (item.quantity || 0), 0)
     : 0;
 
+  // Fetch categories on component mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        await fetchCategories({ isPublic: true });
+      } catch (err) {
+        console.error('Failed to fetch categories on mount:', err.message);
+      }
+    };
+    loadCategories();
+  }, [fetchCategories]);
+
+  // Clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+       
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
@@ -42,28 +64,18 @@ function Navbar() {
   const handleCategorySelect = (category) => {
     setSelectedCategory(category.name);
     setShowDropdown(false);
-    navigate(category.path);
-  };
-
-  const handleFetchCategories = async () => {
-    try {
-      await fetchCategories({ isPublic: true });
-    } catch (err) {
-      console.error('Failed to fetch categories:', err.message);
-    }
+    navigate(`/categories/${category.slug}`); // Use slug for navigation
   };
 
   const closeMobileMenu = () => {
     setShowMobileMenu(false);
   };
 
-  // Clear error after 5 seconds
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
+  // Generate category links with paths
+  const categoryLinks = categories.map((category) => ({
+    ...category,
+    path: `/categories/${category.slug}`, // Generate path using slug
+  }));
 
   return (
     <header className="sticky top-0 z-50 bg-[#f5f5f5] shadow-sm mb-5">
@@ -71,6 +83,12 @@ function Navbar() {
       {error && (
         <div className="bg-red-100 text-red-700 text-center py-1 px-4 text-sm">
           {error}
+          <button
+            onClick={() => fetchCategories({ isPublic: true })}
+            className="ml-2 underline hover:text-red-900"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -168,10 +186,12 @@ function Navbar() {
             ))}
           </div>
           <div className="px-4 py-2 border-t">
-            {categories.length > 0 ? (
-              categories.slice(0, 5).map((category) => (
+            {loading ? (
+              <div className="px-2 py-2 text-gray-700">Loading categories...</div>
+            ) : categoryLinks.length > 0 ? (
+              categoryLinks.slice(0, 5).map((category) => (
                 <Link
-                  key={category.path}
+                  key={category._id}
                   to={category.path}
                   className="block px-2 py-2 text-gray-700 hover:text-red-600"
                   onClick={closeMobileMenu}
@@ -180,12 +200,7 @@ function Navbar() {
                 </Link>
               ))
             ) : (
-              <button
-                onClick={handleFetchCategories}
-                className="block px-2 py-2 text-gray-700 hover:text-red-600"
-              >
-                Load Categories
-              </button>
+              <div className="px-2 py-2 text-gray-700">No categories available</div>
             )}
           </div>
           <div className="px-4 py-3 flex items-center gap-2 text-gray-700">
@@ -222,10 +237,12 @@ function Navbar() {
 
             {showDropdown && (
               <div className="absolute left-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
-                {categories.length > 0 ? (
-                  categories.map((category) => (
+                {loading ? (
+                  <div className="px-4 py-2 text-gray-800">Loading categories...</div>
+                ) : categoryLinks.length > 0 ? (
+                  categoryLinks.map((category) => (
                     <button
-                      key={category.path}
+                      key={category._id}
                       onClick={() => handleCategorySelect(category)}
                       className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100 truncate"
                     >
@@ -233,12 +250,7 @@ function Navbar() {
                     </button>
                   ))
                 ) : (
-                  <button
-                    onClick={handleFetchCategories}
-                    className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100"
-                  >
-                    Load Categories
-                  </button>
+                  <div className="px-4 py-2 text-gray-800">No categories available</div>
                 )}
               </div>
             )}
@@ -296,10 +308,12 @@ function Navbar() {
             <RiArrowDownLine size={16} />
           </button>
           <div className="absolute left-0 mt-1 w-56 bg-white rounded-md shadow-lg z-10 hidden group-hover:block max-h-96 overflow-y-auto">
-            {categories.length > 0 ? (
-              categories.map((category) => (
+            {loading ? (
+              <div className="px-4 py-2 text-gray-800">Loading categories...</div>
+            ) : categoryLinks.length > 0 ? (
+              categoryLinks.map((category) => (
                 <Link
-                  key={category.path}
+                  key={category._id}
                   to={category.path}
                   className="block px-4 py-2 text-gray-800 hover:bg-gray-100"
                 >
@@ -307,12 +321,7 @@ function Navbar() {
                 </Link>
               ))
             ) : (
-              <button
-                onClick={handleFetchCategories}
-                className="block px-4 py-2 text-gray-800 hover:bg-gray-100"
-              >
-                Load Categories
-              </button>
+              <div className="px-4 py-2 text-gray-800">No categories available</div>
             )}
           </div>
         </div>

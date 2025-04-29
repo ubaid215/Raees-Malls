@@ -5,22 +5,24 @@ import api from './api';
 // ========================
 
 export const getCategories = async (options = {}) => {
-  const { isPublic = true } = options; // Default to public route
+  const { isPublic = true } = options;
 
   try {
     const response = await api.get('/categories', {
-      skipAuth: isPublic, // Skip authentication for public routes
-      skipRetry: true // Disable automatic retries
+      skipAuth: isPublic,
+      skipRetry: true
     });
-
-    return response.data.categories || [];
+    console.log('Get categories API response:', response.data);
+    // Extract categories from response.data.data.categories
+    return response.data.data?.categories || [];
   } catch (error) {
+    console.error('Get categories error:', error.response?.data || error.message);
     throw new Error(error.response?.data?.message || 'Failed to fetch categories');
   }
 };
 
 export const getCategoryById = async (id, options = {}) => {
-  const { isPublic = true } = options; // Default to public route
+  const { isPublic = true } = options;
 
   // Check cache first
   let cachedCategory = null;
@@ -39,7 +41,7 @@ export const getCategoryById = async (id, options = {}) => {
 
   try {
     const response = await api.get(`/categories/${id}`, {
-      skipAuth: isPublic // Skip authentication for public routes
+      skipAuth: isPublic
     });
     const category = response.data.category;
 
@@ -69,18 +71,22 @@ export const createCategory = async (categoryData) => {
     for (const key in categoryData) {
       if (key === 'image' && categoryData[key]) {
         formData.append('image', categoryData[key]);
-      } else if (categoryData[key] !== undefined) {
+      } else if (categoryData[key] !== undefined && categoryData[key] !== null) {
         formData.append(key, categoryData[key]);
       }
     }
 
+    for (let [key, value] of formData.entries()) {
+      console.log(`FormData ${key}: ${value instanceof File ? value.name : value}`);
+    }
+
     const response = await api.post('/admin/categories', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
+    console.log('Create category API response:', response.data);
     return response.data.category;
   } catch (error) {
+    console.error('Create category error:', error.response?.data || error.message);
     throw new Error(error.response?.data?.message || 'Failed to create category');
   }
 };

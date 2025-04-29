@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Helmet } from "react-helmet";
 import { useParams, useNavigate } from "react-router-dom";
 import ProductForm from "./ProductForm";
-import { productService } from "../../services/productAPI";
+import { updateProduct, getProductById } from "../../services/productService";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 
 const EditProductPage = () => {
@@ -17,7 +17,7 @@ const EditProductPage = () => {
     setIsLoading(true);
     setSubmitError(null);
     try {
-      const product = await productService.getProduct(id);
+      const product = await getProductById();
       setInitialData(product);
     } catch (err) {
       console.error("Failed to load product:", err);
@@ -36,7 +36,7 @@ const EditProductPage = () => {
       setIsSubmitting(true);
       setSubmitError(null);
       try {
-        const response = await productService.updateProduct(id, productData);
+        const response = await updateProduct(productData);
         console.log("Product updated:", response);
         navigate("/admin/inventory");
       } catch (err) {

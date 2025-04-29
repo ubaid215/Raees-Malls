@@ -3,7 +3,7 @@ import { FiDownload, FiCheckCircle, FiTruck } from "react-icons/fi";
 import { toast } from "react-toastify";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
 import Button from "../../components/core/Button";
-import { getAllOrders, updateOrderStatus, downloadInvoice } from "../../services/orderApi";
+import { getAllOrders, updateOrderStatus, downloadInvoice } from "../../services/orderService";
 
 const OrderManagement = () => {
   const [orders, setOrders] = useState([]);
