@@ -9,41 +9,20 @@ const cloudinary = require('../config/cloudinary');
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, slug, description, parentId } = req.body;
-    let imageUrl = null;
-    let imagePublicId = null;
-
-    // Upload image to Cloudinary if provided
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'categories'
-      });
-      imageUrl = result.secure_url;
-      imagePublicId = result.public_id;
-    }
+    const image = req.file ? req.file.path : null; 
 
     const category = new Category({
       name,
       slug,
       description,
-      parentId: parentId || null,
-      image: imageUrl,
-      imagePublicId
+      parentId: parentId === 'null' ? null : parentId,
+      image,
     });
-
     await category.save();
 
-    // Log the action
-    await AuditLog.create({
-      userId: req.user._id,
-      action: 'CATEGORY_CREATE',
-      details: `Category created: ${category._id}`,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
-
-    ApiResponse.success(res, 201, 'Category created successfully', { category });
-  } catch (error) {
-    next(error);
+    res.status(201).json({ message: 'Category created', category });
+  } catch (err) {
+    next(new ApiError(500, err.message || 'Failed to create category'));
   }
 };
 
