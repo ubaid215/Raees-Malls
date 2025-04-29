@@ -13,10 +13,15 @@ const {
 const { getProductsForCustomersValidator } = require('../validation/productValidators');
 
 // Admin category management routes (under /api/admin/categories)
-router.post('/',
+router.post(
+  '/',
   ensureAuthenticated,
   authorizeRoles('admin'),
-  upload.single('image'), // Add this middleware for file upload
+  upload.single('image', 'categories'), // Specify folder as 'categories'
+  (req, res, next) => {
+    console.log('Request Body:', req.body, 'File:', req.file); // Debug log
+    next();
+  },
   createCategoryValidator,
   categoryController.createCategory
 );
