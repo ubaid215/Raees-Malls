@@ -34,12 +34,12 @@ const Sidebar = () => {
         { path: '/admin/orders-history', icon: History, label: 'Orders History' },
       ]
     },
-    {
-      title: 'PROFILE',
-      items: [
-        { path: '/admin/profile', icon: UserCircle, label: 'Profile' },
-      ]
-    }
+    // {
+    //   title: 'PROFILE',
+    //   items: [
+    //     { path: '/admin/profile', icon: UserCircle, label: 'Profile' },
+    //   ]
+    // }
   ];
 
   const handleLogout = async () => {

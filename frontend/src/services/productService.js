@@ -44,6 +44,11 @@ export const createProduct = async (productData, images) => {
     const response = await api.post('/admin/products', formData, { isMultipart: true });
     return response.data.product;
   } catch (error) {
+    console.error('Create product error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
     throw new Error(error.response?.data?.message || 'Failed to create product');
   }
 };

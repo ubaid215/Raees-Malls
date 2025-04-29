@@ -5,7 +5,6 @@ import CustomerLayout from '../components/layout/CustomerLayout';
 import AdminLayout from '../admin/components/AdminLayout';
 import ProtectedRoute from '../context/ProtectedRoute';
 import ProtectedAdminRoute from '../context/ProtectedAdminRoute';
-import Categories from '../components/layout/Home/Categories';
 import CategorySection from '../components/shared/CategorySection';
 
 // Lazy load pages
@@ -40,8 +39,8 @@ const AppRouter = () => {
           <Route index element={<HomePage />} />
           <Route path="products" element={<AllProducts />} />
           <Route path="product/:productId" element={<ProductDetails />} />
-          <Route path="all-categories" element={<CategorySection/>} />
           <Route path="about" element={<About />} />
+          <Route path="all-categories" element={<CategorySection />} />
           <Route path="contact" element={<Contact />} />
           <Route path="login" element={<Login />} />
           <Route path="register" element={<Register />} />
@@ -83,79 +82,23 @@ const AppRouter = () => {
 
         {/* Admin Routes */}
         <Route path="/admin" element={<AdminLayout />}>
+          {/* Unprotected Admin Login Route */}
           <Route path="login" element={<AdminLogin />} />
-          <Route
-            path=""
-            element={
-              <ProtectedAdminRoute>
-                <Dashboard />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="inventory"
-            element={
-              <ProtectedAdminRoute>
-                <ProductInventory />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="add-products"
-            element={
-              <ProtectedAdminRoute>
-                <AddProductPage />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="edit-product/:id"
-            element={
-              <ProtectedAdminRoute>
-                <EditProductPage />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="orders"
-            element={
-              <ProtectedAdminRoute>
-                <OrderManagement />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="orders-history"
-            element={
-              <ProtectedAdminRoute>
-                <OrdersHistory />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="category"
-            element={
-              <ProtectedAdminRoute>
-                <CategoryManager />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="banner-upload"
-            element={
-              <ProtectedAdminRoute>
-                <BannerManager />
-              </ProtectedAdminRoute>
-            }
-          />
-          <Route
-            path="hero-slider"
-            element={
-              <ProtectedAdminRoute>
-                <HeroSliderAdmin />
-              </ProtectedAdminRoute>
-            }
-          />
+
+          {/* Protected Admin Routes */}
+          <Route element={<ProtectedAdminRoute />}>
+            <Route index element={<Dashboard />} />
+            <Route path="inventory" element={<ProductInventory />} />
+            <Route path="add-products" element={<AddProductPage />} />
+            <Route path="edit-product/:id" element={<EditProductPage />} />
+            <Route path="orders" element={<OrderManagement />} />
+            <Route path="orders-history" element={<OrdersHistory />} />
+            <Route path="category" element={<CategoryManager />} />
+            <Route path="banner-upload" element={<BannerManager />} />
+            <Route path="hero-slider" element={<HeroSliderAdmin />} />
+            {/* Fallback for unmatched admin routes */}
+            <Route path="*" element={<Navigate to="/admin" replace />} />
+          </Route>
         </Route>
 
         {/* Fallback route */}

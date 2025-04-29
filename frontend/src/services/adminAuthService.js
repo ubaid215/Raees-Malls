@@ -1,8 +1,10 @@
+/* eslint-disable no-unused-vars */
+
 import API from './api';
 
 const AdminAuthService = {
   login: async (credentials) => {
-    // Client-side validation remains unchanged
+    // Client-side validation
     if (!credentials.email || !credentials.password) {
       throw { message: 'Email and password are required', status: 400 };
     }
@@ -13,16 +15,25 @@ const AdminAuthService = {
     try {
       const response = await API.post('/admin/login', credentials);
       
-      // Store both tokens
-      localStorage.setItem('adminToken', response.data.token);
-      localStorage.setItem('refreshToken', response.data.refreshToken);
+      // Log full response for debugging
+      console.log('Login response:', response.data);
+
+      // Destructure from response.data.data to match backend structure
+      const { token, refreshToken, user } = response.data.data;
+      if (!token || !refreshToken) {
+        throw { message: 'Invalid response from server: Missing tokens', status: 500 };
+      }
       
-      return response.data;
+      localStorage.setItem('adminToken', token);
+      localStorage.setItem('refreshToken', refreshToken);
+      
+      return response.data.data;
     } catch (error) {
       const errorObj = {
-        message: error.response?.data?.message || 'Login failed',
+        message: error.response?.data?.message || 'Login failed. Please check your credentials or contact support.',
         status: error.response?.status || 500,
-        errors: error.response?.data?.errors?.map(err => err.msg) || []
+        errors: error.response?.data?.errors?.map(err => err.msg) || [],
+        rawError: error.response?.data || error.message
       };
       console.error('Admin login error:', errorObj);
       throw errorObj;
@@ -46,26 +57,11 @@ const AdminAuthService = {
       const errorObj = {
         message: error.response?.data?.message || 'Logout failed',
         status: error.response?.status || 500,
-        errors: error.response?.data?.errors?.map(err => err.msg) || []
+        errors: error.response?.data?.errors?.map(err => err.msg) || [],
+        rawError: error.response?.data || error.message
       };
       console.error('Admin logout error:', errorObj);
       throw errorObj;
-    }
-  },
-
-  // Add getSession method to fetch the current session user
-  getSession: async () => {
-    try {
-      const response = await API.get('/admin/session');
-      return response.data; // This will return the session data from the server
-    } catch (error) {
-      const errorObj = {
-        message: error.response?.data?.message || 'Failed to retrieve session',
-        status: error.response?.status || 500,
-        errors: error.response?.data?.errors?.map(err => err.msg) || [],
-      };
-      console.error('Admin getSession error:', errorObj);
-      throw errorObj; // If there's an error, it throws the error
     }
   },
 
@@ -76,16 +72,24 @@ const AdminAuthService = {
       
       const response = await API.post('/admin/refresh-token', { refreshToken });
       
-      // Update stored tokens
-      localStorage.setItem('adminToken', response.data.accessToken);
-      localStorage.setItem('refreshToken', response.data.refreshToken);
+      // Log full response for debugging
+      // console.log('Refresh token response:', response.data);
+
+      // Destructure from response.data.data to match backend structure
+      const { token: accessToken, refreshToken: newRefreshToken, user } = response.data.data;
+      if (!accessToken || !newRefreshToken) {
+        throw { message: 'Invalid refresh response: Missing tokens', status: 500 };
+      }
+      localStorage.setItem('adminToken', accessToken);
+      localStorage.setItem('refreshToken', newRefreshToken);
       
-      return response.data;
+      return response.data.data;
     } catch (error) {
       const errorObj = {
-        message: error.response?.data?.message || 'Token refresh failed',
+        message: error.response?.data?.message || 'Token refresh failed. Please log in again.',
         status: error.response?.status || 500,
         errors: error.response?.data?.errors?.map(err => err.msg) || [],
+        rawError: error.response?.data || error.message,
         retryAfter: error.response?.headers['retry-after'] || null
       };
       console.error('Admin refreshToken error:', errorObj);

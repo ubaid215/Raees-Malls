@@ -1,20 +1,32 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
-import { categoryService } from '../../services/categoryAPI';
 import { toast } from 'react-toastify';
 import { FiPlus, FiTrash2, FiEdit2, FiX, FiImage } from 'react-icons/fi';
+
+// Core components
 import Button from '../../components/core/Button';
 import Input from '../../components/core/Input';
 import CategorySelector from '../../admin/pages/CategorySelector';
 import ImagePreview from '../../components/core/ImagePreview';
 
+// API services
+import { getCategories, createCategory, updateCategory, deleteCategory } from '../../services/categoryService';
+
+
 const CategoryManager = () => {
+  // ===== STATE MANAGEMENT =====
   const [categories, setCategories] = useState([]);
   const [editCategory, setEditCategory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Image handling states
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [isImageRemoved, setIsImageRemoved] = useState(false);
 
+  // ===== FORM HANDLING =====
   const {
     register,
     handleSubmit,
@@ -27,51 +39,48 @@ const CategoryManager = () => {
       name: '',
       slug: '',
       description: '',
-      parentCategories: [],
+      parentId: null,
     },
   });
 
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState('');
-  const [isImageRemoved, setIsImageRemoved] = useState(false);
-
-  // Fetch categories
+  /**
+   * Fetches all categories from the API (admin view)
+   */
   const fetchCategories = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await categoryService.getAllCategories();
-      if (response.success) {
-        setCategories(response.data);
-      } else {
-        throw new Error(response.message);
-      }
+      setError(null);
+      const response = await getCategories({ isPublic: false }); // Fetch admin categories
+      console.log('Fetched categories:', response); // Debug log
+      setCategories(Array.isArray(response) ? response : []);
     } catch (err) {
-      setError(err.message);
+      console.error('Fetch categories error:', err);
+      setError(err.message || 'Failed to fetch categories');
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Load categories on component mount
   useEffect(() => {
     fetchCategories();
   }, [fetchCategories]);
 
-  // Handle parent categories change
-  const handleParentCategoriesChange = useCallback((selectedParents) => {
-    setValue('parentCategories', selectedParents);
+ 
+  const handleParentCategoryChange = useCallback((selectedParents) => {
+    setValue('parentId', selectedParents[0]?._id || null);
   }, [setValue]);
 
-  // Handle image change
+
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      // Validate image
       const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
       if (!validTypes.includes(file.type)) {
         toast.error('Only JPEG, PNG, and WebP images are allowed');
         return;
       }
-      if (file.size > 5 * 1024 * 1024) { // 5MB
+      if (file.size > 5 * 1024 * 1024) {
         toast.error('Image size must be less than 5MB');
         return;
       }
@@ -82,14 +91,16 @@ const CategoryManager = () => {
     }
   };
 
-  // Clear image
+  /**
+   * Clears the selected image
+   */
   const clearImage = () => {
     setImageFile(null);
     setImagePreview('');
     setIsImageRemoved(true);
   };
 
-  // Generate slug from name
+ 
   const generateSlug = (name) => {
     return name
       .toLowerCase()
@@ -98,7 +109,7 @@ const CategoryManager = () => {
       .replace(/^-+|-+$/g, '');
   };
 
-  // Watch name changes to auto-generate slug
+  // Auto-generate slug from name for new categories
   const nameValue = watch('name');
   useEffect(() => {
     if (nameValue && !editCategory) {
@@ -106,94 +117,94 @@ const CategoryManager = () => {
     }
   }, [nameValue, setValue, editCategory]);
 
-  // Handle form submission
+
   const onSubmit = async (data) => {
     setIsSubmitting(true);
     try {
-      const formData = new FormData();
-      formData.append('name', data.name);
-      formData.append('slug', data.slug);
-      if (data.description) formData.append('description', data.description);
-      
-      // Handle parent categories
-      data.parentCategories.forEach(parent => {
-        formData.append('parentId', parent._id);
-      });
-
-      // Handle image
-      if (imageFile) {
-        formData.append('image', imageFile);
-      } else if (isImageRemoved && editCategory?.image) {
-        formData.append('removeImage', 'true');
+      const categoryData = {
+        name: data.name,
+        slug: data.slug,
+        description: data.description || undefined,
+        parentId: data.parentId || undefined,
+        image: imageFile || undefined,
+      };
+      if (isImageRemoved && editCategory?.image) {
+        categoryData.removeImage = 'true';
       }
 
-      let response;
+      console.log('Submitting category data:', categoryData); // Debug log
+
       if (editCategory) {
-        response = await categoryService.updateCategory(editCategory._id, formData);
+        await updateCategory(editCategory._id, categoryData);
+        toast.success('Category updated successfully');
       } else {
-        response = await categoryService.createCategory(formData);
+        await createCategory(categoryData);
+        toast.success('Category created successfully');
       }
 
-      if (response.success) {
-        toast.success(response.message);
-        await fetchCategories();
-        resetForm();
-      } else {
-        throw new Error(response.message);
-      }
+      await fetchCategories(); // Refresh categories
+      resetForm();
     } catch (err) {
-      toast.error(err.message || 'Failed to save category');
+      console.error('Submit error:', err);
+      const errorMessage = err.response?.data?.errors
+        ? err.response.data.errors.map(e => e.msg).join(', ')
+        : err.response?.data?.message || err.message || 'Failed to save category';
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Reset form
+ 
   const resetForm = () => {
-    reset();
+    reset({
+      name: '',
+      slug: '',
+      description: '',
+      parentId: null,
+    });
     setImageFile(null);
     setImagePreview('');
     setEditCategory(null);
     setIsImageRemoved(false);
   };
 
-  // Handle edit category
+  /**
+   * Loads a category into the form for editing
+   * @param {Object} category - The category to edit
+   */
   const handleEditCategory = useCallback((category) => {
     setEditCategory(category);
     setValue('name', category.name);
     setValue('slug', category.slug);
     setValue('description', category.description || '');
-    setValue('parentCategories', category.parentId ? [{ _id: category.parentId }] : []);
+    setValue('parentId', category.parentId || null);
     setImageFile(null);
     setImagePreview(category.image || '');
     setIsImageRemoved(false);
   }, [setValue]);
 
-  // Handle delete category
+
   const handleDeleteCategory = async (id) => {
-    if (window.confirm('Are you sure you want to delete this category? This action cannot be undone.')) {
+    if (window.confirm('Are you sure you want to delete this category?')) {
       try {
-        const response = await categoryService.deleteCategory(id);
-        if (response.success) {
-          setCategories(prev => prev.filter(cat => cat._id !== id));
-          toast.success(response.message);
-          if (editCategory?._id === id) {
-            resetForm();
-          }
-        } else {
-          throw new Error(response.message);
+        await deleteCategory(id);
+        toast.success('Category deleted successfully');
+        await fetchCategories(); // Refresh categories
+        if (editCategory?._id === id) {
+          resetForm();
         }
       } catch (err) {
+        console.error('Delete error:', err);
         toast.error(err.message || 'Failed to delete category');
       }
     }
   };
 
-  // Memoized categories excluding current edit category and its children
+  
   const availableParentCategories = useMemo(() => {
     if (!editCategory) return categories;
     
-    // Filter out current category and its descendants
     const filterOutDescendants = (categoryId, allCategories) => {
       const descendants = new Set();
       const queue = [categoryId];
@@ -217,12 +228,9 @@ const CategoryManager = () => {
     );
   }, [categories, editCategory]);
 
+  // ===== RENDER LOADING AND ERROR STATES =====
   if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-500"></div>
-      </div>
-    );
+    return <div className="flex justify-center items-center h-64">Loading...</div>;
   }
 
   if (error) {
@@ -236,26 +244,26 @@ const CategoryManager = () => {
     );
   }
 
+  // ===== MAIN COMPONENT RENDER =====
   return (
     <div className="container mx-auto px-4 py-6">
       <h1 className="text-2xl font-bold text-gray-800 mb-6">Category Management</h1>
 
-      {/* Add/Edit Category Form */}
+      {/* Category Form Section */}
       <form onSubmit={handleSubmit(onSubmit)} className="mb-8 bg-white rounded-lg shadow p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Left Column - Basic Info */}
           <div className="space-y-4">
             <Input
               label="Category Name*"
               {...register('name', {
                 required: 'Name is required',
                 minLength: { value: 2, message: 'Name must be at least 2 characters' },
-                maxLength: { value: 100, message: 'Name cannot exceed 100 characters' },
+                maxLength: { value: 50, message: 'Name cannot exceed 50 characters' },
               })}
+              error={errors.name?.message}
               placeholder="Enter category name"
             />
-            {errors.name && (
-              <p className="mt-1 text-sm text-red-600">{errors.name.message}</p>
-            )}
 
             <Input
               label="URL Slug*"
@@ -266,11 +274,9 @@ const CategoryManager = () => {
                   message: 'Slug can only contain lowercase letters, numbers, and hyphens',
                 },
               })}
+              error={errors.slug?.message}
               placeholder="Enter URL slug"
             />
-            {errors.slug && (
-              <p className="mt-1 text-sm text-red-600">{errors.slug.message}</p>
-            )}
 
             <Input
               label="Description (Optional)"
@@ -280,27 +286,27 @@ const CategoryManager = () => {
               as="textarea"
               rows={3}
               placeholder="Enter category description"
+              error={errors.description?.message}
             />
-            {errors.description && (
-              <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
-            )}
           </div>
 
+          {/* Right Column - Parent and Image */}
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Parent Category (Optional)
               </label>
               <CategorySelector
-                selected={watch('parentCategories') || []}
-                onChange={handleParentCategoriesChange}
+                selected={categories.filter(c => c._id === watch('parentId'))}
+                onChange={handleParentCategoryChange}
                 categories={availableParentCategories}
                 placeholder="Select parent category..."
-                maxSelections={1} // Only allow one parent
-                showImages={true}
+                maxSelections={1}
+                showImages
               />
             </div>
 
+            {/* Image Upload Section */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Category Image (Optional)
@@ -311,7 +317,7 @@ const CategoryManager = () => {
                   {imageFile ? 'Change Image' : 'Upload Image'}
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp"
                     onChange={handleImageChange}
                     className="hidden"
                   />
@@ -344,6 +350,7 @@ const CategoryManager = () => {
           </div>
         </div>
 
+        {/* Form Buttons */}
         <div className="mt-6 flex space-x-3">
           <Button 
             type="submit" 
@@ -373,7 +380,7 @@ const CategoryManager = () => {
         </div>
       </form>
 
-      {/* Category List */}
+      {/* Category List Section */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         {categories.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
@@ -423,9 +430,9 @@ const CategoryManager = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {category.parentId ? (
-                          categories.find(c => c._id === category.parentId)?.name || 'N/A'
-                        ) : '—'}
+                        {category.parentId 
+                          ? categories.find(c => c._id === category.parentId)?.name || 'N/A'
+                          : '—'}
                       </div>
                     </td>
                     <td className="px-6 py-4">
