@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useContext } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useContext } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate } from 'react-router-dom';
 import Button from '../components/core/Button';
@@ -17,7 +17,7 @@ function AllProducts() {
     pages: 1,
     total: 0
   });
-  const [needsFetch, setNeedsFetch] = useState(true); // Tracks if fetch is needed
+  const [needsFetch, setNeedsFetch] = useState(true);
   const navigate = useNavigate();
   const { categories, fetchCategories } = useContext(CategoryContext);
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
@@ -25,6 +25,19 @@ function AllProducts() {
   const safeCategories = categories.length > 0
     ? [{ _id: 'all', name: 'All Categories', slug: 'all' }, ...categories]
     : [{ _id: 'all', name: 'All Categories', slug: 'all' }];
+
+  // Initial data fetch on component mount
+  useEffect(() => {
+    handleFetchCategories();
+    handleFetchProducts();
+  }, []);
+
+  // Fetch again when pagination or category changes
+  useEffect(() => {
+    if (needsFetch) {
+      handleFetchProducts();
+    }
+  }, [pagination.page, selectedCategory, needsFetch]);
 
   const handleFetchCategories = async () => {
     try {
@@ -37,57 +50,66 @@ function AllProducts() {
 
   const handleFetchProducts = useCallback(async () => {
     try {
-      await fetchProducts(
+      const result = await fetchProducts(
         pagination.page,
         pagination.limit,
         selectedCategory !== 'all' ? selectedCategory : null,
         false,
-        { isPublic: true }
+        { 
+          isPublic: true,
+          sort: '-createdAt' // Use valid sort parameter
+        }
       );
-      setNeedsFetch(false);
+
       setPagination(prev => ({
         ...prev,
-        pages: Math.ceil(products.length / pagination.limit) || 1,
-        total: products.length
+        pages: result.totalPages || 1,
+        total: result.total || 0
       }));
+      
+      setNeedsFetch(false);
     } catch (err) {
       console.error("Product fetch error:", err);
       toast.error(err.message || 'Failed to load products');
     }
-  }, [fetchProducts, pagination.page, pagination.limit, selectedCategory, products.length]);
+  }, [fetchProducts, pagination.page, pagination.limit, selectedCategory]);
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.pages) {
       setPagination(prev => ({ ...prev, page: newPage }));
-      setNeedsFetch(true); // Require manual fetch after page change
+      setNeedsFetch(true);
     }
   };
 
   const handleCategoryChange = (categoryId) => {
     setSelectedCategory(categoryId);
     setPagination(prev => ({ ...prev, page: 1 }));
-    setNeedsFetch(true); // Require manual fetch after category change
+    setNeedsFetch(true);
   };
 
   const memoizedProducts = useMemo(() => {
-    return products.map((product) => ({
+    const productArray = Array.isArray(products) ? products : [];
+    
+    return productArray.map((product) => ({
       _id: product._id,
       title: product.name || product.title || 'Untitled Product',
       price: product.price || 0,
+      discountPrice: product.discountPrice || 0,
       images: product.images?.map((img) => ({
         url: img.url?.startsWith('http') ? img.url : `${API_BASE_URL}${img.url}`,
       })) || [{ url: '/placeholder-product.png' }],
       sku: product.sku || 'N/A',
-      rating: product.rating ? parseFloat(product.rating) : 0,
+      rating: product.averageRating || product.rating || 0,
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
       categories: product.categories || [],
+      isFeatured: product.isFeatured || false
     }));
   }, [products]);
 
-  if (loading && products.length === 0) {
+  if (loading && memoizedProducts.length === 0) {
     return (
-      <section aria-label="Loading All Products" className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+      <section className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <LoadingSkeleton type="text" width="64" height="8" className="mb-8 mx-auto" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -106,11 +128,12 @@ function AllProducts() {
   }
 
   return (
-    <section aria-label="All Products" className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <section className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <Helmet>
         <title>All Products | Your Store</title>
-        <meta name="description" content="Browse our full collection of products across various categories with exclusive deals." />
+        <meta name="description" content="Browse our full collection of products" />
       </Helmet>
+      
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">
           Our Products
@@ -183,12 +206,13 @@ function AllProducts() {
           <div className="flex-1">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
               <p className="text-sm text-gray-600">
-                Showing {(pagination.page - 1) * pagination.limit + 1}-
-                {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} products
+                Showing {memoizedProducts.length > 0 ? 
+                  `${(pagination.page - 1) * pagination.limit + 1}-
+                  ${Math.min(pagination.page * pagination.limit, pagination.total)} of ${pagination.total}` : '0'} products
               </p>
             </div>
 
-            {products.length === 0 || needsFetch ? (
+            {memoizedProducts.length === 0 ? (
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
                 <svg
                   className="mx-auto h-12 w-12 text-gray-400"
@@ -204,28 +228,32 @@ function AllProducts() {
                     d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                <h3 className="mt-2 text-lg font-medium text-gray-900">No products loaded</h3>
+                <h3 className="mt-2 text-lg font-medium text-gray-900">No products found</h3>
                 <p className="mt-1 text-sm text-gray-500">
                   {selectedCategory === 'all'
-                    ? 'Click below to load products or reset the category.'
-                    : 'Click below to load products for this category or view all products.'}
+                    ? 'Click below to load products or try a different category.'
+                    : 'No products found in this category. Try another category or view all products.'}
                 </p>
                 <div className="mt-6 flex flex-col gap-4">
                   <Button
-                    onClick={handleFetchProducts}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none"
-                  >
-                    Load Products
-                  </Button>
-                  <Button
                     onClick={() => {
-                      handleCategoryChange('all');
+                      setNeedsFetch(true);
                       handleFetchProducts();
                     }}
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none"
                   >
-                    View All Products
+                    Refresh Products
                   </Button>
+                  {selectedCategory !== 'all' && (
+                    <Button
+                      onClick={() => {
+                        handleCategoryChange('all');
+                      }}
+                      className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                    >
+                      View All Products
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : (

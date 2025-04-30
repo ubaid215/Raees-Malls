@@ -1,20 +1,21 @@
-import React, { 
-  createContext, 
-  useState, 
-  useEffect, 
-  useContext, 
-  useCallback, 
-  useMemo 
+import React, {
+  createContext,
+  useState,
+  useEffect,
+  useContext,
+  useCallback,
+  useMemo
 } from 'react';
-import { 
-  addToCart, 
-  getCart, 
-  updateCartItem, 
-  removeFromCart 
+import {
+  addToCart,
+  getCart,
+  updateCartItem,
+  removeFromCart
 } from '../services/cartService';
-import { useAdminAuth } from './AdminAuthContext';
+import { useAuth } from './AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-// Create context with display name for better debugging
+// Create context
 const CartContext = createContext();
 CartContext.displayName = 'CartContext';
 
@@ -22,15 +23,15 @@ const CartProvider = ({ children }) => {
   const [cart, setCart] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const { user } = useAdminAuth();
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
-  // Fetch cart data
   const fetchCart = useCallback(async () => {
     if (!user) {
       setCart(null);
       return;
     }
-    
+
     setLoading(true);
     setError(null);
     try {
@@ -47,12 +48,17 @@ const CartProvider = ({ children }) => {
     }
   }, [user]);
 
-  // Add item to cart
   const addItemToCart = useCallback(async (productId, variantId = null, quantity = 1) => {
     if (!user) {
-      throw new Error('Please login to add items to cart');
+      navigate('/login', {
+        state: {
+          from: window.location.pathname,
+          message: 'Please login to add items to your cart'
+        }
+      });
+      return;
     }
-    
+
     setLoading(true);
     setError(null);
     try {
@@ -67,32 +73,19 @@ const CartProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [fetchCart, user]);
+  }, [fetchCart, user, navigate]);
 
-  // Update item quantity
-  const updateQuantity = useCallback(async (productId, quantity) => {
-    if (quantity <= 0) {
-      return removeItem(productId);
-    }
-    
-    setLoading(true);
-    setError(null);
-    try {
-      await updateCartItem(productId, null, quantity);
-      await fetchCart();
-    } catch (err) {
-      setError({
-        message: err.message || 'Failed to update quantity',
-        status: err.response?.status
-      });
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchCart]);
-
-  // Remove item from cart
   const removeItem = useCallback(async (productId) => {
+    if (!user) {
+      navigate('/login', {
+        state: {
+          from: window.location.pathname,
+          message: 'Please login to remove items from your cart'
+        }
+      });
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -107,16 +100,56 @@ const CartProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [fetchCart]);
+  }, [fetchCart, user, navigate]);
 
-  // Clear entire cart
+  const updateQuantity = useCallback(async (productId, quantity) => {
+    if (!user) {
+      navigate('/login', {
+        state: {
+          from: window.location.pathname,
+          message: 'Please login to update your cart'
+        }
+      });
+      return;
+    }
+
+    if (quantity <= 0) {
+      return removeItem(productId); // ✅ Now removeItem is defined above
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      await updateCartItem(productId, null, quantity);
+      await fetchCart();
+    } catch (err) {
+      setError({
+        message: err.message || 'Failed to update quantity',
+        status: err.response?.status
+      });
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchCart, user, navigate, removeItem]);
+
   const clearCart = useCallback(async () => {
+    if (!user) {
+      navigate('/login', {
+        state: {
+          from: window.location.pathname,
+          message: 'Please login to access your cart'
+        }
+      });
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       if (cart?.items?.length > 0) {
         await Promise.all(
-          cart.items.map(item => 
+          cart.items.map(item =>
             removeFromCart(item.productId, item.variantId)
           )
         );
@@ -131,14 +164,12 @@ const CartProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [cart?.items, fetchCart]);
+  }, [cart?.items, fetchCart, user, navigate]);
 
-  // Fetch cart on user change
   useEffect(() => {
     fetchCart();
   }, [fetchCart]);
 
-  // Memoized context value to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({
     cartItems: cart?.items || [],
     isLoading: loading,
@@ -151,13 +182,13 @@ const CartProvider = ({ children }) => {
     removeItem,
     clearCart,
   }), [
-    cart, 
-    loading, 
-    error, 
-    addItemToCart, 
-    fetchCart, 
-    updateQuantity, 
-    removeItem, 
+    cart,
+    loading,
+    error,
+    addItemToCart,
+    fetchCart,
+    updateQuantity,
+    removeItem,
     clearCart
   ]);
 
@@ -168,7 +199,6 @@ const CartProvider = ({ children }) => {
   );
 };
 
-// Custom hook for consuming context
 const useCart = () => {
   const context = useContext(CartContext);
   if (!context) {
@@ -177,5 +207,4 @@ const useCart = () => {
   return context;
 };
 
-// Named exports for better HMR compatibility
 export { CartProvider, useCart };

@@ -14,8 +14,8 @@ const {
 // Configure upload for baseImages and variantImages
 const uploadFields = upload.fields([
   { name: 'baseImages', maxCount: 5 },
-  { name: 'variantImages[0]', maxCount: 5 },
-  { name: 'variantImages[1]', maxCount: 5 },
+  { name: 'variantImages[0]', maxCount: 15 },
+  { name: 'variantImages[1]', maxCount: 15 },
   { name: 'variantImages[2]', maxCount: 5 } 
 ]);
 

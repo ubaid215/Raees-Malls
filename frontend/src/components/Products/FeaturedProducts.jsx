@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useContext } from 'react';
+import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { ArrowRight } from 'lucide-react';
 import Sidebanner from '../../assets/images/Side_banner_home_1_535x.webp';
@@ -13,9 +13,25 @@ function FeaturedProducts() {
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
   const [needsFetch, setNeedsFetch] = useState(true);
 
+  // Fetch featured products on component mount
+  useEffect(() => {
+    if (needsFetch) {
+      handleFetchFeaturedProducts();
+    }
+  }, [needsFetch]);
+
   const handleFetchFeaturedProducts = useCallback(async () => {
     try {
-      await fetchProducts(1, 6, null, true, { isPublic: true });
+      await fetchProducts(
+        1, // page
+        6, // limit
+        null, // categoryId
+        true, // isFeatured
+        { 
+          isPublic: true,
+          sort: '-createdAt' // Add valid sort parameter
+        }
+      );
       setNeedsFetch(false);
     } catch (err) {
       console.error('Fetch error:', err);
@@ -23,13 +39,20 @@ function FeaturedProducts() {
   }, [fetchProducts]);
 
   const memoizedProducts = useMemo(() => {
-    return products.map((product) => {
-      const firstImage = product.images?.[0];
-      const imageUrl = firstImage?.url
-        ? firstImage.url.startsWith('http')
-          ? firstImage.url
-          : `${API_BASE_URL}${firstImage.url}`
-        : '/placeholder-product.png';
+    // Ensure products is always an array
+    const productArray = Array.isArray(products) ? products : [];
+    
+    return productArray.map((product) => {
+      // Handle product images
+      let imageUrl = '/placeholder-product.png';
+      if (product.images && product.images.length > 0) {
+        const firstImage = product.images[0];
+        imageUrl = firstImage.url
+          ? firstImage.url.startsWith('http')
+            ? firstImage.url
+            : `${API_BASE_URL}${firstImage.url}`
+          : '/placeholder-product.png';
+      }
 
       return {
         _id: product._id,
@@ -45,7 +68,7 @@ function FeaturedProducts() {
     });
   }, [products]);
 
-  if (loading && products.length === 0) {
+  if (loading && memoizedProducts.length === 0) {
     return (
       <section aria-label="Loading Featured Products" className="w-full px-6 my-8 pb-5 text-center">
         <div className="flex justify-center">
@@ -55,11 +78,11 @@ function FeaturedProducts() {
     );
   }
 
-  if (error || products.length === 0 || needsFetch) {
+  if (error) {
     return (
       <section aria-label="No Featured Products" className="w-full px-6 my-8 pb-5 text-center">
         <p className="text-lg text-gray-500 mb-4">
-          {error ? 'Failed to load featured products.' : 'No featured products loaded.'}
+          Failed to load featured products: {error.message || error}
         </p>
         <div className="flex flex-col items-center gap-2">
           <Button
@@ -67,7 +90,7 @@ function FeaturedProducts() {
             variant="outline"
             disabled={loading}
           >
-            {loading ? 'Loading...' : error ? 'Retry Now' : 'Load Featured Products'}
+            {loading ? 'Loading...' : 'Retry Now'}
           </Button>
           <Link to="/products" className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-500 transition-colors">
             View All Products <ArrowRight size={18} />
@@ -111,12 +134,24 @@ function FeaturedProducts() {
         </div>
 
         <div className="w-full lg:w-[70%] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {memoizedProducts.map((product) => (
-            <ProductCard
-              key={product._id}
-              product={product}
-            />
-          ))}
+          {memoizedProducts.length > 0 ? (
+            memoizedProducts.map((product) => (
+              <ProductCard
+                key={product._id}
+                product={product}
+              />
+            ))
+          ) : (
+            <div className="col-span-3 text-center py-10">
+              <p className="text-gray-500">No featured products available</p>
+              <Button 
+                onClick={handleFetchFeaturedProducts}
+                className="mt-4"
+              >
+                Refresh Products
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </section>

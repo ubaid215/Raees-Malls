@@ -1,5 +1,12 @@
+/* eslint-disable no-unused-vars */
 import React, { createContext, useState, useCallback, useMemo, useEffect } from 'react';
-import { getProducts, getProductById, createProduct, updateProduct, deleteProduct } from '../services/productService';
+import {
+  getProducts,
+  getProductById,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+} from '../services/productService';
 
 export const ProductContext = createContext();
 
@@ -8,82 +15,128 @@ export const ProductProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchProducts = useCallback(async (page = 1, limit = 10, categoryId = null, isFeatured = false, options = {}) => {
-    const { isPublic = true } = options;
-    const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${isFeatured}`;
-    const now = Date.now();
-
-    let cachedData = null;
-    let cachedTimestamp = null;
-
+  const getCache = (key) => {
     try {
-      const cachedDataStr = localStorage.getItem(cacheKey);
-      if (cachedDataStr) cachedData = JSON.parse(cachedDataStr);
-      const cachedTimestampStr = localStorage.getItem(`${cacheKey}_timestamp`);
-      if (cachedTimestampStr) cachedTimestamp = parseInt(cachedTimestampStr);
-    } catch (cacheErr) {
-      console.warn('Cache read error:', cacheErr);
+      const cached = localStorage.getItem(key);
+      return cached ? JSON.parse(cached) : null;
+    } catch (err) {
+      console.warn('Cache read error:', err);
+      return null;
     }
+  };
 
-    if (cachedData && cachedTimestamp && now - cachedTimestamp < 1800000) {
-      setProducts(cachedData);
-      return;
-    }
-
-    setLoading(true);
-    setError('');
+  const setCache = (key, data) => {
     try {
-      const productData = await getProducts(page, limit, categoryId, { isPublic });
-      const validProductData = Array.isArray(productData) ? productData : [];
-      const filteredProducts = isFeatured
-        ? validProductData.filter((product) => product.isFeatured === true)
-        : validProductData;
+      localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
+    } catch (err) {
+      console.warn('Cache write error:', err);
+    }
+  };
 
-      setProducts(filteredProducts);
+  const clearCache = (key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch (err) {
+      console.warn('Cache clear error:', err);
+    }
+  };
+
+  const clearRelatedCaches = (productId) => {
+    if (productId) {
+      clearCache(`product_${productId}`);
+    }
+    const keysToClear = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('products_') || key?.startsWith('product_')) {
+        keysToClear.push(key);
+      }
+    }
+    keysToClear.forEach(clearCache);
+  };
+
+  useEffect(() => {
+    const cleanupExpiredCache = () => {
+      const now = Date.now();
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const cached = key ? getCache(key) : null;
+        if (cached && now - cached.timestamp > 1800000) {
+          clearCache(key);
+        }
+      }
+    };
+    cleanupExpiredCache();
+    const intervalId = setInterval(cleanupExpiredCache, 3600000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  const fetchProducts = useCallback(
+    async (page = 1, limit = 10, categoryId = null, isFeatured = false, options = {}) => {
+      const { isPublic = true, sort = '-createdAt' } = options;
+      const filters = {};
+
+      if (categoryId) filters.category = categoryId;
+
+      const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${isFeatured}_${sort || 'default'}`;
+      const cached = getCache(cacheKey);
+      if (cached && Date.now() - cached.timestamp < 1800000) {
+        setProducts(cached.data.products || []);
+        return cached.data;
+      }
+
+      setLoading(true);
+      setError('');
 
       try {
-        localStorage.setItem(cacheKey, JSON.stringify(filteredProducts));
-        localStorage.setItem(`${cacheKey}_timestamp`, now.toString());
-      } catch (cacheErr) {
-        console.warn('Cache write error:', cacheErr);
+        const result = await getProducts(page, limit, sort, filters);
+        const filteredProducts = isFeatured
+          ? (result.products || []).filter((product) => product.isFeatured)
+          : result.products || [];
+
+        const responseData = {
+          products: filteredProducts,
+          totalPages: result.totalPages || 1,
+          total: filteredProducts.length,
+        };
+
+        setProducts(filteredProducts);
+        setCache(cacheKey, responseData);
+
+        return responseData;
+      } catch (err) {
+        setError(err.message || 'Failed to fetch products');
+        if (cached?.data) {
+          setProducts(cached.data.products || []);
+          return cached.data;
+        }
+        throw err;
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setError(err.message || 'Failed to fetch products');
-      if (cachedData) setProducts(cachedData);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   const getProduct = useCallback(async (id, options = {}) => {
     const { isPublic = true } = options;
     const cacheKey = `product_${id}`;
-    let cachedData = null;
 
-    try {
-      const cachedStr = localStorage.getItem(cacheKey);
-      if (cachedStr) cachedData = JSON.parse(cachedStr);
-    } catch (cacheErr) {
-      console.warn('Cache read error:', cacheErr);
+    const cached = getCache(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 1800000) {
+      return cached.data;
     }
-
-    if (cachedData) return cachedData;
 
     setLoading(true);
     setError('');
+
     try {
       const product = await getProductById(id, { isPublic });
-      if (product) {
-        try {
-          localStorage.setItem(cacheKey, JSON.stringify(product));
-        } catch (cacheErr) {
-          console.warn('Cache write error:', cacheErr);
-        }
-      }
+      if (product) setCache(cacheKey, product);
       return product;
     } catch (err) {
       setError(err.message || 'Failed to fetch product');
+      if (cached?.data) return cached.data;
       throw err;
     } finally {
       setLoading(false);
@@ -93,9 +146,10 @@ export const ProductProvider = ({ children }) => {
   const createNewProduct = useCallback(async (productData, images) => {
     setLoading(true);
     setError('');
+
     try {
       const product = await createProduct(productData, images);
-      clearProductCaches();
+      clearRelatedCaches();
       return product;
     } catch (err) {
       setError(err.message || 'Failed to create product');
@@ -108,9 +162,10 @@ export const ProductProvider = ({ children }) => {
   const updateExistingProduct = useCallback(async (id, productData, images) => {
     setLoading(true);
     setError('');
+
     try {
       const product = await updateProduct(id, productData, images);
-      clearProductCaches(id);
+      clearRelatedCaches(id);
       return product;
     } catch (err) {
       setError(err.message || 'Failed to update product');
@@ -123,46 +178,15 @@ export const ProductProvider = ({ children }) => {
   const deleteExistingProduct = useCallback(async (id) => {
     setLoading(true);
     setError('');
+
     try {
       await deleteProduct(id);
-      clearProductCaches(id);
+      clearRelatedCaches(id);
     } catch (err) {
       setError(err.message || 'Failed to delete product');
       throw err;
     } finally {
       setLoading(false);
-    }
-  }, []);
-
-  const clearProductCaches = (productId = null) => {
-    try {
-      if (productId) {
-        localStorage.removeItem(`product_${productId}`);
-      }
-      localStorage.removeItem('products_1_10_all_false');
-      localStorage.removeItem('products_1_10_all_true');
-    } catch (cacheErr) {
-      console.warn('Cache clear error:', cacheErr);
-    }
-  };
-
-  // Clear stale cache on mount
-  useEffect(() => {
-    try {
-      const now = Date.now();
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.endsWith('_timestamp')) {
-          const timestamp = parseInt(localStorage.getItem(key));
-          if (now - timestamp > 3600000) {
-            const cacheKey = key.replace('_timestamp', '');
-            localStorage.removeItem(cacheKey);
-            localStorage.removeItem(key);
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('Cache cleanup error:', err);
     }
   }, []);
 
@@ -183,8 +207,12 @@ export const ProductProvider = ({ children }) => {
     getProduct,
     createNewProduct,
     updateExistingProduct,
-    deleteExistingProduct
+    deleteExistingProduct,
   ]);
 
-  return <ProductContext.Provider value={value}>{children}</ProductContext.Provider>;
+  return (
+    <ProductContext.Provider value={value}>
+      {children}
+    </ProductContext.Provider>
+  );
 };
