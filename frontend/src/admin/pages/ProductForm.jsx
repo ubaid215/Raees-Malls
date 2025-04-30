@@ -1,70 +1,62 @@
-/* eslint-disable no-unused-vars */
-import React, { useState, useMemo, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { getCategories } from '../../services/categoryService'; 
-import { useAdminAuth } from '../../context/AdminAuthContext';
-import { useNavigate } from 'react-router-dom';
-import { toast } from 'react-toastify';
-import { XMarkIcon, PhotoIcon } from '@heroicons/react/24/outline';
+/* eslint-disable react-hooks/exhaustive-deps */
+import React, { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { useForm, Controller } from "react-hook-form";
+import { toast } from "react-toastify";
+import { XMarkIcon } from "@heroicons/react/24/outline";
+import { getCategories } from "../../services/categoryService";
+import { useAdminAuth } from "../../context/AdminAuthContext";
+import Button from "../../components/core/Button";
+import Input from "../../components/core/Input";
+import Textarea from "../../components/core/Textarea";
+import Select from "../../components/core/Select";
 
-const ProductForm = React.memo(({ product = null, onSubmit }) => {
-  const navigate = useNavigate();
-  const { admin } = useAdminAuth();
-  const [images, setImages] = useState(product?.images || []);
-  const [newImageFiles, setNewImageFiles] = useState([]);
-  const [specifications, setSpecifications] = useState(
-    product?.specifications || [{ key: '', value: '' }]
-  );
-  const [variants, setVariants] = useState(
-    product?.variants || [{ sku: '', price: '', discountPrice: '', stock: '', attributes: [{ key: 'size', value: '' }], images: [], newImageFiles: [] }]
-  );
-  const [categories, setCategories] = useState([]);
-  const [categoryError, setCategoryError] = useState(null);
+// Component: ProductForm
+// Description: A reusable form for creating or updating products, including images, specifications, and variants
+const ProductForm = React.memo(({ product = null, onSubmit, isSubmitting }) => {
+  const { admin } = useAdminAuth(); // Admin authentication context
+  const navigate = useNavigate(); // Navigation hook for redirects
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    setValue,
-    watch,
-  } = useForm({
-    defaultValues: product
-      ? {
-          title: product.title,
-          description: product.description,
-          price: product.price,
-          discountPrice: product.discountPrice || '',
-          categoryId: product.categoryId?._id || product.categoryId || '',
-          brand: product.brand || '',
-          stock: product.stock,
-          sku: product.sku,
-          seo: {
-            title: product.seo?.title || '',
-            description: product.seo?.description || '',
-            slug: product.seo?.slug || '',
-          },
-        }
-      : {
-          title: '',
-          description: '',
-          price: '',
-          discountPrice: '',
-          categoryId: '',
-          brand: '',
-          stock: '',
-          sku: '',
-          seo: {
-            title: '',
-            description: '',
-            slug: '',
-          },
-        },
+  // Validate product _id for editing
+  useEffect(() => {
+    if (product && !product._id) {
+      console.error('Invalid product for editing: Missing _id', { product });
+      toast.error('Invalid product data');
+      navigate('/admin/inventory');
+    }
+  }, [product, navigate]);
+
+  const { register, handleSubmit, watch, formState: { errors } } = useForm({
+    defaultValues: {
+      // Initialize form with product data or defaults
+      title: product?.title || "",
+      description: product?.description || "",
+      price: product?.price || "",
+      discountPrice: product?.discountPrice || "",
+      categoryId: product?.categoryId || "",
+      brand: product?.brand || "",
+      stock: product?.stock || "",
+      sku: product?.sku || "",
+      seo: {
+        title: product?.seo?.title || "",
+        description: product?.seo?.description || "",
+        slug: product?.seo?.slug || "",
+      },
+    },
   });
 
-  const watchedPrice = watch('price');
-  const watchedCategoryId = watch('categoryId');
+  // State Management
+  const [images, setImages] = useState(product?.images || []); // Existing images from product
+  const [newImageFiles, setNewImageFiles] = useState([]); // New images to upload
+  const [specifications, setSpecifications] = useState(product?.specifications || []); // Product specifications
+  const [variants, setVariants] = useState(product?.variants || []); // Product variants
+  const [categories, setCategories] = useState([]); // Available categories
+  const [categoryError, setCategoryError] = useState(null); // Category fetch error
 
-  // Fetch categories
+  const watchedPrice = watch("price"); // Watch price field for discount validation
+
+  // Section: Fetch Categories
+  // Description: Load categories from API on component mount
   useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -72,19 +64,191 @@ const ProductForm = React.memo(({ product = null, onSubmit }) => {
         if (Array.isArray(categories)) {
           setCategories(categories);
         } else {
-          setCategoryError('Invalid category data received');
-          toast.error('Invalid category data received');
+          setCategoryError("Invalid category data received");
+          toast.error("Invalid category data received");
         }
       } catch (error) {
-        console.error(error.message);
-        setCategoryError(error.message || 'Failed to fetch categories');
-        toast.error(error.message || 'Failed to fetch categories');
+        setCategoryError(error.message || "Failed to fetch categories");
+        toast.error(error.message || "Failed to fetch categories");
       }
     };
     fetchCategories();
   }, []);
 
-  // Handle form submission
+  // Section: Image Handling
+  // Description: Handle main product image uploads (baseImages)
+  const handleImageChange = (e) => {
+    const files = Array.from(e.target.files);
+    const validFormats = ['image/jpeg', 'image/png'];
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    const maxImages = 5; // Backend limit for baseImages
+
+    const validFiles = files.filter(file => {
+      if (!validFormats.includes(file.type)) {
+        toast.error(`${file.name} is not a valid image (JPEG/PNG only)`);
+        return false;
+      }
+      if (file.size > maxSize) {
+        toast.error(`${file.name} exceeds 5MB limit`);
+        return false;
+      }
+      return true;
+    });
+
+    if (images.length + newImageFiles.length + validFiles.length > maxImages) {
+      toast.error(`Maximum ${maxImages} base images allowed`);
+      return;
+    }
+    setNewImageFiles(prev => [...prev, ...validFiles]);
+  };
+
+  // Description: Handle image uploads for variants (variantImages[0-2])
+  const handleVariantImageChange = (vIndex, e) => {
+    const files = Array.from(e.target.files);
+    const validFormats = ['image/jpeg', 'image/png'];
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    const maxCounts = [15, 15, 5]; // Backend limits for variantImages[0-2]
+
+    const validFiles = files.filter(file => {
+      if (!validFormats.includes(file.type)) {
+        toast.error(`${file.name} is not a valid image (JPEG/PNG only)`);
+        return false;
+      }
+      if (file.size > maxSize) {
+        toast.error(`${file.name} exceeds 5MB limit`);
+        return false;
+      }
+      return true;
+    });
+
+    const currentVariantImages = variants[vIndex].newImageFiles || [];
+    const maxCount = maxCounts[vIndex] || 0;
+    if (currentVariantImages.length + validFiles.length > maxCount) {
+      toast.error(`Maximum ${maxCount} images allowed for variant ${vIndex + 1}`);
+      return;
+    }
+
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === vIndex ? { ...v, newImageFiles: [...(v.newImageFiles || []), ...validFiles] } : v
+      )
+    );
+  };
+
+  // Description: Remove an existing image
+  const handleRemoveImage = (index) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Description: Remove a new image file
+  const handleRemoveNewImage = (index) => {
+    setNewImageFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Description: Remove a variant image file
+  const handleRemoveVariantImage = (vIndex, imgIndex) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === vIndex
+          ? { ...v, newImageFiles: v.newImageFiles.filter((_, idx) => idx !== imgIndex) }
+          : v
+      )
+    );
+  };
+
+  // Section: Specifications Handling
+  // Description: Add a new specification
+  const handleAddSpecification = () => {
+    setSpecifications(prev => [...prev, { key: "", value: "" }]);
+  };
+
+  // Description: Update a specification
+  const handleSpecificationChange = (index, field, value) => {
+    setSpecifications(prev =>
+      prev.map((spec, i) =>
+        i === index ? { ...spec, [field]: value } : spec
+      )
+    );
+  };
+
+  // Description: Remove a specification
+  const handleRemoveSpecification = (index) => {
+    setSpecifications(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Section: Variants Handling
+  // Description: Add a new variant
+  const handleAddVariant = () => {
+    if (variants.length >= 3) {
+      toast.error('Maximum 3 variants allowed');
+      return;
+    }
+    setVariants(prev => [
+      ...prev,
+      {
+        sku: "",
+        price: "",
+        discountPrice: "",
+        stock: "",
+        attributes: [{ key: "", value: "" }],
+        images: [],
+        newImageFiles: [],
+      },
+    ]);
+  };
+
+  // Description: Update a variant field
+  const handleVariantChange = (index, field, value) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === index ? { ...v, [field]: value } : v
+      )
+    );
+  };
+
+  // Description: Add an attribute to a variant
+  const handleAddAttribute = (vIndex) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === vIndex ? { ...v, attributes: [...v.attributes, { key: "", value: "" }] } : v
+      )
+    );
+  };
+
+  // Description: Update a variant attribute
+  const handleAttributeChange = (vIndex, aIndex, field, value) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === vIndex
+          ? {
+              ...v,
+              attributes: v.attributes.map((attr, ai) =>
+                ai === aIndex ? { ...attr, [field]: value } : attr
+              ),
+            }
+          : v
+      )
+    );
+  };
+
+  // Description: Remove a variant attribute
+  const handleRemoveAttribute = (vIndex, aIndex) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === vIndex
+          ? { ...v, attributes: v.attributes.filter((_, ai) => ai !== aIndex) }
+          : v
+      )
+    );
+  };
+
+  // Description: Remove a variant
+  const handleRemoveVariant = (index) => {
+    setVariants(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Section: Form Submission
+  // Description: Handle form submission, validate data, and prepare images
   const handleFormSubmit = async (data) => {
     if (!admin) {
       toast.error('You must be logged in as an admin');
@@ -92,12 +256,29 @@ const ProductForm = React.memo(({ product = null, onSubmit }) => {
       return;
     }
 
+    // Validate discountPrice
+    if (data.discountPrice) {
+      const discount = parseFloat(data.discountPrice);
+      const price = parseFloat(data.price);
+      if (isNaN(discount) || isNaN(price)) {
+        toast.error('Price and discount price must be valid numbers');
+        return;
+      }
+      if (discount >= price) {
+        toast.error('Discount price must be less than price');
+        return;
+      }
+      if (discount < 0) {
+        toast.error('Discount price must be positive');
+        return;
+      }
+    }
+
     // Prepare productData object
     const productData = {
       title: data.title,
       description: data.description,
       price: parseFloat(data.price),
-      discountPrice: data.discountPrice ? parseFloat(data.discountPrice) : undefined,
       categoryId: data.categoryId,
       brand: data.brand || undefined,
       stock: parseInt(data.stock),
@@ -109,6 +290,11 @@ const ProductForm = React.memo(({ product = null, onSubmit }) => {
       },
     };
 
+    // Include discountPrice if valid
+    if (data.discountPrice && !isNaN(parseFloat(data.discountPrice))) {
+      productData.discountPrice = parseFloat(data.discountPrice);
+    }
+
     // Append specifications
     const validSpecs = specifications.filter(spec => spec.key.trim() && spec.value.trim());
     if (validSpecs.length > 0) {
@@ -116,8 +302,8 @@ const ProductForm = React.memo(({ product = null, onSubmit }) => {
     }
 
     // Append variants
-    const validVariants = variants.filter(v => 
-      v.sku.trim() && v.price && v.stock && 
+    const validVariants = variants.filter(v =>
+      v.sku.trim() && v.price && v.stock &&
       v.attributes.every(attr => attr.key && attr.value.trim())
     );
     if (validVariants.length > 0) {
@@ -131,655 +317,388 @@ const ProductForm = React.memo(({ product = null, onSubmit }) => {
       }));
     }
 
-    // Call the onSubmit prop with productData and images
-    await onSubmit(productData, newImageFiles);
-  };
-
-  // Handle base product image selection
-  const handleImageChange = (e) => {
-    const files = Array.from(e.target.files);
-    const validFormats = ['image/jpeg', 'image/png'];
-    const maxSize = 5 * 1024 * 1024; // 5MB
-
-    const validFiles = files.filter(file => {
-      if (!validFormats.includes(file.type)) {
-        toast.error(`${file.name} is not a valid image (JPEG/PNG only)`);
-        return false;
-      }
-      if (file.size > maxSize) {
-        toast.error(`${file.name} exceeds 5MB limit`);
-        return false;
-      }
-      return true;
-    });
-
-    if (images.length + newImageFiles.length + validFiles.length > 5) {
-      toast.error('Maximum 5 images allowed');
+    // Validate variant count
+    if (validVariants.length > 3) {
+      toast.error('Maximum 3 variants allowed');
       return;
     }
-    setNewImageFiles(prev => [...prev, ...validFiles]);
+
+    // Prepare images for submission
+    const images = {
+      baseImages: newImageFiles,
+      variantImages: variants.map(v => v.newImageFiles || []),
+    };
+
+    try {
+      await onSubmit(productData, images);
+      toast.success('Product created successfully');
+      setNewImageFiles([]); // Reset base images
+      setVariants(prev =>
+        prev.map(v => ({ ...v, newImageFiles: [] })) // Reset variant images
+      );
+    } catch (error) {
+      toast.error(error.message || 'Failed to create product');
+    }
   };
 
-  // Remove base product image
-  const removeExistingImage = (index) => {
-    setImages(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const removeNewImage = (index) => {
-    setNewImageFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Handle variant image selection
-  const handleVariantImageChange = (variantIndex, e) => {
-    const files = Array.from(e.target.files);
-    const validFormats = ['image/jpeg', 'image/png'];
-    const maxSize = 5 * 1024 * 1024; // 5MB
-
-    const validFiles = files.filter(file => {
-      if (!validFormats.includes(file.type)) {
-        toast.error(`${file.name} is not a valid image (JPEG/PNG only)`);
-        return false;
-      }
-      if (file.size > maxSize) {
-        toast.error(`${file.name} exceeds 5MB limit`);
-        return false;
-      }
-      return true;
-    });
-
-    setVariants(prev => prev.map((v, i) => {
-      if (i !== variantIndex) return v;
-      const totalImages = (v.images?.length || 0) + (v.newImageFiles?.length || 0) + validFiles.length;
-      if (totalImages > 5) {
-        toast.error('Maximum 5 images allowed per variant');
-        return v;
-      }
-      return { ...v, newImageFiles: [...(v.newImageFiles || []), ...validFiles] };
-    }));
-  };
-
-  // Remove variant image
-  const removeVariantExistingImage = (variantIndex, imageIndex) => {
-    setVariants(prev => prev.map((v, i) => {
-      if (i !== variantIndex) return v;
-      return { ...v, images: v.images.filter((_, idx) => idx !== imageIndex) };
-    }));
-  };
-
-  const removeVariantNewImage = (variantIndex, imageIndex) => {
-    setVariants(prev => prev.map((v, i) => {
-      if (i !== variantIndex) return v;
-      return { ...v, newImageFiles: v.newImageFiles.filter((_, idx) => idx !== imageIndex) };
-    }));
-  };
-
-  // Add specification
-  const addSpecification = () => {
-    setSpecifications(prev => [...prev, { key: '', value: '' }]);
-  };
-
-  // Remove specification
-  const removeSpecification = (index) => {
-    setSpecifications(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Update specification
-  const updateSpecification = (index, field, value) => {
-    setSpecifications(prev =>
-      prev.map((spec, i) => (i === index ? { ...spec, [field]: value } : spec))
-    );
-  };
-
-  // Add variant
-  const addVariant = () => {
-    setVariants(prev => [
-      ...prev,
-      { sku: '', price: '', discountPrice: '', stock: '', attributes: [{ key: 'size', value: '' }], images: [], newImageFiles: [] }
-    ]);
-  };
-
-  // Remove variant
-  const removeVariant = (index) => {
-    setVariants(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Update variant field
-  const updateVariant = (index, field, value) => {
-    setVariants(prev =>
-      prev.map((v, i) => (i === index ? { ...v, [field]: value } : v))
-    );
-  };
-
-  // Add variant attribute
-  const addVariantAttribute = (variantIndex) => {
-    setVariants(prev => prev.map((v, i) => {
-      if (i !== variantIndex) return v;
-      return { ...v, attributes: [...v.attributes, { key: 'size', value: '' }] };
-    }));
-  };
-
-  // Remove variant attribute
-  const removeVariantAttribute = (variantIndex, attrIndex) => {
-    setVariants(prev => prev.map((v, i) => {
-      if (i !== variantIndex) return v;
-      return { ...v, attributes: v.attributes.filter((_, idx) => idx !== attrIndex) };
-    }));
-  };
-
-  // Update variant attribute
-  const updateVariantAttribute = (variantIndex, attrIndex, field, value) => {
-    setVariants(prev => prev.map((v, i) => {
-      if (i !== variantIndex) return v;
-      return {
-        ...v,
-        attributes: v.attributes.map((attr, idx) =>
-          idx === attrIndex ? { ...attr, [field]: value } : attr
-        ),
-      };
-    }));
-  };
-
-  // Memoized sections
-  const ImageUploadSection = useMemo(() => (
-    <div className="space-y-4">
-      <label className="block text-sm font-medium text-gray-700">Product Images (up to 5)</label>
-      <input
-        type="file"
-        accept="image/jpeg,image/png"
-        multiple
-        onChange={handleImageChange}
-        className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#FFE6E8] file:text-[#E63946] hover:file:bg-[#FFF0F1]"
-      />
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
-        {images.map((image, index) => (
-          <div key={`existing-${index}`} className="relative group">
-            <img
-              src={image.url.startsWith('http') ? image.url : `http://localhost:5000${image.url}`}
-              alt={image.alt || 'Product image'}
-              className="h-24 w-full object-cover rounded-lg"
-            />
-            <button
-              type="button"
-              onClick={() => removeExistingImage(index)}
-              className="absolute top-1 right-1 p-1 bg-[#E63946] rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <XMarkIcon className="h-4 w-4 text-white" />
-            </button>
-          </div>
-        ))}
-        {newImageFiles.map((file, index) => (
-          <div key={`new-${index}`} className="relative group">
-            <img
-              src={URL.createObjectURL(file)}
-              alt={file.name}
-              className="h-24 w-full object-cover rounded-lg"
-            />
-            <button
-              type="button"
-              onClick={() => removeNewImage(index)}
-              className="absolute top-1 right-1 p-1 bg-[#E63946] rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-            >
-              <XMarkIcon className="h-4 w-4 text-white" />
-            </button>
-          </div>
-        ))}
+  // Section: Render
+  // Description: Render the form UI
+  return (
+    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8">
+      {/* Basic Information */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Basic Information</h2>
+        <Input
+          label="Title"
+          {...register("title", {
+            required: "Title is required",
+            minLength: { value: 3, message: "Title must be at least 3 characters" },
+            maxLength: { value: 100, message: "Title cannot exceed 100 characters" },
+          })}
+          error={errors.title?.message}
+        />
+        <Textarea
+          label="Description"
+          {...register("description", {
+            required: "Description is required",
+            minLength: { value: 10, message: "Description must be at least 10 characters" },
+            maxLength: { value: 1000, message: "Description cannot exceed 1000 characters" },
+          })}
+          error={errors.description?.message}
+        />
+        <Input
+          label="Price"
+          type="number"
+          step="0.01"
+          {...register("price", {
+            required: "Price is required",
+            min: { value: 0, message: "Price must be positive" },
+          })}
+          error={errors.price?.message}
+        />
+        <Input
+          label="Discount Price"
+          type="number"
+          step="0.01"
+          {...register("discountPrice", {
+            min: { value: 0, message: "Discount price must be positive" },
+          })}
+          error={errors.discountPrice?.message}
+        />
+        <Select
+          label="Category"
+          {...register("categoryId", {
+            required: "Category is required",
+          })}
+          options={categories.map(cat => ({ value: cat._id, label: cat.name }))}
+          error={errors.categoryId?.message || categoryError}
+        />
+        <Input
+          label="Brand"
+          {...register("brand", {
+            minLength: { value: 2, message: "Brand must be at least 2 characters" },
+            maxLength: { value: 50, message: "Brand cannot exceed 50 characters" },
+          })}
+          error={errors.brand?.message}
+        />
+        <Input
+          label="Stock"
+          type="number"
+          {...register("stock", {
+            required: "Stock is required",
+            min: { value: 0, message: "Stock must be positive" },
+          })}
+          error={errors.stock?.message}
+        />
+        <Input
+          label="SKU"
+          {...register("sku", {
+            required: "SKU is required",
+            pattern: {
+              value: /^[A-Z0-9-]+$/i,
+              message: "SKU can only contain letters, numbers, and hyphens",
+            },
+            minLength: { value: 5, message: "SKU must be at least 5 characters" },
+            maxLength: { value: 20, message: "SKU cannot exceed 20 characters" },
+          })}
+          error={errors.sku?.message}
+        />
       </div>
-    </div>
-  ), [images, newImageFiles]);
 
-  const SpecificationsSection = useMemo(() => (
-    <div className="space-y-4">
-      <label className="block text-sm font-medium text-gray-700">Specifications</label>
-      {specifications.map((spec, index) => (
-        <div key={index} className="flex flex-col sm:flex-row sm:space-x-2 space-y-2 sm:space-y-0">
+      {/* SEO Information */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">SEO Information</h2>
+        <Input
+          label="SEO Title"
+          {...register("seo.title", {
+            maxLength: { value: 100, message: "SEO title cannot exceed 100 characters" },
+          })}
+          error={errors.seo?.title?.message}
+        />
+        <Textarea
+          label="SEO Description"
+          {...register("seo.description", {
+            maxLength: { value: 160, message: "SEO description cannot exceed 160 characters" },
+          })}
+          error={errors.seo?.description?.message}
+        />
+        <Input
+          label="SEO Slug"
+          {...register("seo.slug", {
+            pattern: {
+              value: /^[a-z0-9-]+$/,
+              message: "SEO slug can only contain lowercase letters, numbers, and hyphens",
+            },
+          })}
+          error={errors.seo?.slug?.message}
+        />
+      </div>
+
+      {/* Images */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Images</h2>
+        <div>
+          <label className="block text-sm font-medium text-gray-700">
+            Base Images (up to 5, JPEG/PNG, 5MB max each)
+          </label>
           <input
-            type="text"
-            value={spec.key}
-            onChange={(e) => updateSpecification(index, 'key', e.target.value)}
-            placeholder="Key (e.g., Weight)"
-            className="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
+            type="file"
+            multiple
+            accept="image/jpeg,image/png"
+            onChange={handleImageChange}
+            className="mt-1 block w-full text-sm text-gray-500
+              file:mr-4 file:py-2 file:px-4
+              file:rounded-full file:border-0
+              file:text-sm file:font-semibold
+              file:bg-[#FFE6E8] file:text-[#E63946]
+              hover:file:bg-[#E63946] hover:file:text-white"
           />
-          <input
-            type="text"
-            value={spec.value}
-            onChange={(e) => updateSpecification(index, 'value', e.target.value)}
-            placeholder="Value (e.g., 1kg)"
-            className="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => removeSpecification(index)}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946]"
-          >
-            Remove
-          </button>
+          {errors.images && <p className="mt-1 text-sm text-red-600">{errors.images.message}</p>}
         </div>
-      ))}
-      <button
-        type="button"
-        onClick={addSpecification}
-        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946]"
-      >
-        Add Specification
-      </button>
-    </div>
-  ), [specifications]);
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {images.map((img, index) => (
+            <div key={index} className="relative">
+              <img
+                src={img.url.startsWith('http') ? img.url : `http://localhost:5000${img.url}`}
+                alt={img.alt || "Product image"}
+                className="h-24 w-24 object-cover rounded"
+                onError={(e) => (e.target.src = "/placeholder-product.png")}
+              />
+              <button
+                type="button"
+                onClick={() => handleRemoveImage(index)}
+                className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1"
+              >
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          {newImageFiles.map((file, index) => (
+            <div key={`new-${index}`} className="relative">
+              <img
+                src={URL.createObjectURL(file)}
+                alt={file.name}
+                className="h-24 w-24 object-cover rounded"
+              />
+              <button
+                type="button"
+                onClick={() => handleRemoveNewImage(index)}
+                className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1"
+              >
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
 
-  const VariantsSection = useMemo(() => (
-    <div className="space-y-4">
-      <label className="block text-sm font-medium text-gray-700">Variants</label>
-      {variants.map((variant, vIndex) => (
-        <div key={vIndex} className="border p-4 rounded-md space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Variant SKU*</label>
-              <input
-                type="text"
-                value={variant.sku}
-                onChange={(e) => updateVariant(vIndex, 'sku', e.target.value)}
-                placeholder="SKU (e.g., TSHIRT-BLUE-M)"
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Price*</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={variant.price}
-                onChange={(e) => updateVariant(vIndex, 'price', e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Discount Price</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={variant.discountPrice}
-                onChange={(e) => updateVariant(vIndex, 'discountPrice', e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Stock*</label>
-              <input
-                type="number"
-                min="0"
-                value={variant.stock}
-                onChange={(e) => updateVariant(vIndex, 'stock', e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-gray-700">Attributes</label>
-            {variant.attributes.map((attr, aIndex) => (
-              <div key={aIndex} className="flex flex-col sm:flex-row sm:space-x-2 space-y-2 sm:space-y-0">
-                <select
-                  value={attr.key}
-                  onChange={(e) => updateVariantAttribute(vIndex, aIndex, 'key', e.target.value)}
-                  className="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
-                >
-                  <option value="size">Size</option>
-                  <option value="color">Color</option>
-                  <option value="material">Material</option>
-                  <option value="style">Style</option>
-                </select>
-                <input
-                  type="text"
-                  value={attr.value}
-                  onChange={(e) => updateVariantAttribute(vIndex, aIndex, 'value', e.target.value)}
-                  placeholder="Value (e.g., Blue)"
-                  className="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeVariantAttribute(vIndex, aIndex)}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946]"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => addVariantAttribute(vIndex)}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946]"
-            >
-              Add Attribute
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <label className="block text-sm font-medium text-gray-700">Variant Images (up to 5)</label>
-            <input
-              type="file"
-              accept="image/jpeg,image/png"
-              multiple
-              onChange={(e) => handleVariantImageChange(vIndex, e)}
-              className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-[#FFE6E8] file:text-[#E63946] hover:file:bg-[#FFF0F1]"
+      {/* Specifications */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Specifications</h2>
+        {specifications.map((spec, index) => (
+          <div key={index} className="flex space-x-4 items-end">
+            <Input
+              label="Key"
+              value={spec.key}
+              onChange={(e) => handleSpecificationChange(index, "key", e.target.value)}
+              placeholder="e.g., Material"
             />
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
-              {variant.images?.map((image, index) => (
-                <div key={`v-existing-${index}`} className="relative group">
+            <Input
+              label="Value"
+              value={spec.value}
+              onChange={(e) => handleSpecificationChange(index, "value", e.target.value)}
+              placeholder="e.g., Cotton"
+            />
+            <Button
+              type="button"
+              onClick={() => handleRemoveSpecification(index)}
+              variant="outline"
+              className="border-red-600 text-red-600 hover:bg-red-100"
+            >
+              Remove
+            </Button>
+          </div>
+        ))}
+        <Button
+          type="button"
+          onClick={handleAddSpecification}
+          variant="outline"
+          className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"
+        >
+          Add Specification
+        </Button>
+      </div>
+
+      {/* Variants */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Variants</h2>
+        {variants.map((variant, vIndex) => (
+          <div key={vIndex} className="border p-4 rounded-md space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-md font-medium">Variant {vIndex + 1}</h3>
+              <Button
+                type="button"
+                onClick={() => handleRemoveVariant(vIndex)}
+                variant="outline"
+                className="border-red-600 text-red-600 hover:bg-red-100"
+              >
+                Remove Variant
+              </Button>
+            </div>
+            <Input
+              label="Variant SKU"
+              value={variant.sku}
+              onChange={(e) => handleVariantChange(vIndex, "sku", e.target.value)}
+              placeholder="e.g., PROD-V1"
+            />
+            <Input
+              label="Price"
+              type="number"
+              step="0.01"
+              value={variant.price}
+              onChange={(e) => handleVariantChange(vIndex, "price", e.target.value)}
+            />
+            <Input
+              label="Discount Price"
+              type="number"
+              step="0.01"
+              value={variant.discountPrice}
+              onChange={(e) => handleVariantChange(vIndex, "discountPrice", e.target.value)}
+            />
+            <Input
+              label="Stock"
+              type="number"
+              value={variant.stock}
+              onChange={(e) => handleVariantChange(vIndex, "stock", e.target.value)}
+            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Variant Images (up to {vIndex < 2 ? 15 : 5}, JPEG/PNG, 5MB max each)
+              </label>
+              <input
+                type="file"
+                multiple
+                accept="image/jpeg,image/png"
+                onChange={(e) => handleVariantImageChange(vIndex, e)}
+                className="mt-1 block w-full text-sm text-gray-500
+                  file:mr-4 file:py-2 file:px-4
+                  file:rounded-full file:border-0
+                  file:text-sm file:font-semibold
+                  file:bg-[#FFE6E8] file:text-[#E63946]
+                  hover:file:bg-[#E63946] hover:file:text-white"
+              />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              {variant.images?.map((img, imgIndex) => (
+                <div key={`variant-img-${imgIndex}`} className="relative">
                   <img
-                    src={image.url.startsWith('http') ? image.url : `http://localhost:5000${image.url}`}
-                    alt={image.alt || 'Variant image'}
-                    className="h-24 w-full object-cover rounded-lg"
+                    src={img.url.startsWith('http') ? img.url : `http://localhost:5000${img.url}`}
+                    alt={img.alt || "Variant image"}
+                    className="h-24 w-24 object-cover rounded"
+                    onError={(e) => (e.target.src = "/placeholder-product.png")}
                   />
                   <button
                     type="button"
-                    onClick={() => removeVariantExistingImage(vIndex, index)}
-                    className="absolute top-1 right-1 p-1 bg-[#E63946] rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleRemoveVariantImage(vIndex, imgIndex)}
+                    className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1"
                   >
-                    <XMarkIcon className="h-4 w-4 text-white" />
+                    <XMarkIcon className="h-4 w-4" />
                   </button>
                 </div>
               ))}
-              {variant.newImageFiles?.map((file, index) => (
-                <div key={`v-new-${index}`} className="relative group">
+              {variant.newImageFiles?.map((file, imgIndex) => (
+                <div key={`variant-new-${imgIndex}`} className="relative">
                   <img
                     src={URL.createObjectURL(file)}
                     alt={file.name}
-                    className="h-24 w-full object-cover rounded-lg"
+                    className="h-24 w-24 object-cover rounded"
                   />
                   <button
                     type="button"
-                    onClick={() => removeVariantNewImage(vIndex, index)}
-                    className="absolute top-1 right-1 p-1 bg-[#E63946] rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleRemoveVariantImage(vIndex, imgIndex)}
+                    className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1"
                   >
-                    <XMarkIcon className="h-4 w-4 text-white" />
+                    <XMarkIcon className="h-4 w-4" />
                   </button>
                 </div>
               ))}
             </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => removeVariant(vIndex)}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946]"
-          >
-            Remove Variant
-          </button>
-        </div>
-      ))}
-      <button
-        type="button"
-        onClick={addVariant}
-        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946]"
-      >
-        Add Variant
-      </button>
-    </div>
-  ), [variants]);
-
-  return (
-    <div className="w-full min-h-screen bg-gray-100 flex items-start justify-center px-4 sm:px-6 lg:px-8 py-8">
-      <div className="w-full max-w-7xl bg-white shadow-lg rounded-lg p-6 sm:p-8">
-        <h2 className="text-2xl sm:text-3xl font-bold text-[#E63946] mb-6">
-          {product ? 'Edit Product' : 'Add New Product'}
-        </h2>
-
-        <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8">
-          <div className="space-y-6">
-            <h3 className="text-lg font-medium text-gray-900">Basic Information</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              <div>
-                <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-                  Product Title*
-                </label>
-                <input
-                  id="title"
-                  type="text"
-                  {...register('title', {
-                    required: 'Title is required',
-                    minLength: { value: 3, message: 'Title must be at least 3 characters' },
-                    maxLength: { value: 100, message: 'Title cannot exceed 100 characters' },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.title && (
-                  <p className="mt-1 text-sm text-red-600">{errors.title.message}</p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="sku" className="block text-sm font-medium text-gray-700">
-                  SKU*
-                </label>
-                <input
-                  id="sku"
-                  type="text"
-                  {...register('sku', {
-                    required: 'SKU is required',
-                    minLength: { value: 5, message: 'SKU must be at least 5 characters' },
-                    maxLength: { value: 20, message: 'SKU cannot exceed 20 characters' },
-                    pattern: {
-                      value: /^[A-Z0-9-]+$/i,
-                      message: 'SKU can only contain letters, numbers, and hyphens',
-                    },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.sku && (
-                  <p className="mt-1 text-sm text-red-600">{errors.sku.message}</p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="price" className="block text-sm font-medium text-gray-700">
-                  Price*
-                </label>
-                <input
-                  id="price"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  {...register('price', {
-                    required: 'Price is required',
-                    min: { value: 0, message: 'Price must be positive' },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.price && (
-                  <p className="mt-1 text-sm text-red-600">{errors.price.message}</p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="discountPrice" className="block text-sm font-medium text-gray-700">
-                  Discount Price
-                </label>
-                <input
-                  id="discountPrice"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  {...register('discountPrice', {
-                    min: { value: 0, message: 'Discount price must be positive' },
-                    validate: value =>
-                      !value ||
-                      parseFloat(value) < parseFloat(watchedPrice || Infinity) ||
-                      'Discount must be less than price',
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.discountPrice && (
-                  <p className="mt-1 text-sm text-red-600">{errors.discountPrice.message}</p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="categoryId" className="block text-sm font-medium text-gray-700">
-                  Category*
-                </label>
-                <select
-                  id="categoryId"
-                  {...register('categoryId', { required: 'Category is required' })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                >
-                  <option value="">Select a category</option>
-                  {categories.map(category => (
-                    <option key={category._id} value={category._id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.categoryId && (
-                  <p className="mt-1 text-sm text-red-600">{errors.categoryId.message}</p>
-                )}
-                {categoryError && (
-                  <p className="mt-1 text-sm text-red-600">{categoryError}</p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="brand" className="block text-sm font-medium text-gray-700">
-                  Brand
-                </label>
-                <input
-                  id="brand"
-                  type="text"
-                  {...register('brand', {
-                    minLength: { value: 2, message: 'Brand must be at least 2 characters' },
-                    maxLength: { value: 50, message: 'Brand cannot exceed 50 characters' },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.brand && (
-                  <p className="mt-1 text-sm text-red-600">{errors.brand.message}</p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="stock" className="block text-sm font-medium text-gray-700">
-                  Stock*
-                </label>
-                <input
-                  id="stock"
-                  type="number"
-                  min="0"
-                  {...register('stock', {
-                    required: 'Stock is required',
-                    min: { value: 0, message: 'Stock cannot be negative' },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.stock && (
-                  <p className="mt-1 text-sm text-red-600">{errors.stock.message}</p>
-                )}
-              </div>
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">Attributes</h4>
+              {variant.attributes.map((attr, aIndex) => (
+                <div key={aIndex} className="flex space-x-4 items-end">
+                  <Input
+                    label="Key"
+                    value={attr.key}
+                    onChange={(e) => handleAttributeChange(vIndex, aIndex, "key", e.target.value)}
+                    placeholder="e.g., Color"
+                  />
+                  <Input
+                    label="Value"
+                    value={attr.value}
+                    onChange={(e) => handleAttributeChange(vIndex, aIndex, "value", e.target.value)}
+                    placeholder="e.g., Red"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => handleRemoveAttribute(vIndex, aIndex)}
+                    variant="outline"
+                    className="border-red-600 text-red-600 hover:bg-red-100"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                onClick={() => handleAddAttribute(vIndex)}
+                variant="outline"
+                className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"
+              >
+                Add Attribute
+              </Button>
             </div>
           </div>
-
-          <div className="space-y-4">
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-              Description*
-            </label>
-            <textarea
-              id="description"
-              rows={6}
-              {...register('description', {
-                required: 'Description is required',
-                minLength: { value: 10, message: 'Description must be at least 10 characters' },
-                maxLength: { value: 1000, message: 'Description cannot exceed 1000 characters' },
-              })}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-            />
-            {errors.description && (
-              <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-lg font-medium text-gray-900">SEO Settings</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-              <div>
-                <label htmlFor="seo.title" className="block text-sm font-medium text-gray-700">
-                  SEO Title
-                </label>
-                <input
-                  id="seo.title"
-                  type="text"
-                  {...register('seo.title', {
-                    maxLength: { value: 60, message: 'SEO title cannot exceed 60 characters' },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.seo?.title && (
-                  <p className="mt-1 text-sm text-red-600">{errors.seo.title.message}</p>
-                )}
-              </div>
-              <div>
-                <label htmlFor="seo.description" className="block text-sm font-medium text-gray-700">
-                  SEO Description
-                </label>
-                <textarea
-                  id="seo.description"
-                  rows={3}
-                  {...register('seo.description', {
-                    maxLength: { value: 160, message: 'SEO description cannot exceed 160 characters' },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                {errors.seo?.description && (
-                  <p className="mt-1 text-sm text-red-600">{errors.seo.description.message}</p>
-                )}
-              </div>
-              <div>
-                <label htmlFor="seo.slug" className="block text-sm font-medium text-gray-700">
-                  SEO Slug (optional)
-                </label>
-                <input
-                  id="seo.slug"
-                  type="text"
-                  {...register('seo.slug', {
-                    pattern: {
-                      value: /^[a-z0-9-]+$/,
-                      message: 'SEO slug can only contain lowercase letters, numbers, and hyphens',
-                    },
-                  })}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#E63946] focus:ring-[#E63946] sm:text-sm py-2 px-3"
-                />
-                <p className="mt-1 text-sm text-gray-500">
-                  Leave blank to auto-generate from title
-                </p>
-                {errors.seo?.slug && (
-                  <p className="mt-1 text-sm text-red-600">{errors.seo.slug.message}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {ImageUploadSection}
-
-          {SpecificationsSection}
-
-          {VariantsSection}
-
-          <div className="flex flex-col sm:flex-row justify-end space-y-3 sm:space-y-0 sm:space-x-3">
-            <button
-              type="button"
-              onClick={() => navigate('/admin/inventory')}
-              className="w-full sm:w-auto px-6 py-2.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946]"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="w-full sm:w-auto px-6 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {product ? 'Update Product' : 'Create Product'}
-            </button>
-          </div>
-        </form>
+        ))}
+        <Button
+          type="button"
+          onClick={handleAddVariant}
+          variant="outline"
+          className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"
+        >
+          Add Variant
+        </Button>
       </div>
-    </div>
+
+      {/* Submit Button */}
+      <Button
+        type="submit"
+        disabled={isSubmitting}
+        className={`w-full sm:w-auto px-6 py-2.5 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#E63946] ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        {isSubmitting ? 'Creating...' : product ? 'Update Product' : 'Create Product'}
+      </Button>
+    </form>
   );
 });
 

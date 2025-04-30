@@ -1,19 +1,26 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import React, { lazy, memo, Suspense, useEffect, useState, useCallback } from "react";
 import { Helmet } from "react-helmet";
-import { Link } from "react-router-dom";
-import { FiEdit2, FiTrash2, FiEye } from "react-icons/fi";
+import { Link, useNavigate } from "react-router-dom";
+import { FiEdit2, FiTrash2, FiEye, FiRefreshCw } from "react-icons/fi";
+import { toast } from "react-toastify";
+import { debounce } from "lodash";
 import Button from "../../components/core/Button";
 import Input from "../../components/core/Input";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
-import { productService } from "../../services/productService";
-import { getCategories } from "../../services/categoryService"; 
-import { socketService } from "../../services/socketService";
+import { getProducts, deleteProduct } from "../../services/productService";
+import { getCategories } from "../../services/categoryService";
+import  socketService  from "../../services/socketService";
+import { useAdminAuth } from "../../context/AdminAuthContext";
 
 const ProductModal = lazy(() => import("../../pages/ProductModal"));
 
+// Component: ProductInventory
+// Description: Displays and manages the product inventory for admins
 const ProductInventory = memo(() => {
+  const { admin } = useAdminAuth();
+  const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,84 +30,130 @@ const ProductInventory = memo(() => {
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryMap, setCategoryMap] = useState({});
+  const [deletingId, setDeletingId] = useState(null);
 
   const PRODUCTS_PER_PAGE = 10;
 
-  // Fetch categories
+  // Section: Authentication Check
+  // Description: Redirect non-admins to login page
+  useEffect(() => {
+    if (!admin) {
+      navigate("/admin/login");
+    }
+  }, [admin, navigate]);
+
+  // Function: loadCategories
+  // Description: Fetch categories and create a map for category names
   const loadCategories = useCallback(async () => {
     try {
-      const response = await  getCategories.getAllCategories();
-      if (response.success) {
-        const map = response.data.reduce((acc, cat) => {
+      const categories = await getCategories();
+      if (Array.isArray(categories)) {
+        const map = categories.reduce((acc, cat) => {
           acc[cat._id] = cat.name;
           return acc;
         }, {});
         setCategoryMap(map);
+      } else {
+        console.error("Invalid category data received:", categories);
+        toast.warn("Failed to load category names");
       }
     } catch (err) {
-      console.error('Error fetching categories:', err);
+      console.error("Error fetching categories:", err);
+      toast.error(err.message || "Failed to fetch categories");
     }
   }, []);
 
+  // Function: loadProducts
+  // Description: Fetch products with pagination and search
   const loadProducts = useCallback(async () => {
-    if (!productService.getProducts) {
-      setError('Product service is not properly initialized');
-      setLoading(false);
-      console.error('productService.getProducts is not a function');
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      const response = await productService.getProducts({
-        page: currentPage,
-        limit: PRODUCTS_PER_PAGE,
+      const response = await getProducts(currentPage, PRODUCTS_PER_PAGE, null, {
         search: searchTerm,
       });
-      setProducts(response.data);
-      setTotalPages(response.pages);
+      console.log('Load products response:', { response });
+
+      // Ensure products is an array
+      const validProducts = Array.isArray(response.products)
+        ? response.products.filter(product => {
+            if (!product._id) {
+              console.error('Invalid product: Missing _id', { product });
+              return false;
+            }
+            return true;
+          })
+        : [];
+
+      setProducts(validProducts);
+      setTotalPages(response.totalPages || 1);
     } catch (err) {
-      setError(
-        err.message.includes('Network Error')
-          ? 'Unable to connect to the server. Please check your network or try again later.'
-          : `Failed to load products: ${err.message}`
-      );
-      console.error('Error fetching products:', err);
+      const errorMessage = err.message.includes("Network Error")
+        ? "Unable to connect to the server. Please check your network or try again later."
+        : `Failed to load products: ${err.message}`;
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
   }, [currentPage, searchTerm]);
 
-  // Handle product added via Socket.IO
+  // Section: Socket.IO
+  // Description: Handle real-time product addition
   useEffect(() => {
-    socketService.on('productAdded', (newProduct) => {
-      setProducts((prev) => [newProduct, ...prev].slice(0, PRODUCTS_PER_PAGE));
+    socketService.on("productAdded", (newProduct) => {
+      console.log('Product added event:', { newProduct });
+      if (!newProduct._id) {
+        console.error('Invalid productAdded event: Missing _id', { newProduct });
+        return;
+      }
+      if (!searchTerm || newProduct.title.toLowerCase().includes(searchTerm.toLowerCase())) {
+        setProducts((prev) => {
+          // Avoid duplicates
+          if (prev.some(p => p._id === newProduct._id)) {
+            return prev;
+          }
+          return [newProduct, ...prev].slice(0, PRODUCTS_PER_PAGE);
+        });
+      }
     });
-    return () => socketService.off('productAdded');
-  }, []);
+    return () => socketService.off("productAdded");
+  }, [searchTerm]);
 
+  // Function: handleDelete
+  // Description: Delete a product by ID
   const handleDelete = useCallback(async (productId) => {
+    if (!productId) {
+      console.error('Delete product error: Missing productId');
+      toast.error('Invalid product ID');
+      return;
+    }
     if (window.confirm("Are you sure you want to delete this product?")) {
+      setDeletingId(productId);
       try {
-        await productService.deleteProduct(productId);
+        await deleteProduct(productId);
         setProducts((prev) => prev.filter((p) => p._id !== productId));
+        toast.success("Product deleted successfully");
       } catch (err) {
-        setError(
-          err.message.includes('Network Error')
-            ? 'Unable to connect to the server. Please check your network or try again later.'
-            : `Failed to delete product: ${err.message}`
-        );
-        console.error('Error deleting product:', err);
+        const errorMessage = err.message.includes("Network Error")
+          ? "Unable to connect to the server. Please check your network or try again later."
+          : `Failed to delete product: ${err.message}`;
+        setError(errorMessage);
+        toast.error(errorMessage);
+      } finally {
+        setDeletingId(null);
       }
     }
   }, []);
 
-  useEffect(() => {
-    loadCategories();
-    loadProducts();
-  }, [loadCategories, loadProducts]);
-
+  // Function: handlePreview
+  // Description: Prepare product data for preview modal
   const handlePreview = useCallback((product) => {
+    if (!product._id) {
+      console.error('Preview product error: Missing _id', { product });
+      toast.error('Invalid product ID');
+      return;
+    }
     setSelectedProduct({
       _id: product._id,
       title: product.title,
@@ -110,23 +163,54 @@ const ProductInventory = memo(() => {
         ? Math.round(((product.price - product.discountPrice) / product.price) * 100)
         : 0,
       images: product.images?.map((img) =>
-        img.url.startsWith('http') ? img.url : `http://localhost:5000${img.url}`
-      ) || ['/placeholder-product.png'],
+        img.url.startsWith("http") ? img.url : `http://localhost:5000${img.url}`
+      ) || ["/placeholder-product.png"],
       rating: product.averageRating || 0,
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
-      description: product.description || '',
+      description: product.description || "",
       category: product.categoryId,
       variants: product.variants || [],
     });
     setShowPreview(true);
   }, []);
 
-  // Get category name
-  const getCategoryName = (categoryId) => {
-    if (!categoryId) return 'No category';
-    return categoryMap[categoryId._id || categoryId] || 'Unknown';
-  };
+  // Function: getCategoryName
+  // Description: Get category name from categoryId
+  const getCategoryName = useCallback((categoryId) => {
+    if (!categoryId) return "No category";
+    return categoryMap[categoryId._id || categoryId] || "Unknown";
+  }, [categoryMap]);
+
+  // Function: debouncedSetSearchTerm
+  // Description: Debounce search input to reduce API calls
+  const debouncedSetSearchTerm = useCallback(
+    debounce((value) => {
+      setSearchTerm(value);
+      setCurrentPage(1);
+    }, 300),
+    []
+  );
+
+  // Function: handleSearchChange
+  // Description: Handle search input changes
+  const handleSearchChange = useCallback((e) => {
+    debouncedSetSearchTerm(e.target.value);
+  }, [debouncedSetSearchTerm]);
+
+  // Load categories and products on mount
+  useEffect(() => {
+    if (admin) {
+      loadCategories();
+      loadProducts();
+    }
+  }, [admin, loadCategories, loadProducts]);
+
+  // Section: Render
+  // Description: Render the product inventory table
+  if (!admin) {
+    return null; // Render nothing while redirecting
+  }
 
   if (error) {
     return (
@@ -150,13 +234,17 @@ const ProductInventory = memo(() => {
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
           <Input
             placeholder="Search products..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
+            onChange={handleSearchChange}
             className="flex-1 min-w-[200px]"
           />
+          <Button
+            onClick={loadProducts}
+            variant="outline"
+            className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"
+            title="Refresh Products"
+          >
+            <FiRefreshCw className="h-5 w-5" />
+          </Button>
           <Link to="/admin/add-products">
             <Button className="whitespace-nowrap bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] border">
               Add New Product
@@ -173,12 +261,21 @@ const ProductInventory = memo(() => {
         </div>
       ) : products.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-gray-500 text-lg">No products found</p>
-          <Link to="/admin/add-products">
-            <Button className="mt-4 bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] border">
-              Create Your First Product
+          <p className="text-gray-500 text-lg">No products found. Try adding a new product or refreshing.</p>
+          <div className="flex justify-center gap-4 mt-4">
+            <Link to="/admin/add-products">
+              <Button className="bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] border">
+                Create Your First Product
+              </Button>
+            </Link>
+            <Button
+              onClick={loadProducts}
+              variant="outline"
+              className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"
+            >
+              Refresh
             </Button>
-          </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -215,7 +312,11 @@ const ProductInventory = memo(() => {
                           {product.images && product.images[0] ? (
                             <img
                               className="h-10 w-10 rounded-full object-cover"
-                              src={product.images[0].url.startsWith('http') ? product.images[0].url : `http://localhost:5000${product.images[0].url}`}
+                              src={
+                                product.images[0].url.startsWith("http")
+                                  ? product.images[0].url
+                                  : `http://localhost:5000${product.images[0].url}`
+                              }
                               alt={product.title || "Product image"}
                               onError={(e) => (e.target.src = "/placeholder-product.png")}
                             />
@@ -274,7 +375,10 @@ const ProductInventory = memo(() => {
                         </Link>
                         <button
                           onClick={() => handleDelete(product._id)}
-                          className="text-[#E63946] hover:text-[#B32D38]"
+                          disabled={deletingId === product._id}
+                          className={`text-[#E63946] hover:text-[#B32D38] ${
+                            deletingId === product._id ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
                           title="Delete"
                           aria-label={`Delete ${product.title}`}
                         >
@@ -302,9 +406,7 @@ const ProductInventory = memo(() => {
                 Page {currentPage} of {totalPages}
               </span>
               <Button
-                onClick={() =>
-                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
-                }
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                 disabled={currentPage === totalPages}
                 variant="outline"
                 className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"

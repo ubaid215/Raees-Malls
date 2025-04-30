@@ -1,50 +1,39 @@
-import React, { useState, useCallback } from "react";
-import { Helmet } from "react-helmet";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 import ProductForm from "./ProductForm";
 import { createProduct } from "../../services/productService";
 import  socketService  from "../../services/socketService";
 
+// Component: AddProductPage
+// Description: Page for adding a new product
 const AddProductPage = () => {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState(null);
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = useCallback(async (productData, images) => {
-    setIsSubmitting(true);
-    setSubmitError(null);
+  const handleSubmit = async (productData, images) => {
+    setLoading(true);
     try {
-      const response = await createProduct(productData, images);
-      console.log("Product created:", response);
-      socketService.emit('productAdded', response);
+      const product = await createProduct(productData, images);
+      console.log('Product created in AddProductPage:', { id: product._id, title: product.title });
+      
+      // Emit Socket.IO event
+      socketService.emit("productAdded", product);
+      
+      toast.success("Product created successfully");
       navigate("/admin/inventory");
     } catch (err) {
-      console.error("Submission failed:", err);
-      setSubmitError(err.message || "Failed to add product");
+      console.error('AddProductPage submit error:', { message: err.message });
+      toast.error(err.message || "Failed to create product");
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
-  }, [navigate]);
+  };
 
   return (
-    <section aria-label="Add New Product">
-      <Helmet>
-        <title>Add New Product | Your Store</title>
-        <meta name="description" content="Create a new product for your store" />
-        <meta name="robots" content="noindex, nofollow" />
-      </Helmet>
-      <div className="container mx-auto px-4 py-6">
-        <h1 className="text-2xl font-bold mb-6">Add New Product</h1>
-        {submitError && (
-          <div className="p-3 bg-light-red text-red rounded border border-red mb-6">
-            {submitError}
-          </div>
-        )}
-        <ProductForm
-          product={null}
-          onSubmit={handleSubmit}
-        />
-      </div>
+    <section className="container mx-auto px-4 py-6">
+      <h1 className="text-2xl font-bold text-[#E63946] mb-6">Add New Product</h1>
+      <ProductForm onSubmit={handleSubmit} loading={loading} />
     </section>
   );
 };
