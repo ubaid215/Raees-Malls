@@ -15,8 +15,8 @@ const AdminAuthService = {
     try {
       const response = await API.post('/admin/login', credentials);
       
-      // Log full response for debugging
-      console.log('Login response:', response.data);
+      // --------- Log full response for debugging --------------
+      // console.log('Login response:', response.data);
 
       // Destructure from response.data.data to match backend structure
       const { token, refreshToken, user } = response.data.data;
