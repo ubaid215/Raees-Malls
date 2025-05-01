@@ -6,7 +6,7 @@ import {
   updateProduct,
   deleteProduct,
 } from '../services/productService';
-import SocketService from '../services/SocketService';
+import SocketService from '../services/socketService';
 
 export const ProductContext = createContext();
 
