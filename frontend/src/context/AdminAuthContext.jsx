@@ -184,11 +184,11 @@ const AdminAuthProvider = ({ children }) => {
     }
   };
 
-  const changeAdminPassword = async (currentPassword, newPassword) => {
+  const changeAdminPassword = async (currentPassword, newPassword, confirmPassword) => {
     setAuthState(prev => ({ ...prev, loading: true, error: null, errors: [] }));
     
     try {
-      const result = await AdminAuthService.changeAdminPassword(currentPassword, newPassword);
+      const result = await AdminAuthService.changeAdminPassword(currentPassword, newPassword, confirmPassword);
       setAuthState(prev => ({ ...prev, loading: false }));
       return result;
     } catch (err) {
