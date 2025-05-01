@@ -7,6 +7,7 @@ import ProtectedRoute from '../context/ProtectedRoute';
 import ProtectedAdminRoute from '../context/ProtectedAdminRoute';
 import CategorySection from '../components/shared/CategorySection';
 import CheckoutPage from '../pages/CheckoutPage';
+import AdminProfile from '../admin/pages/AdminProfile';
 
 // Lazy load pages
 const HomePage = lazy(() => import('../pages/HomePage'));
@@ -92,6 +93,7 @@ const AppRouter = () => {
             <Route path="add-products" element={<AddProductPage />} />
             <Route path="edit-product/:id" element={<EditProductPage />} />
             <Route path="orders" element={<OrderManagement />} />
+            <Route path="profile" element={<AdminProfile/>} />
             <Route path="orders-history" element={<OrdersHistory />} />
             <Route path="category" element={<CategoryManager />} />
             <Route path="banner-upload" element={<BannerManager />} />

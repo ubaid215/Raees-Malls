@@ -1,5 +1,3 @@
-/* eslint-disable no-unused-vars */
-
 import API from './api';
 
 const AdminAuthService = {
@@ -14,11 +12,6 @@ const AdminAuthService = {
 
     try {
       const response = await API.post('/admin/login', credentials);
-      
-      // --------- Log full response for debugging --------------
-      // console.log('Login response:', response.data);
-
-      // Destructure from response.data.data to match backend structure
       const { token, refreshToken, user } = response.data.data;
       if (!token || !refreshToken) {
         throw { message: 'Invalid response from server: Missing tokens', status: 500 };
@@ -44,13 +37,11 @@ const AdminAuthService = {
     try {
       const response = await API.post('/admin/logout');
       
-      // Clear all tokens on logout
       localStorage.removeItem('adminToken');
       localStorage.removeItem('refreshToken');
       
       return response.data;
     } catch (error) {
-      // Force clear tokens even if API call fails
       localStorage.removeItem('adminToken');
       localStorage.removeItem('refreshToken');
       
@@ -72,10 +63,6 @@ const AdminAuthService = {
       
       const response = await API.post('/admin/refresh-token', { refreshToken });
       
-      // Log full response for debugging
-      // console.log('Refresh token response:', response.data);
-
-      // Destructure from response.data.data to match backend structure
       const { token: accessToken, refreshToken: newRefreshToken, user } = response.data.data;
       if (!accessToken || !newRefreshToken) {
         throw { message: 'Invalid refresh response: Missing tokens', status: 500 };
@@ -95,7 +82,38 @@ const AdminAuthService = {
       console.error('Admin refreshToken error:', errorObj);
       throw errorObj;
     }
-  }
+  },
+
+  changeAdminPassword: async (currentPassword, newPassword) => {
+    // Client-side validation
+    if (!currentPassword || !newPassword) {
+      throw { message: 'Current password and new password are required', status: 400 };
+    }
+    if (newPassword.length < 6) {
+      throw { message: 'New password must be at least 6 characters', status: 400 };
+    }
+
+    try {
+      const response = await API.post('/admin/change-password', {
+        currentPassword,
+        newPassword,
+      });
+
+      // Backend returns { success: true, message: string }
+      return {
+        message: response.data.message || 'Password changed successfully',
+      };
+    } catch (error) {
+      const errorObj = {
+        message: error.response?.data?.message || 'Failed to change password',
+        status: error.response?.status || 500,
+        errors: error.response?.data?.errors?.map(err => err.msg) || [],
+        rawError: error.response?.data || error.message,
+      };
+      console.error('Change password error:', errorObj);
+      throw errorObj;
+    }
+  },
 };
 
 export default AdminAuthService;
