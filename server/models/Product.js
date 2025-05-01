@@ -1,6 +1,71 @@
 const mongoose = require('mongoose');
 const slugify = require('slugify');
 
+const attributeSchema = new mongoose.Schema({
+  key: {
+    type: String,
+    required: [true, 'Attribute key is required'],
+    trim: true,
+    enum: ['size', 'color', 'material', 'style', 'ram'], // Added 'ram'
+  },
+  value: {
+    type: String,
+    required: [true, 'Attribute value is required'],
+    trim: true
+  }
+});
+
+// Normalize 'key' to lowercase before validation
+attributeSchema.pre('validate', function(next) {
+  if (this.key) {
+    this.key = this.key.toLowerCase();
+  }
+  next();
+});
+
+const variantSchema = new mongoose.Schema({
+  sku: {
+    type: String,
+    unique: true,
+    trim: true,
+    uppercase: true
+  },
+  price: {
+    type: Number,
+    required: [true, 'Variant price is required'],
+    min: [0, 'Variant price cannot be negative']
+  },
+  discountPrice: {
+    type: Number,
+    min: [0, 'Variant discount price cannot be negative'],
+    validate: {
+      validator: function (value) {
+        return value < this.price;
+      },
+      message: 'Variant discount price must be less than the variant price'
+    }
+  },
+  stock: {
+    type: Number,
+    required: [true, 'Variant stock quantity is required'],
+    min: [0, 'Variant stock cannot be negative']
+  },
+  attributes: [attributeSchema],
+  images: [{
+    url: {
+      type: String,
+      required: true
+    },
+    public_id: {
+      type: String,
+      required: true
+    },
+    alt: {
+      type: String
+    }
+  }]
+});
+
 const productSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -62,68 +127,11 @@ const productSchema = new mongoose.Schema({
   },
   sku: {
     type: String,
-    required: [true, 'Base SKU is required'],
+    unique: true,
     trim: true,
-    match: [/^[A-Z0-9-]+$/i, 'SKU can only contain uppercase letters, numbers, and hyphens'],
-    minlength: [5, 'SKU must be at least 5 characters'],
-    maxlength: [20, 'SKU cannot exceed 20 characters']
+    uppercase: true
   },
-  variants: [{
-    sku: {
-      type: String,
-      required: [true, 'Variant SKU is required'],
-      trim: true,
-      match: [/^[A-Z0-9-]+$/i, 'Variant SKU can only contain uppercase letters, numbers, and hyphens'],
-      minlength: [5, 'Variant SKU must be at least 5 characters'],
-      maxlength: [20, 'Variant SKU cannot exceed 20 characters']
-    },
-    price: {
-      type: Number,
-      required: [true, 'Variant price is required'],
-      min: [0, 'Variant price cannot be negative']
-    },
-    discountPrice: {
-      type: Number,
-      min: [0, 'Variant discount price cannot be negative'],
-      validate: {
-        validator: function (value) {
-          return value < this.price;
-        },
-        message: 'Variant discount price must be less than the variant price'
-      }
-    },
-    stock: {
-      type: Number,
-      required: [true, 'Variant stock quantity is required'],
-      min: [0, 'Variant stock cannot be negative']
-    },
-    attributes: [{
-      key: {
-        type: String,
-        required: [true, 'Attribute key is required'],
-        trim: true,
-        enum: ['size', 'color', 'material', 'style'], // Restrict to common attributes
-      },
-      value: {
-        type: String,
-        required: [true, 'Attribute value is required'],
-        trim: true
-      }
-    }],
-    images: [{
-      url: {
-        type: String,
-        required: true
-      },
-      public_id: {
-        type: String,
-        required: true
-      },
-      alt: {
-        type: String
-      }
-    }]
-  }],
+  variants: [variantSchema],
   specifications: [{
     key: {
       type: String,
@@ -172,49 +180,72 @@ const productSchema = new mongoose.Schema({
   }
 });
 
-// Pre-save hook to auto-generate seo.slug if not provided
+// Helper function to generate SKU
+const generateSKU = (brand, title, attributes = []) => {
+  const cleanBrand = (brand || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 3);
+  const cleanTitle = title.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 3);
+
+  const attrCodes = attributes.map(attr =>
+    attr.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 2)
+  ).join('');
+
+  let sku = `${cleanBrand}-${cleanTitle}`;
+  if (attributes.length > 0) {
+    sku += `-${attrCodes}`;
+  }
+
+  const timestamp = Date.now().toString().slice(-4);
+  sku += `-${timestamp}`;
+
+  return sku;
+};
+
+// Pre-save hook to auto-generate SKUs and slug
 productSchema.pre('save', async function (next) {
   this.updatedAt = Date.now();
+
+  if (!this.sku) {
+    let sku = generateSKU(this.brand, this.title);
+    let counter = 1;
+
+    while (await mongoose.models.Product.findOne({ sku, _id: { $ne: this._id } })) {
+      sku = generateSKU(this.brand, this.title) + `-${counter}`;
+      counter++;
+    }
+    this.sku = sku;
+  }
+
+  for (const variant of this.variants) {
+    if (!variant.sku) {
+      let variantSku = generateSKU(this.brand, this.title, variant.attributes);
+      let counter = 1;
+
+      while (await mongoose.models.Product.findOne({
+        $or: [
+          { sku: variantSku, _id: { $ne: this._id } },
+          { 'variants.sku': variantSku, _id: { $ne: this._id } }
+        ]
+      })) {
+        variantSku = generateSKU(this.brand, this.title, variant.attributes) + `-${counter}`;
+        counter++;
+      }
+      variant.sku = variantSku;
+    }
+  }
 
   if (!this.seo.slug) {
     let baseSlug = slugify(this.title, { lower: true, strict: true });
     let slug = baseSlug;
     let counter = 1;
 
-    // Ensure the slug is unique by appending a counter if needed
     while (await mongoose.models.Product.findOne({ 'seo.slug': slug, _id: { $ne: this._id } })) {
       slug = `${baseSlug}-${counter}`;
       counter++;
     }
-
     this.seo.slug = slug;
-  }
-
-  // Ensure unique SKUs for variants
-  const variantSkus = this.variants.map(v => v.sku);
-  if (new Set(variantSkus).size !== variantSkus.length) {
-    return next(new Error('Duplicate variant SKUs are not allowed'));
-  }
-
-  // Ensure variant SKUs are unique across all products
-  for (const variant of this.variants) {
-    const existing = await mongoose.models.Product.findOne({
-      'variants.sku': variant.sku,
-      _id: { $ne: this._id }
-    });
-    if (existing) {
-      return next(new Error(`Variant SKU ${variant.sku} already exists in another product`));
-    }
   }
 
   next();
 });
-
-// Create indexes for efficient querying
-productSchema.index({ categoryId: 1 });
-productSchema.index({ price: 1 });
-productSchema.index({ stock: 1 });
-productSchema.index({ sku: 1 });
-productSchema.index({ 'variants.sku': 1 });
 
 module.exports = mongoose.model('Product', productSchema);

@@ -104,7 +104,7 @@ const CategorySection = () => {
   }
 
   return (
-    <section className="py-16 px-4">
+    <section className="py-16 px-7">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-gray-900 mb-3">Shop by Category</h2>

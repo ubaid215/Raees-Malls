@@ -1,21 +1,9 @@
-import React, {
-  createContext,
-  useState,
-  useEffect,
-  useContext,
-  useCallback,
-  useMemo
-} from 'react';
-import {
-  addToCart,
-  getCart,
-  updateCartItem,
-  removeFromCart
-} from '../services/cartService';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { useNavigate } from 'react-router-dom';
+import * as cartService from '../services/cartService';
+import { toast } from 'react-toastify';
 
-// Create context
 const CartContext = createContext();
 CartContext.displayName = 'CartContext';
 
@@ -31,13 +19,32 @@ const CartProvider = ({ children }) => {
       setCart(null);
       return;
     }
-
+  
     setLoading(true);
     setError(null);
     try {
-      const cartData = await getCart();
-      setCart(cartData);
+      const result = await cartService.getCart();
+      // console.log('fetchCart: Result:', result);
+      if (result.success) {
+        const cartData = result.cart || { items: [], totalPrice: 0, itemCount: 0 };
+        setCart(cartData);
+        // console.log('fetchCart: Updated cart state:', cartData);
+        if (cartData.items.some(item => item.isUnavailable || item.isVariantUnavailable)) {
+          toast.warn('Some items in your cart are unavailable');
+        }
+      } else {
+        setError({
+          message: result.message,
+          status: result.status
+        });
+        setCart(null);
+      }
     } catch (err) {
+      console.error('fetchCart: Error:', {
+        message: err.message,
+        status: err.response?.status,
+        details: err.response?.data
+      });
       setError({
         message: err.message || 'Failed to fetch cart',
         status: err.response?.status
@@ -48,123 +55,105 @@ const CartProvider = ({ children }) => {
     }
   }, [user]);
 
+  // useEffect(() => {
+  //   console.log('CartContext: Cart state changed:', cart);
+  // }, [cart]);
+
   const addItemToCart = useCallback(async (productId, variantId = null, quantity = 1) => {
     if (!user) {
-      navigate('/login', {
-        state: {
-          from: window.location.pathname,
-          message: 'Please login to add items to your cart'
-        }
-      });
-      return;
+      navigate('/login', { state: { from: window.location.pathname } });
+      return { success: false, message: 'Please login to add items to cart' };
     }
 
     setLoading(true);
-    setError(null);
     try {
-      await addToCart(productId, variantId, quantity);
-      await fetchCart();
-    } catch (err) {
-      setError({
-        message: err.message || 'Failed to add item to cart',
-        status: err.response?.status
-      });
-      throw err;
+      const result = await cartService.addToCart(productId, variantId, quantity);
+      if (result.success) {
+        await fetchCart();
+        toast.success(result.message);
+        return { success: true, cart: result.cart };
+      }
+      throw new Error(result.message);
+    } catch (error) {
+      console.error('Add to cart error:', error);
+      toast.error(error.message || 'Failed to add to cart');
+      return { success: false, message: error.message };
     } finally {
       setLoading(false);
     }
-  }, [fetchCart, user, navigate]);
+  }, [user, navigate, fetchCart]);
 
-  const removeItem = useCallback(async (productId) => {
+  const updateQuantity = useCallback(async (productId, quantity, variantId = null) => {
     if (!user) {
-      navigate('/login', {
-        state: {
-          from: window.location.pathname,
-          message: 'Please login to remove items from your cart'
-        }
-      });
-      return;
+      navigate('/login', { state: { from: window.location.pathname } });
+      return { success: false, message: 'Please login to update cart' };
     }
 
     setLoading(true);
-    setError(null);
     try {
-      await removeFromCart(productId);
-      await fetchCart();
-    } catch (err) {
-      setError({
-        message: err.message || 'Failed to remove item',
-        status: err.response?.status
-      });
-      throw err;
+      const result = await cartService.updateQuantity(productId, quantity, variantId);
+      if (result.success) {
+        await fetchCart();
+        toast.success(result.message);
+        return { success: true, cart: result.cart };
+      }
+      throw new Error(result.message);
+    } catch (error) {
+      console.error('Update quantity error:', error);
+      toast.error(error.message || 'Failed to update quantity');
+      return { success: false, message: error.message };
     } finally {
       setLoading(false);
     }
-  }, [fetchCart, user, navigate]);
+  }, [user, navigate, fetchCart]);
 
-  const updateQuantity = useCallback(async (productId, quantity) => {
+  const removeFromCart = useCallback(async (productId, variantId = null) => {
     if (!user) {
-      navigate('/login', {
-        state: {
-          from: window.location.pathname,
-          message: 'Please login to update your cart'
-        }
-      });
-      return;
-    }
-
-    if (quantity <= 0) {
-      return removeItem(productId); // ✅ Now removeItem is defined above
+      navigate('/login', { state: { from: window.location.pathname } });
+      return { success: false, message: 'Please login to remove items from cart' };
     }
 
     setLoading(true);
-    setError(null);
     try {
-      await updateCartItem(productId, null, quantity);
-      await fetchCart();
-    } catch (err) {
-      setError({
-        message: err.message || 'Failed to update quantity',
-        status: err.response?.status
-      });
-      throw err;
+      const result = await cartService.removeFromCart(productId, variantId);
+      if (result.success) {
+        await fetchCart();
+        toast.success(result.message);
+        return { success: true, cart: result.cart };
+      }
+      throw new Error(result.message);
+    } catch (error) {
+      console.error('Remove from cart error:', error);
+      toast.error(error.message || 'Failed to remove from cart');
+      return { success: false, message: error.message };
     } finally {
       setLoading(false);
     }
-  }, [fetchCart, user, navigate, removeItem]);
+  }, [user, navigate, fetchCart]);
 
   const clearCart = useCallback(async () => {
     if (!user) {
-      navigate('/login', {
-        state: {
-          from: window.location.pathname,
-          message: 'Please login to access your cart'
-        }
-      });
-      return;
+      navigate('/login', { state: { from: window.location.pathname } });
+      return { success: false, message: 'Please login to clear cart' };
     }
 
     setLoading(true);
-    setError(null);
     try {
-      if (cart?.items?.length > 0) {
-        await Promise.all(
-          cart.items.map(item =>
-            removeFromCart(item.productId, item.variantId)
-          )
-        );
+      const result = await cartService.clearCart();
+      if (result.success) {
+        await fetchCart();
+        toast.success(result.message);
+        return { success: true, cart: result.cart };
       }
-      await fetchCart();
-    } catch (err) {
-      setError({
-        message: err.message || 'Failed to clear cart',
-        status: err.response?.status
-      });
-      throw err;
+      throw new Error(result.message);
+    } catch (error) {
+      console.error('Clear cart error:', error);
+      toast.error(error.message || 'Failed to clear cart');
+      return { success: false, message: error.message };
     } finally {
       setLoading(false);
     }
-  }, [cart?.items, fetchCart, user, navigate]);
+  }, [user, navigate, fetchCart]);
 
   useEffect(() => {
     fetchCart();
@@ -179,18 +168,9 @@ const CartProvider = ({ children }) => {
     addItemToCart,
     fetchCart,
     updateQuantity,
-    removeItem,
+    removeFromCart,
     clearCart,
-  }), [
-    cart,
-    loading,
-    error,
-    addItemToCart,
-    fetchCart,
-    updateQuantity,
-    removeItem,
-    clearCart
-  ]);
+  }), [cart, loading, error, addItemToCart, fetchCart, updateQuantity, removeFromCart, clearCart]);
 
   return (
     <CartContext.Provider value={contextValue}>

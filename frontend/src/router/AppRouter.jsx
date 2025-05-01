@@ -6,6 +6,7 @@ import AdminLayout from '../admin/components/AdminLayout';
 import ProtectedRoute from '../context/ProtectedRoute';
 import ProtectedAdminRoute from '../context/ProtectedAdminRoute';
 import CategorySection from '../components/shared/CategorySection';
+import CheckoutPage from '../pages/CheckoutPage';
 
 // Lazy load pages
 const HomePage = lazy(() => import('../pages/HomePage'));
@@ -18,7 +19,6 @@ const Register = lazy(() => import('../pages/Register'));
 const Profile = lazy(() => import('../components/shared/Profile'));
 const Wishlist = lazy(() => import('../components/Products/Wishlist'));
 const Cart = lazy(() => import('../components/features/Cart'));
-const Checkout = lazy(() => import('../components/features/Checkout'));
 const Dashboard = lazy(() => import('../admin/pages/Dashboard'));
 const ProductInventory = lazy(() => import('../admin/pages/ProductInventory'));
 const OrderManagement = lazy(() => import('../admin/pages/OrderManagment'));
@@ -66,7 +66,7 @@ const AppRouter = () => {
             path="checkout"
             element={
               <ProtectedRoute>
-                <Checkout />
+                <CheckoutPage />
               </ProtectedRoute>
             }
           />

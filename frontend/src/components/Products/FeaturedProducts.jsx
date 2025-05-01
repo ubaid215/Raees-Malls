@@ -8,12 +8,28 @@ import LoadingSpinner from '../core/LoadingSpinner';
 import { ProductContext } from '../../context/ProductContext';
 import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../shared/config';
+import SocketService from '../../services/socketService';
+import { toast } from 'react-toastify';
 
 function FeaturedProducts() {
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
   const [needsFetch, setNeedsFetch] = useState(true);
 
-  // Fetch featured products on component mount
+  // Clear cache on mount to ensure fresh data
+  useEffect(() => {
+    const clearProductCaches = () => {
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('products_') || key.startsWith('product_')) {
+          localStorage.removeItem(key);
+        }
+      });
+    };
+
+    clearProductCaches();
+    setNeedsFetch(true); // Trigger fresh fetch
+  }, []);
+
+  // Fetch featured products
   useEffect(() => {
     if (needsFetch) {
       handleFetchFeaturedProducts();
@@ -23,47 +39,84 @@ function FeaturedProducts() {
   const handleFetchFeaturedProducts = useCallback(async () => {
     try {
       await fetchProducts(
-        1, // page
-        6, // limit
-        null, // categoryId
-        true, // isFeatured
-        { 
-          isPublic: true,
-          sort: '-createdAt' // Add valid sort parameter
-        }
+        { page: 1, limit: 6, isFeatured: true, sort: '-createdAt' },
+        { isPublic: true, skipCache: true } // Skip cache to avoid stale data
       );
       setNeedsFetch(false);
     } catch (err) {
       console.error('Fetch error:', err);
+      toast.error(err.message || 'Failed to load featured products');
     }
   }, [fetchProducts]);
 
+  // Socket.IO integration for real-time updates
+  useEffect(() => {
+    SocketService.connect();
+
+    const handleProductCreated = (data) => {
+      // Trigger fetch if the new product is featured and in stock
+      if (data.product.isFeatured && data.product.stock > 0) {
+        setNeedsFetch(true);
+        toast.success(`New featured product added: ${data.product.title}`);
+      }
+    };
+
+    const handleProductUpdated = (data) => {
+      // Trigger fetch if the product is featured
+      if (data.product.isFeatured) {
+        setNeedsFetch(true);
+        toast.info(`Featured product updated: ${data.product.title}`);
+      }
+    };
+
+    const handleProductDeleted = (data) => {
+      // Trigger fetch to refresh the list
+      setNeedsFetch(true);
+      toast.warn('Featured product removed');
+    };
+
+    SocketService.on('productCreated', handleProductCreated);
+    SocketService.on('productUpdated', handleProductUpdated);
+    SocketService.on('productDeleted', handleProductDeleted);
+
+    return () => {
+      SocketService.off('productCreated', handleProductCreated);
+      SocketService.off('productUpdated', handleProductUpdated);
+      SocketService.off('productDeleted', handleProductDeleted);
+      SocketService.disconnect();
+    };
+  }, []);
+
   const memoizedProducts = useMemo(() => {
-    // Ensure products is always an array
     const productArray = Array.isArray(products) ? products : [];
     
     return productArray.map((product) => {
-      // Handle product images
-      let imageUrl = '/placeholder-product.png';
-      if (product.images && product.images.length > 0) {
-        const firstImage = product.images[0];
-        imageUrl = firstImage.url
-          ? firstImage.url.startsWith('http')
-            ? firstImage.url
-            : `${API_BASE_URL}${firstImage.url}`
-          : '/placeholder-product.png';
-      }
+      // Ensure images are properly structured
+      const images = product.images && product.images.length > 0
+        ? product.images.map(image => ({
+            url: image.url
+              ? image.url.startsWith('http')
+                ? image.url
+                : `${API_BASE_URL}${image.url}`
+              : '/images/placeholder-product.png',
+            public_id: image.public_id || '',
+            alt: image.alt || product.title || 'Product image'
+          }))
+        : [{ url: '/images/placeholder-product.png', public_id: '', alt: product.title || 'Product image' }];
 
       return {
         _id: product._id,
         title: product.title || product.name || 'Untitled Product',
         price: product.discountPrice || product.price || 0,
         originalPrice: product.price || 0,
-        images: [imageUrl],
-        rating: product.averageRating || product.rating || 0,
+        images, // Pass the properly structured images array
+        averageRating: product.averageRating || product.rating || 0,
         numReviews: product.numReviews || 0,
         stock: product.stock || 0,
         isOnSale: !!product.discountPrice && product.discountPrice < product.price,
+        categoryId: product.categoryId,
+        sku: product.sku,
+        displayPrice: product.displayPrice,
       };
     });
   }, [products]);
@@ -82,7 +135,7 @@ function FeaturedProducts() {
     return (
       <section aria-label="No Featured Products" className="w-full px-6 my-8 pb-5 text-center">
         <p className="text-lg text-gray-500 mb-4">
-          Failed to load featured products: {error.message || error}
+          Failed to load featured products: {error}
         </p>
         <div className="flex flex-col items-center gap-2">
           <Button

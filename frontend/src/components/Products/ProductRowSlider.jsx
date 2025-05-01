@@ -7,6 +7,8 @@ import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
 import { API_BASE_URL } from '../shared/config';
+import SocketService from '../../services/SocketService';
+import { toast } from 'react-toastify';
 
 function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
@@ -18,17 +20,40 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const intervalRef = useRef(null);
   const navigate = useNavigate();
 
-  // Process and memoize products - MOVED THIS UP before it's used
-  const memoizedProducts = useMemo(() => {
-    // Ensure products is always an array
-    const productArray = Array.isArray(products) ? products : [];
-    
-    // Filter featured products if needed
-    const filteredProducts = isFeatured
-      ? productArray.filter((product) => product.isFeatured === true)
-      : productArray;
+  // Process and memoize products
+ // In ProductRowSlider.jsx - Update the memoizedProducts part:
+const memoizedProducts = useMemo(() => {
+  const productArray = Array.isArray(products) ? products : [];
+  
+  const filteredProducts = isFeatured
+    ? productArray.filter((product) => product.isFeatured === true)
+    : productArray;
 
-    return filteredProducts.map((product) => ({
+  return filteredProducts.map((product) => {
+    // Ensure images is always an array
+    const images = Array.isArray(product.images) ? product.images : [];
+    
+    // Process image URLs
+    const processedImages = images.map(img => {
+      let url = img?.url || '';
+      if (url && !url.startsWith('http')) {
+        url = `${API_BASE_URL}${url}`;
+      }
+      return {
+        url: url || '/images/placeholder-product.png',
+        alt: img?.alt || product.title || 'Product image'
+      };
+    });
+
+    // Ensure at least one image exists
+    if (processedImages.length === 0) {
+      processedImages.push({
+        url: '/images/placeholder-product.png',
+        alt: 'Placeholder product image'
+      });
+    }
+
+    return {
       _id: product._id,
       title: product.title || product.name || 'Untitled Product',
       price: product.discountPrice || product.price || 0,
@@ -36,14 +61,90 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       discountPercentage: product.originalPrice && product.originalPrice > product.price
         ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
         : 0,
-      images: product.images?.map((img) =>
-        img.url?.startsWith('http') ? img.url : `${API_BASE_URL}${img.url}`
-      ) || ['/placeholder-product.png'],
+      images: processedImages,
       rating: product.rating || product.averageRating || 0,
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
-    }));
-  }, [products, isFeatured]);
+      sku: product.sku || '',
+      categoryId: product.categoryId || null
+    };
+  });
+}, [products, isFeatured]);
+
+  // Clear cache on mount to ensure fresh data
+  useEffect(() => {
+    const clearProductCaches = () => {
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('products_') || key.startsWith('product_')) {
+          localStorage.removeItem(key);
+        }
+      });
+    };
+
+    clearProductCaches();
+    setNeedsFetch(true); // Trigger fresh fetch
+  }, []);
+
+  // Fetch products
+  useEffect(() => {
+    if (needsFetch) {
+      handleFetchProducts();
+    }
+  }, [needsFetch, categoryId, isFeatured]);
+
+  const handleFetchProducts = useCallback(async () => {
+    try {
+      await fetchProducts(
+        { page: 1, limit: 12, categoryId: categoryId || null, isFeatured, sort: '-createdAt' },
+        { isPublic: true, skipCache: true } // Skip cache to avoid stale data
+      );
+      setNeedsFetch(false);
+    } catch (err) {
+      console.error('Fetch error:', err);
+      toast.error(err.message || 'Failed to load products');
+    }
+  }, [fetchProducts, categoryId, isFeatured]);
+
+  // Socket.IO integration for real-time updates
+  useEffect(() => {
+    SocketService.connect();
+
+    const handleProductCreated = (data) => {
+      // Trigger fetch if the new product matches the category/isFeatured and is in stock
+      if (data.product.stock > 0 &&
+          (isFeatured ? data.product.isFeatured : true) &&
+          (categoryId ? data.product.categoryId === categoryId : true)) {
+        setNeedsFetch(true);
+        toast.success(`New product added: ${data.product.title}`);
+      }
+    };
+
+    const handleProductUpdated = (data) => {
+      // Trigger fetch if the product matches the category/isFeatured
+      if ((isFeatured ? data.product.isFeatured : true) &&
+          (categoryId ? data.product.categoryId === categoryId : true)) {
+        setNeedsFetch(true);
+        toast.info(`Product updated: ${data.product.title}`);
+      }
+    };
+
+    const handleProductDeleted = (data) => {
+      // Trigger fetch to refresh the list
+      setNeedsFetch(true);
+      toast.warn('Product removed');
+    };
+
+    SocketService.on('productCreated', handleProductCreated);
+    SocketService.on('productUpdated', handleProductUpdated);
+    SocketService.on('productDeleted', handleProductDeleted);
+
+    return () => {
+      SocketService.off('productCreated', handleProductCreated);
+      SocketService.off('productUpdated', handleProductUpdated);
+      SocketService.off('productDeleted', handleProductDeleted);
+      SocketService.disconnect();
+    };
+  }, [isFeatured, categoryId]);
 
   // Calculate number of visible items based on screen width
   const getVisibleItemsCount = useCallback(() => {
@@ -54,31 +155,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     if (width < 1024) return 3;
     return 4;
   }, []);
-
-  // Fetch products when component mounts or when categoryId/isFeatured changes
-  useEffect(() => {
-    if (needsFetch) {
-      handleFetchProducts();
-    }
-  }, [needsFetch, categoryId, isFeatured]);
-
-  const handleFetchProducts = useCallback(async () => {
-    try {
-      await fetchProducts(
-        1, // page
-        12, // limit
-        categoryId || null, // categoryId
-        isFeatured, // isFeatured
-        { 
-          isPublic: true,
-          sort: '-createdAt' // Add valid sort parameter
-        }
-      );
-      setNeedsFetch(false);
-    } catch (err) {
-      console.error('Fetch error:', err);
-    }
-  }, [fetchProducts, categoryId, isFeatured]);
 
   // Handle window resize to adjust visible items
   useEffect(() => {
@@ -93,6 +169,29 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       window.removeEventListener('resize', handleResize);
     };
   }, [getVisibleItemsCount]);
+
+  // Navigation handlers
+  const handlePrev = useCallback(() => {
+    setCurrentIndex((prev) =>
+      prev === 0 ? Math.ceil(memoizedProducts.length / visibleItems) - 1 : prev - 1
+    );
+    setIsAutoPlaying(false);
+    setTimeout(() => setIsAutoPlaying(true), 10000);
+  }, [memoizedProducts.length, visibleItems]);
+
+  const handleNext = useCallback(() => {
+    setCurrentIndex((prev) =>
+      prev === Math.ceil(memoizedProducts.length / visibleItems) - 1 ? 0 : prev + 1
+    );
+    setIsAutoPlaying(false);
+    setTimeout(() => setIsAutoPlaying(true), 10000);
+  }, [memoizedProducts.length, visibleItems]);
+
+  const goToSlide = useCallback((index) => {
+    setCurrentIndex(index);
+    setIsAutoPlaying(false);
+    setTimeout(() => setIsAutoPlaying(true), 10000);
+  }, []);
 
   // Auto-play slider
   useEffect(() => {
@@ -110,32 +209,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       }
     };
   }, [isAutoPlaying, memoizedProducts.length, visibleItems]);
-
-  // Navigation handlers
-  const handlePrev = useCallback(() => {
-    setCurrentIndex((prev) =>
-      prev === 0 ? Math.ceil(memoizedProducts.length / visibleItems) - 1 : prev - 1
-    );
-    setIsAutoPlaying(false);
-    // Reset autoplay after manual navigation
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  }, [memoizedProducts.length, visibleItems]);
-
-  const handleNext = useCallback(() => {
-    setCurrentIndex((prev) =>
-      prev === Math.ceil(memoizedProducts.length / visibleItems) - 1 ? 0 : prev + 1
-    );
-    setIsAutoPlaying(false);
-    // Reset autoplay after manual navigation
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  }, [memoizedProducts.length, visibleItems]);
-
-  const goToSlide = useCallback((index) => {
-    setCurrentIndex(index);
-    setIsAutoPlaying(false);
-    // Reset autoplay after manual navigation
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  }, []);
 
   // Loading state
   if (loading && memoizedProducts.length === 0) {
@@ -171,7 +244,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         </div>
         <div className="text-center">
           <p className="text-lg text-gray-500 mb-4">
-            {error ? `Failed to load products: ${error.message || error}` : 'No products found.'}
+            {error ? `Failed to load products: ${error}` : 'No products found.'}
           </p>
           <Button
             onClick={handleFetchProducts}
@@ -227,7 +300,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
           ))}
         </div>
 
-        {/* Navigation buttons */}
         <button
           onClick={handlePrev}
           className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-white/80 hover:bg-white rounded-full p-2 shadow-lg transition-all duration-200 opacity-0 group-hover:opacity-100"
@@ -244,7 +316,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         </button>
       </div>
 
-      {/* Pagination dots */}
       {memoizedProducts.length > visibleItems && (
         <div className="flex justify-center mt-6 space-x-2">
           {Array.from({ length: Math.ceil(memoizedProducts.length / visibleItems) }).map(

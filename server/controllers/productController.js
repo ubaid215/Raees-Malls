@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const AuditLog = require('../models/AuditLog');
 const ApiResponse = require('../utils/apiResponse');
@@ -7,7 +8,12 @@ const cloudinary = require('../config/cloudinary');
 // Create a new product (Admin only)
 exports.createProduct = async (req, res, next) => {
   try {
-    const { title, description, price, discountPrice, categoryId, brand, stock, sku, specifications, variants } = req.body;
+    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo } = req.body;
+
+    // Validate discount price
+    if (discountPrice !== undefined && discountPrice >= price) {
+      throw new ApiError(400, 'Discount price must be less than the base price');
+    }
 
     // Process uploaded base images from Cloudinary
     const images = req.files?.baseImages?.map(file => ({
@@ -28,11 +34,46 @@ exports.createProduct = async (req, res, next) => {
       });
     }
 
-    // Attach images to variants
-    const processedVariants = variants?.map((variant, index) => ({
-      ...variant,
-      images: variantImages[index] || []
-    }));
+    // Parse variants if they are a JSON string
+    let parsedVariants = variants;
+    if (typeof variants === 'string') {
+      try {
+        parsedVariants = JSON.parse(variants);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid variants format');
+      }
+    }
+
+    // Attach images to variants and validate variant discount prices
+    const processedVariants = parsedVariants?.map((variant, index) => {
+      if (variant.discountPrice !== undefined && variant.discountPrice >= variant.price) {
+        throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
+      }
+      return {
+        ...variant,
+        images: variantImages[index] || []
+      };
+    }) || [];
+
+    // Parse seo if it is a JSON string
+    let parsedSeo = seo;
+    if (typeof seo === 'string') {
+      try {
+        parsedSeo = JSON.parse(seo);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid SEO format');
+      }
+    }
+
+    // Parse specifications if it is a JSON string
+    let parsedSpecifications = specifications;
+    if (typeof specifications === 'string') {
+      try {
+        parsedSpecifications = JSON.parse(specifications);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid specifications format');
+      }
+    }
 
     // Create new product
     const product = new Product({
@@ -44,9 +85,9 @@ exports.createProduct = async (req, res, next) => {
       categoryId,
       brand,
       stock,
-      sku,
-      specifications,
-      variants: processedVariants || []
+      specifications: parsedSpecifications,
+      variants: processedVariants,
+      seo: parsedSeo
     });
 
     await product.save();
@@ -60,10 +101,28 @@ exports.createProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
+    // Emit Socket.IO event for product creation if io is available
+    if (req.io) {
+      req.io.emit('productCreated', {
+        product: product.toObject(),
+        displayPrice: product.discountPrice || product.price
+      });
+    }
+
     ApiResponse.success(res, 201, 'Product created successfully', { product });
   } catch (error) {
+    if (error.name === 'ValidationError') {
+      const errors = {};
+      Object.keys(error.errors).forEach(key => {
+        errors[key] = {
+          message: error.errors[key].message,
+          path: key
+        };
+      });
+      return res.status(400).json({ message: 'Validation failed', errors });
+    }
     if (error.code === 11000) {
-      return next(new ApiError(400, 'Duplicate SKU or slug detected'));
+      return next(new ApiError(400, 'Duplicate SKU detected'));
     }
     next(error);
   }
@@ -72,7 +131,7 @@ exports.createProduct = async (req, res, next) => {
 // Get all products for admin with pagination, sorting, and filtering (Admin only)
 exports.getAllProducts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search } = req.query;
 
     // Build query
     const query = {};
@@ -84,6 +143,14 @@ exports.getAllProducts = async (req, res, next) => {
     }
     if (attributeKey && attributeValue) {
       query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
+    }
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { brand: { $regex: search, $options: 'i' } },
+        { sku: { $regex: search, $options: 'i' } }
+      ];
     }
 
     const sortOption = sort || '-createdAt';
@@ -113,6 +180,10 @@ exports.getAllProducts = async (req, res, next) => {
 // Get a single product by ID (Admin only)
 exports.getProductById = async (req, res, next) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      throw new ApiError(400, 'Invalid product ID');
+    }
+
     const product = await Product.findById(req.params.id)
       .populate('categoryId', 'name slug');
 
@@ -129,12 +200,24 @@ exports.getProductById = async (req, res, next) => {
 // Update a product (Admin only)
 exports.updateProduct = async (req, res, next) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      throw new ApiError(400, 'Invalid product ID');
+    }
+
     const product = await Product.findById(req.params.id);
     if (!product) {
       throw new ApiError(404, 'Product not found');
     }
 
-    const { title, description, price, discountPrice, categoryId, brand, stock, sku, specifications, variants } = req.body;
+    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo } = req.body;
+
+    // Validate discount price
+    if (discountPrice !== undefined) {
+      const basePrice = price || product.price;
+      if (discountPrice >= basePrice) {
+        throw new ApiError(400, 'Discount price must be less than the base price');
+      }
+    }
 
     // Delete old base images from Cloudinary if new images are uploaded
     if (req.files?.baseImages?.length > 0) {
@@ -160,18 +243,54 @@ exports.updateProduct = async (req, res, next) => {
       });
     }
 
-    // Update variants
-    if (variants) {
+    // Parse variants if they are a JSON string
+    let parsedVariants = variants;
+    if (typeof variants === 'string') {
+      try {
+        parsedVariants = JSON.parse(variants);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid variants format');
+      }
+    }
+
+    // Update variants and validate variant discount prices
+    if (parsedVariants) {
       // Delete old variant images
       for (const variant of product.variants) {
         for (const image of variant.images) {
           await cloudinary.uploader.destroy(image.public_id);
         }
       }
-      product.variants = variants.map((variant, index) => ({
-        ...variant,
-        images: variantImages[index] || variant.images || []
-      }));
+
+      product.variants = parsedVariants.map((variant, index) => {
+        if (variant.discountPrice !== undefined && variant.discountPrice >= variant.price) {
+          throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
+        }
+        return {
+          ...variant,
+          images: variantImages[index] || variant.images || []
+        };
+      });
+    }
+
+    // Parse seo if it is a JSON string
+    let parsedSeo = seo;
+    if (typeof seo === 'string') {
+      try {
+        parsedSeo = JSON.parse(seo);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid SEO format');
+      }
+    }
+
+    // Parse specifications if it is a JSON string
+    let parsedSpecifications = specifications;
+    if (typeof specifications === 'string') {
+      try {
+        parsedSpecifications = JSON.parse(specifications);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid specifications format');
+      }
     }
 
     // Update product fields
@@ -182,8 +301,8 @@ exports.updateProduct = async (req, res, next) => {
     product.categoryId = categoryId || product.categoryId;
     product.brand = brand || product.brand;
     product.stock = stock !== undefined ? stock : product.stock;
-    product.sku = sku || product.sku;
-    product.specifications = specifications || product.specifications;
+    product.specifications = parsedSpecifications || product.specifications;
+    product.seo = parsedSeo || product.seo;
 
     await product.save();
 
@@ -196,10 +315,28 @@ exports.updateProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
+    // Emit Socket.IO event for product update if io is available
+    if (req.io) {
+      req.io.emit('productUpdated', {
+        product: product.toObject(),
+        displayPrice: product.discountPrice || product.price
+      });
+    }
+
     ApiResponse.success(res, 200, 'Product updated successfully', { product });
   } catch (error) {
+    if (error.name === 'ValidationError') {
+      const errors = {};
+      Object.keys(error.errors).forEach(key => {
+        errors[key] = {
+          message: error.errors[key].message,
+          path: key
+        };
+      });
+      return res.status(400).json({ message: 'Validation failed', errors });
+    }
     if (error.code === 11000) {
-      return next(new ApiError(400, 'Duplicate SKU or slug detected'));
+      return next(new ApiError(400, 'Duplicate SKU detected'));
     }
     next(error);
   }
@@ -208,6 +345,10 @@ exports.updateProduct = async (req, res, next) => {
 // Delete a product (Admin only)
 exports.deleteProduct = async (req, res, next) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      throw new ApiError(400, 'Invalid product ID');
+    }
+
     const product = await Product.findById(req.params.id);
     if (!product) {
       throw new ApiError(404, 'Product not found');
@@ -236,6 +377,11 @@ exports.deleteProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
+    // Emit Socket.IO event for product deletion if io is available
+    if (req.io) {
+      req.io.emit('productDeleted', { productId: product._id });
+    }
+
     ApiResponse.success(res, 200, 'Product deleted successfully');
   } catch (error) {
     next(error);
@@ -251,17 +397,27 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
     const query = { stock: { $gt: 0 } }; // Only show products in stock
     if (categoryId) query.categoryId = categoryId;
     if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = parseFloat(minPrice);
-      if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+      query.$or = [
+        { 
+          price: {
+            ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {})
+          },
+          discountPrice: null
+        },
+        {
+          discountPrice: {
+            ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {})
+          }
+        }
+      ];
     }
     if (search) {
       query.$or = [
         { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
-        { brand: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
-        { 'variants.sku': { $regex: search, $options: 'i' } }
+        { brand: { $regex: search, $options: 'i' } }
       ];
     }
     if (attributeKey && attributeValue) {
@@ -279,10 +435,16 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Map products to include display price
+    const productsWithDisplayPrice = products.map(product => ({
+      ...product.toObject(),
+      displayPrice: product.discountPrice || product.price
+    }));
+
     const total = await Product.countDocuments(query);
 
     ApiResponse.success(res, 200, 'Products retrieved successfully', {
-      products,
+      products: productsWithDisplayPrice,
       total,
       page: parseInt(page),
       limit: parseInt(limit),
@@ -296,6 +458,10 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
 // Get product details for customers (Public)
 exports.getProductDetailsForCustomers = async (req, res, next) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      throw new ApiError(400, 'Invalid product ID');
+    }
+
     const product = await Product.findById(req.params.id)
       .select('-__v')
       .populate('categoryId', 'name slug');
@@ -308,7 +474,19 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       throw new ApiError(404, 'Product is out of stock');
     }
 
-    ApiResponse.success(res, 200, 'Product details retrieved successfully', { product });
+    // Add display price to product
+    const productWithDisplayPrice = {
+      ...product.toObject(),
+      displayPrice: product.discountPrice || product.price,
+      variants: product.variants.map(variant => ({
+        ...variant,
+        displayPrice: variant.discountPrice || variant.price
+      }))
+    };
+
+    ApiResponse.success(res, 200, 'Product details retrieved successfully', { 
+      product: productWithDisplayPrice 
+    });
   } catch (error) {
     next(error);
   }
