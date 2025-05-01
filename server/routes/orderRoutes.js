@@ -17,29 +17,32 @@ router.post('/',
   orderController.placeOrder
 );
 
-router.get('/',
+// Updated to match frontend call to /api/orders/user
+router.get('/user',
   ensureAuthenticated,
   authorizeRoles('user'),
   getOrdersValidator,
   orderController.getUserOrders
 );
 
-// Admin routes (under /api/admin/orders)
-router.get('/admin',
+// Admin routes
+router.get('/',
   ensureAuthenticated,
   authorizeRoles('admin'),
   getOrdersValidator,
   orderController.getAllOrders
 );
 
-router.put('/admin/:orderId',
+// Updated to match frontend call to /api/orders/:orderId/status
+router.put('/:orderId/status',
   ensureAuthenticated,
   authorizeRoles('admin'),
   updateOrderStatusValidator,
   orderController.updateOrderStatus
 );
 
-router.get('/admin/invoice/:orderId',
+// Updated to match frontend call to /api/orders/:orderId/invoice
+router.get('/:orderId/invoice',
   ensureAuthenticated,
   authorizeRoles('admin'),
   downloadInvoiceValidator,

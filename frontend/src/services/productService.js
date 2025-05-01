@@ -1,6 +1,7 @@
 import api from './api';
 
-export const getProducts = async (page = 1, limit = 10, sort = null, filters = {}) => {
+export const getProducts = async (page = 1, limit = 10, sort = null, filters = {}, options = {}) => {
+  const { isPublic = false } = options;
   try {
     const query = new URLSearchParams({
       page,
@@ -9,45 +10,49 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
       ...filters,
     }).toString();
 
-    const response = await api.get(`/admin/products?${query}`);
-    console.log('Get products response:', { data: response.data });
+    const endpoint = isPublic ? `/products/public?${query}` : `/admin/products?${query}`;
+    const response = await api.get(endpoint, { skipAuth: isPublic });
+    
+    // console.log('Get products response:', { 
+    //   endpoint,
+    //   status: response.status,
+    //   count: response.data?.data?.products?.length || 0
+    // });
 
-    // Validate response data
     if (!response.data || typeof response.data !== 'object') {
-      console.error('Invalid response data:', { response });
       throw new Error('Invalid response: No data received');
     }
 
-    // FIX: Access products from the correct path in the response
-    // The API returns response.data.data.products rather than response.data.products
     const responseData = response.data.data || response.data;
     const products = responseData.products || [];
     const totalPages = responseData.totalPages || 1;
 
-    // Validate products array
     if (!Array.isArray(products)) {
-      console.error('Invalid products data: Not an array', { products });
       throw new Error('Invalid response: Products is not an array');
     }
 
-    // Filter valid products
-    const validProducts = products.filter(product => {
-      if (!product._id) {
-        console.error('Invalid product: Missing _id', { product });
-        return false;
-      }
-      return true;
-    });
+    const validProducts = products.map(product => ({
+      ...product,
+      displayPrice: product.discountPrice || product.price,
+      variants: product.variants?.map(variant => ({
+        ...variant,
+        displayPrice: variant.discountPrice || variant.price
+      })) || []
+    }));
 
-    console.log('Fetched products:', { count: validProducts.length, totalPages });
-    return { products: validProducts, totalPages };
+    return { 
+      products: validProducts, 
+      totalPages,
+      totalItems: responseData.total || 0
+    };
   } catch (error) {
     console.error('Get products error:', {
+      endpoint,
       status: error.response?.status,
-      data: error.response?.data,
       message: error.message,
+      responseData: error.response?.data
     });
-    throw new Error(error.response?.data?.message || 'Failed to fetch products');
+    throw handleProductError(error);
   }
 };
 
@@ -55,99 +60,238 @@ export const getProductById = async (id, options = {}) => {
   const { isPublic = true } = options;
 
   try {
-    const response = await api.get(`/products/${id}`, { skipAuth: isPublic });
-    return response.data.product;
+    if (!id) throw new Error('Product ID is required');
+    
+    const endpoint = isPublic ? `/products/public/${id}` : `/admin/products/${id}`;
+    const response = await api.get(endpoint, { skipAuth: isPublic });
+    
+    // Handle different response structures
+    let product;
+    if (response.data?.product) {
+      product = response.data.product;
+    } else if (response.data?.data?.product) {
+      product = response.data.data.product;
+    } else if (response.data) {
+      // Assume the response data itself is the product
+      product = response.data;
+    }
+
+    if (!product || !product._id) {
+      console.error('Invalid product response structure:', response.data);
+      throw new Error('Invalid product response');
+    }
+
+    return {
+      ...product,
+      displayPrice: product.discountPrice || product.price,
+      variants: product.variants?.map(variant => ({
+        ...variant,
+        displayPrice: variant.discountPrice || variant.price
+      })) || []
+    };
   } catch (error) {
-    throw new Error(error.response?.data?.message || 'Failed to fetch product');
+    console.error('Get product by ID error:', {
+      id,
+      status: error.response?.status,
+      message: error.message,
+      responseData: error.response?.data
+    });
+    throw handleProductError(error);
   }
 };
 
-export const createProduct = async (productData, images) => {
+export const createProduct = async (productData, images = {}) => {
   try {
+    console.log('Preparing to create product:', {
+      productData: JSON.stringify(productData, null, 2),
+      baseImagesCount: images.baseImages?.length || 0,
+      variantImagesCount: images.variantImages?.map(v => v?.length || 0) || []
+    });
+
     const formData = new FormData();
+
     Object.entries(productData).forEach(([key, value]) => {
       if (value === undefined || value === null) return;
-      if (Array.isArray(value)) {
-        formData.append(key, JSON.stringify(value));
-      } else if (key === 'seo') {
-        Object.entries(value).forEach(([seoKey, seoValue]) => {
-          if (seoValue) formData.append(`seo[${seoKey}]`, seoValue);
+
+      if (key === 'seo') {
+        Object.entries(value).forEach(([subKey, subValue]) => {
+          if (subValue && subValue.trim()) {
+            formData.append(`seo[${subKey}]`, subValue);
+            console.log(`Appended seo[${subKey}]:`, subValue);
+          }
         });
+      } else if (Array.isArray(value) || typeof value === 'object') {
+        formData.append(key, JSON.stringify(value));
+        console.log(`Appended ${key}:`, JSON.stringify(value));
       } else {
         formData.append(key, value);
+        console.log(`Appended ${key}:`, value);
       }
     });
 
-    // Append main product images as 'baseImages'
-    images.baseImages.forEach((image) => {
-      formData.append('baseImages', image);
-    });
-
-    // Append variant images as 'variantImages[i]'
-    images.variantImages.forEach((variantImages, index) => {
-      variantImages.forEach((image) => {
-        formData.append(`variantImages[${index}]`, image);
+    if (images.baseImages?.length) {
+      images.baseImages.forEach((image, index) => {
+        formData.append('baseImages', image);
+        console.log(`Appended baseImages[${index}]:`, image.name);
       });
+    } else {
+      console.warn('No base images provided');
+    }
+
+    if (images.variantImages?.length) {
+      images.variantImages.forEach((variantImages, index) => {
+        if (variantImages?.length) {
+          variantImages.forEach((image, imgIndex) => {
+            formData.append(`variantImages[${index}]`, image);
+            console.log(`Appended variantImages[${index}][${imgIndex}]:`, image.name);
+          });
+        }
+      });
+    }
+
+    const response = await api.post('/admin/products', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      timeout: 30000
     });
 
-    // Log FormData for debugging
-    for (let [key, value] of formData.entries()) {
-      console.log(`FormData: ${key} = ${typeof value === 'object' ? value.name : value}`);
+    console.log('Raw API response:', response);
+
+    if (!response.data || !response.data.data || !response.data.data.product) {
+      throw new Error('Invalid response: Product data not found');
     }
 
-    const response = await api.post('/admin/products', formData, { isMultipart: true });
-    const product = response.data.product;
+    const product = response.data.data.product;
 
-    // Validate product _id
-    if (!product?._id) {
-      console.error('Create product error: Missing _id in response', { product });
-      throw new Error('Invalid product response: Missing _id');
+    console.log('Product created successfully:', {
+      id: product?._id,
+      title: product?.title,
+      status: response.status
+    });
+
+    if (!product._id) {
+      throw new Error('Invalid product response: Missing product ID');
     }
 
-    console.log('Created product:', { id: product._id, title: product.title });
     return product;
   } catch (error) {
     console.error('Create product error:', {
       status: error.response?.status,
       data: error.response?.data,
       message: error.message,
+      stack: error.stack,
+      config: error.config ? {
+        url: error.config.url,
+        method: error.config.method,
+        headers: error.config.headers
+      } : null,
+      fullResponse: error.response?.data
     });
-    throw new Error(error.response?.data?.message || 'Failed to create product');
+    throw handleProductError(error);
   }
 };
 
-
-export const updateProduct = async (id, productData, images) => {
+export const updateProduct = async (id, productData, images = {}) => {
   try {
+    if (!id) throw new Error('Product ID is required');
+
     const formData = new FormData();
+
     Object.entries(productData).forEach(([key, value]) => {
-      if (Array.isArray(value)) {
+      if (value === undefined || value === null) return;
+
+      if (key === 'seo') {
+        Object.entries(value).forEach(([subKey, subValue]) => {
+          if (subValue && subValue.trim()) {
+            formData.append(`seo[${subKey}]`, subValue);
+          }
+        });
+      } else if (Array.isArray(value) || typeof value === 'object') {
         formData.append(key, JSON.stringify(value));
       } else {
         formData.append(key, value);
       }
     });
-    images.forEach((image) => formData.append('images', image));
-    const response = await api.put(`/admin/products/${id}`, formData, { isMultipart: true });
+
+    if (images.baseImages?.length) {
+      images.baseImages.forEach((image) => {
+        formData.append('baseImages', image);
+      });
+    }
+
+    if (images.variantImages?.length) {
+      images.variantImages.forEach((variantImages, index) => {
+        if (variantImages?.length) {
+          variantImages.forEach((image) => {
+            formData.append(`variantImages[${index}]`, image);
+          });
+        }
+      });
+    }
+
+    const response = await api.put(`/admin/products/${id}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      timeout: 30000
+    });
+
+    console.log('Updated product:', { id, title: response.data.product?.title });
     return response.data.product;
   } catch (error) {
-    throw new Error(error.response?.data?.message || 'Failed to update product');
+    console.error('Update product error:', {
+      id,
+      status: error.response?.status,
+      message: error.message,
+      responseData: error.response?.data
+    });
+    throw handleProductError(error);
   }
 };
 
-export const deleteProduct = async (productId) => {
+export const deleteProduct = async (id) => {
   try {
-    if (!productId) {
-      throw new Error('Product ID is required');
-    }
-    await api.delete(`/admin/products/${productId}`);
-    console.log('Deleted product:', { id: productId });
+    if (!id) throw new Error('Product ID is required');
+    
+    await api.delete(`/admin/products/${id}`);
+    console.log('Deleted product:', { id });
+    return true;
   } catch (error) {
     console.error('Delete product error:', {
+      id,
       status: error.response?.status,
-      data: error.response?.data,
       message: error.message,
+      responseData: error.response?.data
     });
-    throw new Error(error.response?.data?.message || 'Failed to delete product');
+    throw handleProductError(error);
+  }
+};
+
+const handleProductError = (error) => {
+  const status = error.response?.status;
+  let message = error.response?.data?.message || error.message || 'Request failed with status unknown';
+
+  // Handle Mongoose validation errors
+  if (error.response?.data?.errors) {
+    const validationErrors = error.response.data.errors;
+    message = Object.values(validationErrors)
+      .map(err => err.message)
+      .join(', ');
+  }
+
+  switch (status) {
+    case 400:
+      return new Error(message || 'Invalid request data');
+    case 401:
+      return new Error('Please log in to continue');
+    case 403:
+      return new Error('You are not authorized to perform this action');
+    case 404:
+      return new Error(message || 'Product not found');
+    case 429:
+      return new Error('Too many requests. Please try again later.');
+    default:
+      return new Error(message);
   }
 };

@@ -5,6 +5,7 @@ import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
 import { FiPhoneCall } from 'react-icons/fi';
 import { CategoryContext } from '../../../context/CategoryContext';
+import { ProductContext } from '../../../context/ProductContext';
 import { useCart } from '../../../context/CartContext';
 
 const navLinks = [
@@ -17,13 +18,17 @@ const navLinks = [
 
 function Navbar() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
   const { cart } = useCart();
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
+  const { products, fetchProducts } = useContext(ProductContext);
 
   // Safely calculate cart count
   const cartCount = Array.isArray(cart?.items)
@@ -42,29 +47,62 @@ function Navbar() {
     loadCategories();
   }, [fetchCategories]);
 
-  // Clear error after 5 seconds
+  // Handle search input changes with debounce
   useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => {
-       
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
+    const searchProducts = async () => {
+      if (searchQuery.trim().length < 2) {
+        setSearchResults([]);
+        setShowSearchResults(false);
+        return;
+      }
+
+      setIsSearching(true);
+      try {
+        const result = await fetchProducts(
+          1, // page
+          5, // limit
+          null, // categoryId
+          false, // isFeatured
+          { 
+            isPublic: true,
+            search: searchQuery // Add search parameter
+          }
+        );
+        setSearchResults(result.products || []);
+        setShowSearchResults(true);
+      } catch (err) {
+        console.error('Search error:', err);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    const timer = setTimeout(searchProducts, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, fetchProducts]);
 
   const handleSearch = (e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       navigate(`/search?query=${encodeURIComponent(searchQuery)}`);
       setSearchQuery('');
+      setShowSearchResults(false);
       setShowMobileSearch(false);
     }
+  };
+
+  const handleSearchResultClick = (product) => {
+    navigate(`/products/${product._id}`);
+    setSearchQuery('');
+    setShowSearchResults(false);
+    setShowMobileSearch(false);
   };
 
   const handleCategorySelect = (category) => {
     setSelectedCategory(category.name);
     setShowDropdown(false);
-    navigate(`/categories/${category.slug}`); // Use slug for navigation
+    navigate(`/categories/${category.slug}`);
   };
 
   const closeMobileMenu = () => {
@@ -74,7 +112,7 @@ function Navbar() {
   // Generate category links with paths
   const categoryLinks = categories.map((category) => ({
     ...category,
-    path: `/categories/${category.slug}`, // Generate path using slug
+    path: `/categories/${category.slug}`,
   }));
 
   return (
@@ -129,7 +167,7 @@ function Navbar() {
 
       {/* Mobile Search */}
       {showMobileSearch && (
-        <div className="md:hidden px-4 py-3 bg-[#232F3F]">
+        <div className="md:hidden px-4 py-3 bg-[#232F3F] relative">
           <form onSubmit={handleSearch} className="flex">
             <input
               type="text"
@@ -147,6 +185,37 @@ function Navbar() {
               <CiSearch size={20} strokeWidth={1} />
             </button>
           </form>
+          
+          {/* Mobile Search Results */}
+          {showSearchResults && (
+            <div className="absolute left-0 right-0 mt-1 bg-white shadow-lg rounded-md z-50 max-h-80 overflow-y-auto">
+              {isSearching ? (
+                <div className="p-4 text-center text-gray-500">Searching...</div>
+              ) : searchResults.length > 0 ? (
+                searchResults.map((product) => (
+                  <div
+                    key={product._id}
+                    className="p-3 border-b hover:bg-gray-50 cursor-pointer"
+                    onClick={() => handleSearchResultClick(product)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <img 
+                        src={product.images?.[0]?.url || '/placeholder-product.png'} 
+                        alt={product.title}
+                        className="w-10 h-10 object-cover rounded"
+                      />
+                      <div>
+                        <p className="font-medium text-gray-800 truncate">{product.title}</p>
+                        <p className="text-sm text-gray-600">${product.price}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="p-4 text-center text-gray-500">No products found</div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -218,7 +287,7 @@ function Navbar() {
           </Link>
         </div>
 
-        <div className="flex items-center flex-1 max-w-xl mx-6">
+        <div className="flex items-center flex-1 max-w-xl mx-6 relative">
           <div className="relative">
             <button
               onClick={() => setShowDropdown(!showDropdown)}
@@ -256,7 +325,7 @@ function Navbar() {
             )}
           </div>
 
-          <form onSubmit={handleSearch} className="flex-1 flex">
+          <form onSubmit={handleSearch} className="flex-1 flex relative">
             <input
               type="text"
               value={searchQuery}
@@ -272,6 +341,45 @@ function Navbar() {
             >
               <CiSearch size={20} strokeWidth={1} />
             </button>
+
+            {/* Desktop Search Results */}
+            {showSearchResults && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white shadow-lg rounded-md z-50 max-h-80 overflow-y-auto">
+                {isSearching ? (
+                  <div className="p-4 text-center text-gray-500">Searching...</div>
+                ) : searchResults.length > 0 ? (
+                  <>
+                    {searchResults.map((product) => (
+                      <div
+                        key={product._id}
+                        className="p-3 border-b hover:bg-gray-50 cursor-pointer"
+                        onClick={() => handleSearchResultClick(product)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <img 
+                            src={product.images?.[0]?.url || '/placeholder-product.png'} 
+                            alt={product.title}
+                            className="w-10 h-10 object-cover rounded"
+                          />
+                          <div>
+                            <p className="font-medium text-gray-800 truncate">{product.title}</p>
+                            <p className="text-sm text-gray-600">${product.price}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div 
+                      className="p-3 text-center text-red-600 font-medium cursor-pointer hover:bg-gray-50"
+                      onClick={handleSearch}
+                    >
+                      View all results for "{searchQuery}"
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-4 text-center text-gray-500">No products found</div>
+                )}
+              </div>
+            )}
           </form>
         </div>
 

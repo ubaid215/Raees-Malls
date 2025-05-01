@@ -71,13 +71,76 @@ exports.getCart = async (req, res, next) => {
     const userId = req.user._id;
 
     const cart = await Cart.findOne({ userId })
-      .populate('items.productId', 'title price discountPrice stock brand sku images variants');
+      .populate({
+        path: 'items.productId',
+        select: 'title price discountPrice stock brand sku images variants',
+      });
 
     if (!cart) {
       return ApiResponse.success(res, 200, 'Cart is empty', { cart: null });
     }
 
-    ApiResponse.success(res, 200, 'Cart retrieved successfully', { cart });
+    // Process items with proper null checks
+    const populatedItems = cart.items.map(item => {
+      const product = item.productId;
+      
+      // Handle case where product might be null (deleted or not found)
+      if (!product) {
+        return {
+          ...item.toObject(),
+          price: 0,
+          image: '/placeholder-product.png',
+          title: 'Product not available',
+          sku: 'N/A',
+          stock: 0,
+          isUnavailable: true
+        };
+      }
+      
+      let price = 0, image = '/placeholder-product.png', stock = 0;
+      
+      // Handle variant case with proper null checks
+      if (item.variantId && product.variants) {
+        const variant = product.variants.id(item.variantId);
+        if (variant) {
+          price = variant.discountPrice || variant.price || 0;
+          image = variant.image || (product.images && product.images.length > 0 ? product.images[0] : '/placeholder-product.png');
+          stock = variant.stock || 0;
+        } else {
+          // Variant not found
+          price = product.discountPrice || product.price || 0;
+          image = (product.images && product.images.length > 0) ? product.images[0] : '/placeholder-product.png';
+          stock = 0; // Mark as out of stock since variant not found
+        }
+      } else {
+        // Regular product
+        price = product.discountPrice || product.price || 0;
+        image = (product.images && product.images.length > 0) ? product.images[0] : '/placeholder-product.png';
+        stock = product.stock || 0;
+      }
+      
+      return {
+        ...item.toObject(),
+        price,
+        image,
+        title: product.title || 'Unnamed Product',
+        sku: product.sku || 'N/A',
+        stock,
+        isVariantUnavailable: item.variantId && product.variants ? !product.variants.id(item.variantId) : false
+      };
+    });
+
+    // Filter out any unavailable products if needed
+    // const availableItems = populatedItems.filter(item => !item.isUnavailable);
+
+    const responseCart = {
+      ...cart.toObject(),
+      items: populatedItems,
+      totalPrice: populatedItems.reduce((sum, item) => sum + (item.price * item.quantity), 0),
+      itemCount: populatedItems.reduce((sum, item) => sum + item.quantity, 0)
+    };
+
+    ApiResponse.success(res, 200, 'Cart retrieved successfully', { cart: responseCart });
   } catch (error) {
     next(error);
   }
@@ -143,20 +206,26 @@ exports.placeOrderFromCart = async (req, res, next) => {
 
     for (const item of cart.items) {
       const product = item.productId;
+      
+      // Skip items where product no longer exists
+      if (!product) {
+        continue;
+      }
+      
       let price, sku, stock;
 
       if (item.variantId) {
-        const variant = product.variants.id(item.variantId);
+        const variant = product.variants?.id(item.variantId);
         if (!variant) {
           throw new ApiError(404, `Variant not found for product: ${product.title}`);
         }
-        price = variant.discountPrice || variant.price;
-        sku = variant.sku;
-        stock = variant.stock;
+        price = variant.discountPrice || variant.price || 0;
+        sku = variant.sku || 'N/A';
+        stock = variant.stock || 0;
       } else {
-        price = product.discountPrice || product.price;
-        sku = product.sku;
-        stock = product.stock;
+        price = product.discountPrice || product.price || 0;
+        sku = product.sku || 'N/A';
+        stock = product.stock || 0;
       }
 
       if (stock < item.quantity) {
@@ -171,6 +240,11 @@ exports.placeOrderFromCart = async (req, res, next) => {
         price,
         sku
       });
+    }
+
+    // Check if there are valid items to order
+    if (orderItems.length === 0) {
+      throw new ApiError(400, 'No valid items in cart to place order');
     }
 
     // Create order
@@ -188,9 +262,16 @@ exports.placeOrderFromCart = async (req, res, next) => {
     // Decrease stock
     for (const item of cart.items) {
       const product = item.productId;
+      // Skip if product no longer exists
+      if (!product) {
+        continue;
+      }
+      
       if (item.variantId) {
-        const variant = product.variants.id(item.variantId);
-        variant.stock -= item.quantity;
+        const variant = product.variants?.id(item.variantId);
+        if (variant) {
+          variant.stock -= item.quantity;
+        }
       } else {
         product.stock -= item.quantity;
       }
@@ -203,12 +284,14 @@ exports.placeOrderFromCart = async (req, res, next) => {
 
     // Emit Socket.io event for admin notification
     const io = req.app.get('socketio');
-    io.to('adminRoom').emit('newOrder', {
-      orderId: order.orderId,
-      userId: order.userId,
-      totalPrice: order.totalPrice,
-      createdAt: order.createdAt
-    });
+    if (io) {
+      io.to('adminRoom').emit('newOrder', {
+        orderId: order.orderId,
+        userId: order.userId,
+        totalPrice: order.totalPrice,
+        createdAt: order.createdAt
+      });
+    }
 
     ApiResponse.success(res, 201, 'Order placed successfully from cart', { order });
   } catch (error) {

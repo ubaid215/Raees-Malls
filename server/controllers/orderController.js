@@ -121,16 +121,17 @@ exports.placeOrder = async (req, res, next) => {
       await product.save();
     }
 
-    // Emit Socket.io event for admin notification
+    // Emit Socket.IO event for admin and user notification
     const io = req.app.get('socketio');
-    io.to('adminRoom').emit('newOrder', {
-      orderId: order.orderId,
-      userId: order.userId,
-      totalPrice: order.totalPrice,
-      createdAt: order.createdAt
-    });
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'email')
+      .populate('items.productId', 'title brand sku')
+      .populate('discountId', 'code value type');
+    
+    io.to('adminRoom').emit('orderCreated', populatedOrder);
+    io.to(`user_${userId}`).emit('orderCreated', populatedOrder);
 
-    ApiResponse.success(res, 201, 'Order placed successfully', { order });
+    ApiResponse.success(res, 201, 'Order placed successfully', { order: populatedOrder });
   } catch (error) {
     next(error);
   }
@@ -217,20 +218,17 @@ exports.updateOrderStatus = async (req, res, next) => {
     order.status = status;
     await order.save();
 
-    // Emit Socket.io event for user and admin
+    // Emit Socket.IO event for user and admin
     const io = req.app.get('socketio');
-    io.to(`user_${order.userId}`).emit('orderStatusUpdate', {
-      orderId: order.orderId,
-      status: order.status,
-      updatedAt: order.updatedAt
-    });
-    io.to('adminRoom').emit('orderStatusUpdate', {
-      orderId: order.orderId,
-      status: order.status,
-      updatedAt: order.updatedAt
-    });
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'email')
+      .populate('items.productId', 'title brand sku')
+      .populate('discountId', 'code value type');
+    
+    io.to(`user_${order.userId}`).emit('orderStatusUpdated', populatedOrder);
+    io.to('adminRoom').emit('orderStatusUpdated', populatedOrder);
 
-    ApiResponse.success(res, 200, 'Order status updated successfully', { order });
+    ApiResponse.success(res, 200, 'Order status updated successfully', { order: populatedOrder });
   } catch (error) {
     next(error);
   }

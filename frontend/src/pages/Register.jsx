@@ -14,29 +14,19 @@ const Register = () => {
   const { registerUser } = useAuth();
   const navigate = useNavigate();
 
-  // Client-side validation
   const validateForm = () => {
     const newErrors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
 
-    if (!name.trim()) {
-      newErrors.name = 'Full name is required';
-    }
+    if (!name.trim()) newErrors.name = 'Full name is required';
+    if (!email) newErrors.email = 'Email is required';
+    else if (!emailRegex.test(email)) newErrors.email = 'Invalid email format';
 
-    if (!email) {
-      newErrors.email = 'Email is required';
-    } else if (!emailRegex.test(email)) {
-      newErrors.email = 'Invalid email format';
-    }
-
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
-    } else if (!passwordRegex.test(password)) {
-      newErrors.password =
-        'Password must contain at least one uppercase, one lowercase, one number, and one special character';
+    if (!password) newErrors.password = 'Password is required';
+    else if (password.length < 8) newErrors.password = 'Password must be at least 8 characters';
+    else if (!passwordRegex.test(password)) {
+      newErrors.password = 'Password must contain at least one uppercase, one lowercase, one number, and one special character';
     }
 
     setErrors(newErrors);
@@ -54,24 +44,17 @@ const Register = () => {
     }
 
     try {
-      await registerUser(name, email, password);
+      await registerUser({ name, email, password });
       navigate('/login');
     } catch (err) {
-      console.error('Registration error:', err); // Debug log
-      // Handle backend validation errors
+      console.error('Registration error:', err);
       if (err.message.includes('Validation failed')) {
-        const backendErrors = err.message
-          .split(', ')
-          .reduce((acc, msg) => {
-            if (msg.includes('email')) {
-              acc.email = msg;
-            } else if (msg.includes('password')) {
-              acc.password = msg;
-            } else if (msg.includes('name')) {
-              acc.name = msg;
-            }
-            return acc;
-          }, {});
+        const backendErrors = err.message.split(', ').reduce((acc, msg) => {
+          if (msg.includes('email')) acc.email = msg;
+          else if (msg.includes('password')) acc.password = msg;
+          else if (msg.includes('name')) acc.name = msg;
+          return acc;
+        }, {});
         setErrors(backendErrors);
       } else {
         setErrors({ general: err.message || 'Registration failed. Please try again.' });
@@ -88,14 +71,12 @@ const Register = () => {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-6xl bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col lg:flex-row">
-        {/* Left Side - Visual Content */}
+        {/* Left side */}
         <div className="lg:w-1/2 bg-gradient-to-br from-indigo-600 to-purple-700 text-white p-12 flex flex-col justify-center">
           <div className="mb-8">
             <FaUserPlus className="text-5xl mb-4 text-white opacity-90" />
             <h2 className="text-4xl font-bold mb-4">Join Our Community</h2>
-            <p className="text-xl opacity-90">
-              Create your account and unlock exclusive benefits tailored just for you.
-            </p>
+            <p className="text-xl opacity-90">Create your account and unlock exclusive benefits tailored just for you.</p>
           </div>
 
           <div className="space-y-6">
@@ -106,7 +87,6 @@ const Register = () => {
                 <p className="opacity-90">Get started in minutes with our streamlined process</p>
               </div>
             </div>
-
             <div className="flex items-start">
               <FaShieldAlt className="text-2xl mr-4 mt-1 text-indigo-200" />
               <div>
@@ -114,7 +94,6 @@ const Register = () => {
                 <p className="opacity-90">Your data is protected with enterprise-grade security</p>
               </div>
             </div>
-
             <div className="flex items-start">
               <FaGift className="text-2xl mr-4 mt-1 text-indigo-200" />
               <div>
@@ -125,7 +104,7 @@ const Register = () => {
           </div>
         </div>
 
-        {/* Right Side - Sign Up Form */}
+        {/* Right side */}
         <div className="lg:w-1/2 p-12 flex flex-col justify-center">
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-gray-800 mb-2">Create Account</h2>
@@ -140,58 +119,42 @@ const Register = () => {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
-                Full Name
-              </label>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
               <input
                 id="name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className={`w-full px-4 py-3 border ${
-                  errors.name ? 'border-red-300' : 'border-gray-300'
-                } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition`}
+                className={`w-full px-4 py-3 border ${errors.name ? 'border-red-300' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500`}
                 placeholder="Enter your full name"
               />
-              {errors.name && (
-                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
-              )}
+              {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
             </div>
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
-              </label>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
               <input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className={`w-full px-4 py-3 border ${
-                  errors.email ? 'border-red-300' : 'border-gray-300'
-                } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition`}
+                className={`w-full px-4 py-3 border ${errors.email ? 'border-red-300' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500`}
                 placeholder="your@email.com"
               />
-              {errors.email && (
-                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
-              )}
+              {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
             </div>
 
             <div className="relative">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
               <input
                 id="password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => setPassword(e.target.value)} 
                 required
-                className={`w-full px-4 py-3 border ${
-                  errors.password ? 'border-red-300' : 'border-gray-300'
-                } rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition pr-12`}
+                className={`w-full px-4 py-3 border ${errors.password ? 'border-red-300' : 'border-gray-300'} rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-12`}
                 placeholder="Create a password"
               />
               <button
@@ -202,54 +165,30 @@ const Register = () => {
               >
                 {showPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
               </button>
-              {errors.password && (
-                <p className="mt-1 text-sm text-red-600">{errors.password}</p>
-              )}
+              {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className={`w-full py-3 px-4 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition duration-200 flex items-center justify-center ${
-                loading ? 'opacity-70 cursor-not-allowed' : ''
-              }`}
+              className={`w-full py-3 px-4 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition duration-200 flex items-center justify-center ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
               {loading ? (
                 <>
-                  <svg
-                    className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                   </svg>
                   Creating Account...
                 </>
-              ) : (
-                'Sign Up'
-              )}
+              ) : 'Sign Up'}
             </button>
           </form>
 
           <div className="mt-6 text-center text-sm text-gray-600">
             <p>
               Already have an account?{' '}
-              <Link to="/login" className="text-indigo-600 font-medium hover:underline">
-                Log in here
-              </Link>
+              <Link to="/login" className="text-indigo-600 font-medium hover:underline">Log in here</Link>
             </p>
           </div>
 

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useMemo } from 'react';
+import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
 import { login, register, logout, refreshToken, getMe } from '../services/authServices';
 import socketService from '../services/socketService';
 
@@ -7,10 +7,38 @@ const AuthContext = createContext();
 const AuthProvider = ({ children }) => {
   const [authState, setAuthState] = useState({
     user: null,
-    loading: false,
+    loading: true, // Start as loading to prevent flicker
     error: null,
-    needsFetch: true,
+    needsFetch: false, // Changed from true so we control fetch explicitly
   });
+
+  // Add this useEffect to initialize authentication state on app mount/refresh
+  useEffect(() => {
+    const initializeAuth = async () => {
+      // If we have a token in localStorage, attempt to restore the session
+      const storedToken = localStorage.getItem('token');
+      if (storedToken) {
+        try {
+          // Try to either use cached user data or refresh the token
+          await fetchUser();
+        } catch (error) {
+          // If fetchUser fails, try token refresh as fallback
+          try {
+            await refreshUserToken();
+          } catch (refreshError) {
+            // If both fail, we truly need to log out
+            resetAuthState();
+          }
+        }
+      } else {
+        // No token, definitely not authenticated
+        setAuthState(prev => ({ ...prev, loading: false }));
+      }
+    };
+
+    initializeAuth();
+    // No dependencies means this runs once on mount
+  }, []);
 
   const setupSocketConnection = (user) => {
     const userId = user._id || user.id;
@@ -19,14 +47,28 @@ const AuthProvider = ({ children }) => {
 
   const handleAuthError = (error) => {
     console.error('Auth error:', error);
-    setAuthState(prev => ({
+    let errorMessage = error.message;
+
+    // Check if the error is a validation error (from yup or backend)
+    if (error.message.includes(',')) {
+      // Validation errors are joined with commas
+      errorMessage = error.message.split(', ').map((msg) => ({ msg }));
+    } else if (error.message === 'This email is already registered') {
+      errorMessage = [{ msg: 'This email is already registered' }];
+    } else if (error.message.includes('Too many')) {
+      errorMessage = [{ msg: error.message }]; // Rate limit error
+    } else {
+      errorMessage = [{ msg: errorMessage }];
+    }
+
+    setAuthState((prev) => ({
       ...prev,
-      error: error.message,
+      error: errorMessage,
       loading: false,
-      needsFetch: true,
+      needsFetch: false, // Changed from true to avoid infinite fetch loops
     }));
+
     if (error.message.includes('Too many requests')) {
-      // Keep tokens for retry, don't reset
       return;
     }
     resetAuthState();
@@ -37,7 +79,7 @@ const AuthProvider = ({ children }) => {
       user: null,
       loading: false,
       error: null,
-      needsFetch: true,
+      needsFetch: false,
     });
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
@@ -48,13 +90,12 @@ const AuthProvider = ({ children }) => {
   };
 
   const fetchUser = async () => {
-    setAuthState(prev => ({ ...prev, loading: true, error: null }));
+    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      // Check cache first
       const cachedUser = localStorage.getItem('userData');
       const cachedTimestamp = localStorage.getItem('userDataTimestamp');
       const now = Date.now();
-      if (cachedUser && cachedTimestamp && now - parseInt(cachedTimestamp) < 300000) { // 5 minutes
+      if (cachedUser && cachedTimestamp && now - parseInt(cachedTimestamp) < 300000) {
         const userData = JSON.parse(cachedUser);
         setAuthState({
           user: userData,
@@ -82,9 +123,9 @@ const AuthProvider = ({ children }) => {
   };
 
   const loginUser = async (credentials) => {
-    setAuthState(prev => ({ ...prev, loading: true, error: null }));
+    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const userData = await login(credentials);
+      const userData = await login(credentials.email, credentials.password);
       setAuthState({
         user: userData,
         loading: false,
@@ -100,9 +141,9 @@ const AuthProvider = ({ children }) => {
   };
 
   const registerUser = async (userData) => {
-    setAuthState(prev => ({ ...prev, loading: true, error: null }));
+    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const newUser = await register(userData);
+      const newUser = await register(userData.name, userData.email, userData.password);
       setAuthState({
         user: newUser,
         loading: false,
@@ -118,27 +159,27 @@ const AuthProvider = ({ children }) => {
   };
 
   const logoutUser = async () => {
-    setAuthState(prev => ({ ...prev, loading: true, error: null }));
+    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       await logout();
       resetAuthState();
     } catch (err) {
-      setAuthState(prev => ({ ...prev, error: err.message }));
+      setAuthState((prev) => ({ ...prev, error: [{ msg: err.message }] }));
       throw err;
     } finally {
-      setAuthState(prev => ({ ...prev, loading: false }));
+      setAuthState((prev) => ({ ...prev, loading: false }));
     }
   };
 
   const refreshUserToken = async () => {
-    setAuthState(prev => ({ ...prev, loading: true, error: null }));
+    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const userData = await refreshToken();
-      setAuthState(prev => ({
+      setAuthState((prev) => ({
         ...prev,
         user: userData || prev.user,
         loading: false,
-        needsFetch: !userData, // Fetch user if no user data returned
+        needsFetch: false, // Always set to false after attempt
       }));
       if (userData) setupSocketConnection(userData);
       return userData;
@@ -148,21 +189,20 @@ const AuthProvider = ({ children }) => {
     }
   };
 
-  const contextValue = useMemo(() => ({
-    ...authState,
-    isAuthenticated: !!authState.user,
-    loginUser,
-    registerUser,
-    logoutUser,
-    refreshUserToken,
-    fetchUser,
-  }), [authState]);
-
-  return (
-    <AuthContext.Provider value={contextValue}>
-      {children}
-    </AuthContext.Provider>
+  const contextValue = useMemo(
+    () => ({
+      ...authState,
+      isAuthenticated: !!authState.user,
+      loginUser,
+      registerUser,
+      logoutUser,
+      refreshUserToken,
+      fetchUser,
+    }),
+    [authState]
   );
+
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };
 
 const useAuth = () => {

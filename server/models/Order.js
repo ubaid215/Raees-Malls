@@ -19,6 +19,11 @@ const orderSchema = new Schema({
         ref: 'Product',
         required: true
       },
+      variantId: {
+        type: Schema.Types.ObjectId,
+        ref: 'Product.variants',
+        required: false
+      },
       quantity: {
         type: Number,
         required: true,
@@ -39,6 +44,17 @@ const orderSchema = new Schema({
     type: Number,
     required: true,
     min: 0
+  },
+  discountId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Discount',
+    required: false
+  },
+  discountAmount: {
+    type: Number,
+    required: false,
+    min: 0,
+    default: 0
   },
   status: {
     type: String,
@@ -65,7 +81,6 @@ const orderSchema = new Schema({
   }
 });
 
-// Middleware to update the updatedAt field on save
 orderSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();

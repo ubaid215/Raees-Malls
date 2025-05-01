@@ -3,10 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import ProductForm from "./ProductForm";
 import { createProduct } from "../../services/productService";
-import  socketService  from "../../services/socketService";
+import socketService from "../../services/socketService";
 
-// Component: AddProductPage
-// Description: Page for adding a new product
 const AddProductPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -14,17 +12,41 @@ const AddProductPage = () => {
   const handleSubmit = async (productData, images) => {
     setLoading(true);
     try {
+      if (!productData.sku || productData.sku.trim() === '') {
+        delete productData.sku;
+      }
+
+      if (productData.variants) {
+        productData.variants = productData.variants.map(variant => {
+          if (!variant.sku || variant.sku.trim() === '') {
+            const { sku, ...rest } = variant;
+            return rest;
+          }
+          return variant;
+        });
+      }
+
       const product = await createProduct(productData, images);
-      console.log('Product created in AddProductPage:', { id: product._id, title: product.title });
-      
-      // Emit Socket.IO event
-      socketService.emit("productAdded", product);
-      
+
+      if (!product || !product._id) {
+        throw new Error('Failed to create product: Invalid product data returned');
+      }
+
+      if (socketService && typeof socketService.emit === 'function') {
+        socketService.emit("productAdded", product);
+        console.log('Emitted productAdded event:', product._id);
+      } else {
+        console.warn('Socket service not available, skipping productAdded event');
+      }
+
       toast.success("Product created successfully");
       navigate("/admin/inventory");
     } catch (err) {
-      console.error('AddProductPage submit error:', { message: err.message });
-      toast.error(err.message || "Failed to create product");
+      console.error('AddProductPage submit error:', {
+        message: err.message,
+        stack: err.stack
+      });
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -33,7 +55,11 @@ const AddProductPage = () => {
   return (
     <section className="container mx-auto px-4 py-6">
       <h1 className="text-2xl font-bold text-[#E63946] mb-6">Add New Product</h1>
-      <ProductForm onSubmit={handleSubmit} loading={loading} />
+      <ProductForm 
+        onSubmit={handleSubmit} 
+        loading={loading} 
+        skuOptional={true}
+      />
     </section>
   );
 };

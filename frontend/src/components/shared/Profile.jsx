@@ -1,67 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { FiUser, FiPackage, FiTruck, FiLogOut } from 'react-icons/fi';
+import React, { useEffect, useState } from 'react';
+import { FiUser, FiPackage, FiTruck, FiLogOut, FiAlertCircle, FiClock, FiCheckCircle } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useOrder } from '../../context/OrderContext';
 import { toast } from 'react-toastify';
 import LoadingSkeleton from '../../components/shared/LoadingSkelaton';
 import Button from '../../components/core/Button';
-import { placeOrder } from '../../services/orderService';
+import socketService from '../../services/socketService';
 
 const Profile = () => {
-  const { user, logoutUser, fetchUser, needsFetch, error } = useAuth();
-  const [orders, setOrders] = useState([]);
-  const [fetchError, setFetchError] = useState(null);
+  const { user, logoutUser, fetchUser, needsFetch, error: authError } = useAuth();
+  const { orders, pagination, loading: orderLoading, error: orderError, fetchUserOrders } = useOrder();
   const [isLoading, setIsLoading] = useState(false);
-  const [orderLoading, setOrderLoading] = useState(true);
-  const [pagination, setPagination] = useState({ page: 1, limit: 5, totalPages: 1 });
+  const [newOrderIds, setNewOrderIds] = useState([]);
   const navigate = useNavigate();
-
-  const fetchOrders = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setFetchError('Please log in to view orders');
-      setOrderLoading(false);
-      return;
-    }
-
-    try {
-      setOrderLoading(true);
-      const response = await placeOrder({ page: pagination.page, limit: pagination.limit });
-      if (response.data.success) {
-        setOrders(response.data.data.orders || []);
-        setPagination({
-          page: response.data.data.page,
-          limit: response.data.data.limit,
-          totalPages: response.data.data.totalPages,
-        });
-        setFetchError(null);
-      } else {
-        throw new Error(response.data.message || 'Failed to fetch orders');
-      }
-    } catch (err) {
-      console.error('fetchOrders error:', err);
-      if (err.response?.status === 403) {
-        setFetchError('You do not have permission to view orders');
-      } else {
-        setFetchError(err.message || 'Failed to fetch orders');
-        toast.error(err.message || 'Failed to fetch orders');
-      }
-      setOrders([]);
-    } finally {
-      setOrderLoading(false);
-    }
-  };
 
   const handleFetchUser = async () => {
     setIsLoading(true);
     try {
       await fetchUser();
-      setFetchError(null);
     } catch (err) {
       console.error('fetchUser error:', err);
       const errorMessage = err.message || 'Failed to fetch user data';
       if (err.message.includes('Too many requests')) {
-        setFetchError(errorMessage);
+        toast.error(errorMessage);
       } else if (err.response?.status === 401 || err.response?.status === 404) {
         toast.error('Session expired. Please log in again.');
         logoutUser();
@@ -70,7 +32,6 @@ const Profile = () => {
         localStorage.removeItem('userId');
         navigate('/login');
       } else {
-        setFetchError(errorMessage);
         toast.error(errorMessage);
       }
     } finally {
@@ -80,9 +41,71 @@ const Profile = () => {
 
   useEffect(() => {
     if (user) {
-      fetchOrders();
+      fetchUserOrders(pagination.page);
+      
+      const setupSocket = () => {
+        if (!socketService.isConnected()) {
+          socketService.connect(user._id, user.role);
+          console.log("Socket connection established for user:", user._id);
+        }
+
+        socketService.off('orderCreated');
+        socketService.off('orderStatusUpdated');
+        socketService.off('disconnect');
+        socketService.off('reconnect');
+
+        socketService.on('orderCreated', (newOrder) => {
+          console.log("New order received via socket:", newOrder);
+          if (!newOrder || !newOrder.orderId) {
+            console.error("Invalid order data received:", newOrder);
+            return;
+          }
+          
+          setNewOrderIds(prev => [...prev, newOrder.orderId]);
+          toast.info(`New Order Placed: ${newOrder.orderId}`, {
+            position: "top-right",
+            autoClose: 5000,
+          });
+          fetchUserOrders(pagination.page);
+          
+          setTimeout(() => {
+            setNewOrderIds(prev => prev.filter(id => id !== newOrder.orderId));
+          }, 30000);
+        });
+
+        socketService.on('orderStatusUpdated', (updatedOrder) => {
+          console.log("Order status updated via socket:", updatedOrder);
+          if (!updatedOrder || !updatedOrder.orderId) {
+            console.error("Invalid order data received:", updatedOrder);
+            return;
+          }
+          toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
+          fetchUserOrders(pagination.page);
+        });
+
+        socketService.on('disconnect', () => {
+          console.log("Socket disconnected");
+          toast.warning("Lost connection to server. Reconnecting...");
+        });
+
+        socketService.on('reconnect', () => {
+          console.log("Socket reconnected");
+          toast.success("Reconnected to server");
+          fetchUserOrders(pagination.page);
+        });
+      };
+
+      setupSocket();
+
+      return () => {
+        console.log("Cleaning up socket listeners");
+        socketService.off('orderCreated');
+        socketService.off('orderStatusUpdated');
+        socketService.off('disconnect');
+        socketService.off('reconnect');
+      };
     }
-  }, [user, pagination.page]);
+  }, [user, fetchUserOrders, pagination.page]);
 
   const handleLogout = async () => {
     try {
@@ -95,21 +118,49 @@ const Profile = () => {
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.totalPages) {
-      setPagination((prev) => ({ ...prev, page: newPage }));
+      fetchUserOrders(newPage);
     }
   };
 
-  if (!user && !isLoading && (needsFetch || error)) {
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 0,
+    }).format(price);
+  };
+
+  const getOrderStatusBadge = (status) => {
+    const statusStyles = {
+      pending: "bg-yellow-100 text-yellow-800",
+      processing: "bg-blue-100 text-blue-800",
+      shipped: "bg-purple-100 text-purple-800",
+      delivered: "bg-green-100 text-green-800",
+      cancelled: "bg-red-100 text-red-800",
+    };
+    
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs sm:text-sm font-medium ${statusStyles[status] || "bg-gray-100 text-gray-800"}`}>
+        {status === "pending" && <FiAlertCircle className="mr-1" />}
+        {status === "processing" && <FiClock className="mr-1" />}
+        {status === "shipped" && <FiTruck className="mr-1" />}
+        {status === "delivered" && <FiCheckCircle className="mr-1" />}
+        <span className="capitalize">{status}</span>
+      </span>
+    );
+  };
+
+  if (!user && !isLoading && (needsFetch || authError)) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
         <div className="bg-white rounded-lg shadow-sm p-6 text-center max-w-md w-full">
-          {error && <p className="text-red-600 text-lg font-medium mb-4">{error}</p>}
+          {authError && <p className="text-red-600 text-lg font-medium mb-4">{authError}</p>}
           <Button
             onClick={handleFetchUser}
             className="w-full bg-red-600 text-white hover:bg-red-700 mb-4"
             disabled={isLoading}
           >
-            {isLoading ? 'Loading...' : error ? 'Retry Now' : 'Load Profile'}
+            {isLoading ? 'Loading...' : authError ? 'Retry Now' : 'Load Profile'}
           </Button>
           <Button
             onClick={() => navigate('/login')}
@@ -221,9 +272,15 @@ const Profile = () => {
                 <LoadingSkeleton type="text" width="full" height="10" />
                 <LoadingSkeleton type="text" width="full" height="10" />
               </div>
-            ) : fetchError ? (
+            ) : orderError ? (
               <div className="p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-gray-600">{fetchError}</p>
+                <p className="text-gray-600">{orderError}</p>
+                <Button
+                  onClick={() => fetchUserOrders(pagination.page)}
+                  className="mt-2 bg-red-600 text-white hover:bg-red-700"
+                >
+                  Retry
+                </Button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -241,14 +298,14 @@ const Profile = () => {
                         {order.orderId}
                       </p>
                       <p className="text-center text-gray-600">{new Date(order.createdAt).toLocaleDateString()}</p>
-                      <p className="text-right font-semibold text-gray-900">PKR {order.totalPrice.toFixed(2)}</p>
+                      <p className="text-right font-semibold text-gray-900">{formatPrice(order.totalPrice)}</p>
                     </div>
                   ))
                 )}
                 <Button
                   onClick={() => navigate('/orders')}
                   className="w-full border border-red-600 text-red-600 hover:bg-red-50"
-                  disabled={fetchError}
+                  disabled={orderError}
                 >
                   View All Orders
                 </Button>
@@ -269,9 +326,15 @@ const Profile = () => {
                 <LoadingSkeleton type="text" width="full" height="20" />
                 <LoadingSkeleton type="text" width="full" height="20" />
               </div>
-            ) : fetchError ? (
+            ) : orderError ? (
               <div className="p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-gray-600">{fetchError}</p>
+                <p className="text-gray-600">{orderError}</p>
+                <Button
+                  onClick={() => fetchUserOrders(pagination.page)}
+                  className="mt-2 bg-red-600 text-white hover:bg-red-700"
+                >
+                  Retry
+                </Button>
               </div>
             ) : (
               <div className="space-y-6">
@@ -280,65 +343,69 @@ const Profile = () => {
                 ) : (
                   orders
                     .filter((order) => order.status !== 'delivered' && order.status !== 'cancelled')
-                    .map((order) => (
-                      <div key={order.orderId} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
-                          <div>
-                            <p className="font-medium text-gray-900">Order {order.orderId}</p>
-                            <p className="text-sm text-gray-600">Placed on {new Date(order.createdAt).toLocaleDateString()}</p>
+                    .map((order) => {
+                      const isNewOrder = newOrderIds.includes(order.orderId);
+                      return (
+                        <div key={order.orderId} className={`border rounded-lg p-4 ${isNewOrder ? 'border-yellow-400 ring-2 ring-yellow-200 animate-pulse' : 'border-gray-200'}`}>
+                          {isNewOrder && (
+                            <div className="mb-2 bg-yellow-50 text-yellow-800 px-3 py-1 rounded text-sm flex items-center">
+                              <FiAlertCircle className="mr-2" />
+                              New order placed!
+                            </div>
+                          )}
+                          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
+                            <div>
+                              <p className="font-medium text-gray-900">Order {order.orderId}</p>
+                              <p className="text-sm text-gray-600">Placed on {new Date(order.createdAt).toLocaleDateString()}</p>
+                            </div>
+                            {getOrderStatusBadge(order.status)}
                           </div>
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                              order.status === 'shipped'
-                                ? 'bg-blue-100 text-blue-800'
-                                : order.status === 'processing'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                          </span>
-                        </div>
-                        <div className="mb-4">
-                          <p className="text-sm text-gray-600 font-medium mb-2">Items:</p>
-                          <ul className="space-y-2 text-sm sm:text-base">
-                            {order.items.map((item, index) => (
-                              <li key={index} className="flex justify-between">
-                                <span className="text-gray-700">
-                                  {item.quantity} × {item.productId.title}
-                                </span>
-                                <span className="text-gray-900 font-medium">PKR {item.price.toFixed(2)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-t pt-4">
-                          <div>
-                            <p className="text-sm text-gray-600">Tracking Number</p>
-                            <p className="font-medium text-gray-900">{order.trackingNumber || 'N/A'}</p>
+                          <div className="mb-4">
+                            <p className="text-sm text-gray-600 font-medium mb-2">Items:</p>
+                            <ul className="space-y-2 text-sm sm:text-base">
+                              {order.items.map((item, index) => (
+                                <li key={index} className="flex justify-between">
+                                  <span className="text-gray-700">
+                                    {item.quantity} × {item.productId?.title || 'Untitled Product'}
+                                    {item.variantId && (
+                                      <span className="ml-1 text-xs text-gray-500">
+                                        (Variant: {item.variantValue || item.variantId})
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="text-gray-900 font-medium">{formatPrice(item.price)}</span>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
-                          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                            <Button
-                              onClick={() => window.open(`https://tracking.example.com/${order.trackingNumber || ''}`, '_blank')}
-                              className="w-full sm:w-auto border border-red-600 text-red-600 hover:bg-red-50"
-                              disabled={!order.trackingNumber}
-                            >
-                              Track Order
-                            </Button>
-                            <Button
-                              onClick={() => navigate(`/order/${order.orderId}`)}
-                              className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
-                            >
-                              View Details
-                            </Button>
+                          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-t pt-4">
+                            <div>
+                              <p className="text-sm text-gray-600">Tracking Number</p>
+                              <p className="font-medium text-gray-900">{order.trackingNumber || 'N/A'}</p>
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                              <Button
+                                onClick={() => window.open(`https://tracking.example.com/${order.trackingNumber || ''}`, '_blank')}
+                                className="w-full sm:w-auto border border-red-600 text-red-600 hover:bg-red-50"
+                                disabled={!order.trackingNumber}
+                              >
+                                Track Order
+                              </Button>
+                              <Button
+                                onClick={() => navigate(`/order/${order.orderId}`)}
+                                className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
+                              >
+                                View Details
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                 )}
               </div>
             )}
-            {!fetchError && orders.length > 0 && (
+            {!orderError && orders.length > 0 && (
               <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4">
                 <Button
                   onClick={() => handlePageChange(pagination.page - 1)}

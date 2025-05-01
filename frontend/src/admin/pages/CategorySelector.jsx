@@ -1,68 +1,108 @@
-import React, { useEffect } from 'react';
-import PropTypes from 'prop-types';
+import React, { useEffect, useMemo } from "react";
+import PropTypes from "prop-types";
 
-const CategorySelector = React.memo(({ 
-  selected, 
-  onChange, 
-  categories, 
-  placeholder, 
-  maxSelections,
-  showImages = false,
-  disabled = false
-}) => {
-  const handleChange = (e) => {
-    const selectedOptions = Array.from(e.target.selectedOptions).map(option => {
-      const category = categories.find(cat => cat._id === option.value);
-      return {
-        _id: option.value,
-        name: option.text,
-        image: category?.image
-      };
-    });
-    
-    if (maxSelections && selectedOptions.length > maxSelections) {
-      alert(`You can select up to ${maxSelections} parent categories.`);
-      return;
-    }
-    onChange(selectedOptions);
-  };
+const CategorySelector = React.memo(
+  ({
+    selected,
+    onChange,
+    categories,
+    placeholder,
+    maxSelections,
+    showImages,
+    disabled,
+  }) => {
+    const isMultiple = maxSelections !== 1;
 
-  // Sync selected categories with form
-  useEffect(() => {
-    if (selected.length > 0) {
-      onChange(selected);
-    }
-  }, [selected, onChange]);
+    const handleChange = (e) => {
+      const selectedOptions = isMultiple
+        ? Array.from(e.target.selectedOptions)
+        : [
+            {
+              value: e.target.value,
+              text: e.target.options[e.target.selectedIndex].text,
+            },
+          ];
 
-  return (
-    <select
-      multiple
-      disabled={disabled}
-      value={selected.map(cat => cat._id)}
-      onChange={handleChange}
-      className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3 max-h-40 ${disabled ? 'bg-gray-100 cursor-not-allowed' : ''}`}
-    >
-      {categories.length === 0 ? (
-        <option disabled>{placeholder || 'No categories available'}</option>
-      ) : (
-        categories.map(category => (
+      const newSelections = selectedOptions
+        .map((option) => {
+          const category = categories.find((cat) => cat._id === option.value);
+          return category
+            ? {
+                _id: option.value,
+                name: option.text,
+                image: category.image,
+              }
+            : null;
+        })
+        .filter(Boolean);
+
+      if (maxSelections && newSelections.length > maxSelections) {
+        alert(`You can select up to ${maxSelections} parent categories.`);
+        return;
+      }
+      onChange(newSelections);
+    };
+
+    // Only call onChange if selected categories are invalid or changed
+    useEffect(() => {
+      const validSelected = selected.filter((cat) =>
+        categories.some((c) => c._id === cat._id)
+      );
+      const hasChanged =
+        validSelected.length !== selected.length ||
+        validSelected.some((cat, i) => cat._id !== selected[i]._id);
+      if (hasChanged && validSelected.length > 0) {
+        onChange(validSelected);
+      }
+    }, [selected, categories, onChange]);
+
+    const options = useMemo(
+      () =>
+        categories.map((category) => (
           <option key={category._id} value={category._id}>
-            {showImages && category.image ? (
-              <div className="flex items-center">
-                <img 
-                  src={category.image} 
-                  alt={category.name} 
-                  className="w-6 h-6 mr-2 object-cover rounded"
-                />
-                {category.name}
-              </div>
-            ) : category.name}
+            {category.name}
           </option>
-        ))
-      )}
-    </select>
-  );
-});
+        )),
+      [categories]
+    );
+
+    return (
+      <div>
+        <select
+          multiple={isMultiple}
+          disabled={disabled}
+          value={
+            isMultiple ? selected.map((cat) => cat._id) : selected[0]?._id || ""
+          }
+          onChange={handleChange}
+          className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm py-2 px-3 ${
+            isMultiple ? "max-h-40" : ""
+          } ${disabled ? "bg-gray-100 cursor-not-allowed" : ""}`}
+        >
+          <option value="" disabled={isMultiple}>
+            {placeholder}
+          </option>
+          {options}
+        </select>
+        {showImages && selected.length > 0 && (
+          <div className="mt-2 flex space-x-2">
+            {selected.map((cat) =>
+              cat.image ? (
+                <img
+                  key={cat._id}
+                  src={cat.image}
+                  alt={cat.name}
+                  className="w-6 h-6 object-cover rounded"
+                  onError={(e) => (e.target.src = "/placeholder-category.png")}
+                />
+              ) : null
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+);
 
 CategorySelector.propTypes = {
   selected: PropTypes.arrayOf(
@@ -88,7 +128,7 @@ CategorySelector.propTypes = {
 
 CategorySelector.defaultProps = {
   selected: [],
-  placeholder: 'Select categories...',
+  placeholder: "Select categories...",
   maxSelections: null,
   showImages: false,
   disabled: false,

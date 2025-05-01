@@ -1,5 +1,4 @@
-/* eslint-disable no-unused-vars */
-import React, { createContext, useState, useCallback, useMemo, useEffect } from 'react';
+import React, { createContext, useState, useCallback, useMemo, useEffect, useContext } from 'react';
 import {
   getProducts,
   getProductById,
@@ -7,15 +6,23 @@ import {
   updateProduct,
   deleteProduct,
 } from '../services/productService';
+import SocketService from '../services/SocketService';
 
 export const ProductContext = createContext();
 
 export const ProductProvider = ({ children }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    totalPages: 1,
+    totalItems: 0
+  });
 
-  const getCache = (key) => {
+  // Cache management
+  const getCache = useCallback((key) => {
     try {
       const cached = localStorage.getItem(key);
       return cached ? JSON.parse(cached) : null;
@@ -23,129 +30,214 @@ export const ProductProvider = ({ children }) => {
       console.warn('Cache read error:', err);
       return null;
     }
-  };
+  }, []);
 
-  const setCache = (key, data) => {
+  const setCache = useCallback((key, data) => {
     try {
-      localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
+      localStorage.setItem(key, JSON.stringify({
+        data,
+        timestamp: Date.now()
+      }));
     } catch (err) {
       console.warn('Cache write error:', err);
     }
-  };
+  }, []);
 
-  const clearCache = (key) => {
+  const clearCache = useCallback((key) => {
     try {
       localStorage.removeItem(key);
     } catch (err) {
       console.warn('Cache clear error:', err);
     }
-  };
+  }, []);
 
-  const clearRelatedCaches = (productId) => {
+  const clearRelatedCaches = useCallback((productId) => {
     if (productId) {
       clearCache(`product_${productId}`);
     }
-    const keysToClear = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith('products_') || key?.startsWith('product_')) {
-        keysToClear.push(key);
+
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('products_')) {
+        clearCache(key);
       }
-    }
-    keysToClear.forEach(clearCache);
-  };
+    });
+  }, [clearCache]);
 
   useEffect(() => {
     const cleanupExpiredCache = () => {
       const now = Date.now();
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        const cached = key ? getCache(key) : null;
-        if (cached && now - cached.timestamp > 1800000) {
-          clearCache(key);
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('product_')) {
+          const cached = getCache(key);
+          if (cached && now - cached.timestamp > 30 * 60 * 1000) {
+            clearCache(key);
+          }
         }
-      }
+      });
     };
+
     cleanupExpiredCache();
-    const intervalId = setInterval(cleanupExpiredCache, 3600000);
+    const intervalId = setInterval(cleanupExpiredCache, 60 * 60 * 1000);
     return () => clearInterval(intervalId);
+  }, [getCache, clearCache]);
+
+  // Socket.IO integration
+  useEffect(() => {
+    SocketService.connect();
+
+    const handleProductCreated = (data) => {
+      setProducts(prev => [...prev, {
+        ...data.product,
+        displayPrice: data.displayPrice
+      }]);
+      clearRelatedCaches();
+    };
+
+    const handleProductUpdated = (data) => {
+      setProducts(prev => prev.map(p => 
+        p._id === data.product._id 
+          ? { ...data.product, displayPrice: data.displayPrice }
+          : p
+      ));
+      clearRelatedCaches(data.product._id);
+    };
+
+    const handleProductDeleted = (data) => {
+      setProducts(prev => prev.filter(p => p._id !== data.productId));
+      clearRelatedCaches(data.productId);
+    };
+
+    SocketService.on('productCreated', handleProductCreated);
+    SocketService.on('productUpdated', handleProductUpdated);
+    SocketService.on('productDeleted', handleProductDeleted);
+
+    return () => {
+      SocketService.off('productCreated', handleProductCreated);
+      SocketService.off('productUpdated', handleProductUpdated);
+      SocketService.off('productDeleted', handleProductDeleted);
+      SocketService.disconnect();
+    };
+  }, [clearRelatedCaches]);
+
+  const withRetry = useCallback(async (fn, retries = 3, delay = 1000) => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        if (attempt === retries) throw err;
+        const waitTime = delay * Math.pow(2, attempt - 1);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
   }, []);
 
-  const fetchProducts = useCallback(
-    async (page = 1, limit = 10, categoryId = null, isFeatured = false, options = {}) => {
-      const { isPublic = true, sort = '-createdAt' } = options;
-      const filters = {};
+  const fetchProducts = useCallback(async (params = {}, options = {}) => {
+    const {
+      page = 1,
+      limit = 10,
+      categoryId = null,
+      search = null,
+      minPrice = null,
+      maxPrice = null,
+      sort = '-createdAt'
+    } = params;
 
-      if (categoryId) filters.category = categoryId;
+    const { isPublic = true, skipCache = false } = options;
 
-      const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${isFeatured}_${sort || 'default'}`;
+    const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}`;
+
+    if (!skipCache) {
       const cached = getCache(cacheKey);
-      if (cached && Date.now() - cached.timestamp < 1800000) {
+      if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
         setProducts(cached.data.products || []);
+        setPagination({
+          page,
+          limit,
+          totalPages: cached.data.totalPages || 1,
+          totalItems: cached.data.totalItems || 0
+        });
         return cached.data;
       }
-
-      setLoading(true);
-      setError('');
-
-      try {
-        const result = await getProducts(page, limit, sort, filters);
-        const filteredProducts = isFeatured
-          ? (result.products || []).filter((product) => product.isFeatured)
-          : result.products || [];
-
-        const responseData = {
-          products: filteredProducts,
-          totalPages: result.totalPages || 1,
-          total: filteredProducts.length,
-        };
-
-        setProducts(filteredProducts);
-        setCache(cacheKey, responseData);
-
-        return responseData;
-      } catch (err) {
-        setError(err.message || 'Failed to fetch products');
-        if (cached?.data) {
-          setProducts(cached.data.products || []);
-          return cached.data;
-        }
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
-
-  const getProduct = useCallback(async (id, options = {}) => {
-    const { isPublic = true } = options;
-    const cacheKey = `product_${id}`;
-
-    const cached = getCache(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 1800000) {
-      return cached.data;
     }
 
     setLoading(true);
-    setError('');
+    setError(null);
 
     try {
-      const product = await getProductById(id, { isPublic });
-      if (product) setCache(cacheKey, product);
-      return product;
+      const filters = {};
+      if (categoryId) filters.categoryId = categoryId;
+      if (search) filters.search = search;
+      if (minPrice) filters.minPrice = minPrice;
+      if (maxPrice) filters.maxPrice = maxPrice;
+
+      const result = await withRetry(() =>
+        getProducts(page, limit, sort, filters, { isPublic })
+      );
+
+      const responseData = {
+        products: result.products || [],
+        totalPages: result.totalPages || 1,
+        totalItems: result.totalItems || 0
+      };
+
+      setProducts(responseData.products);
+      setPagination({
+        page,
+        limit,
+        totalPages: responseData.totalPages,
+        totalItems: responseData.totalItems
+      });
+      setCache(cacheKey, responseData);
+
+      return responseData;
+    } catch (err) {
+      setError(err.message || 'Failed to fetch products');
+      const cached = getCache(cacheKey);
+      if (cached?.data) {
+        setProducts(cached.data.products || []);
+        return cached.data;
+      }
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [getCache, setCache, withRetry]);
+
+  const getProduct = useCallback(async (id, options = {}) => {
+    const { isPublic = true, skipCache = false } = options;
+    const cacheKey = `product_${id}`;
+
+    if (!skipCache) {
+      const cached = getCache(cacheKey);
+      if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
+        return cached.data;
+      }
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const product = await withRetry(() => getProductById(id, { isPublic }));
+      if (product) {
+        setCache(cacheKey, product);
+        return product;
+      }
+
+      throw new Error('Product not found');
     } catch (err) {
       setError(err.message || 'Failed to fetch product');
+      const cached = getCache(cacheKey);
       if (cached?.data) return cached.data;
       throw err;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [getCache, setCache, withRetry]);
 
   const createNewProduct = useCallback(async (productData, images) => {
     setLoading(true);
-    setError('');
+    setError(null);
 
     try {
       const product = await createProduct(productData, images);
@@ -157,11 +249,11 @@ export const ProductProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearRelatedCaches]);
 
   const updateExistingProduct = useCallback(async (id, productData, images) => {
     setLoading(true);
-    setError('');
+    setError(null);
 
     try {
       const product = await updateProduct(id, productData, images);
@@ -173,46 +265,54 @@ export const ProductProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearRelatedCaches]);
 
   const deleteExistingProduct = useCallback(async (id) => {
     setLoading(true);
-    setError('');
+    setError(null);
 
     try {
       await deleteProduct(id);
       clearRelatedCaches(id);
+      return true;
     } catch (err) {
       setError(err.message || 'Failed to delete product');
       throw err;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearRelatedCaches]);
 
   const value = useMemo(() => ({
     products,
     loading,
     error,
+    pagination,
     fetchProducts,
     getProduct,
     createNewProduct,
     updateExistingProduct,
     deleteExistingProduct,
+    clearError: () => setError(null)
   }), [
     products,
     loading,
     error,
+    pagination,
     fetchProducts,
     getProduct,
     createNewProduct,
     updateExistingProduct,
-    deleteExistingProduct,
+    deleteExistingProduct
   ]);
 
-  return (
-    <ProductContext.Provider value={value}>
-      {children}
-    </ProductContext.Provider>
-  );
+  return <ProductContext.Provider value={value}>{children}</ProductContext.Provider>;
+};
+
+export const useProduct = () => {
+  const context = useContext(ProductContext);
+  if (context === undefined) {
+    throw new Error('useProduct must be used within a ProductProvider');
+  }
+  return context;
 };

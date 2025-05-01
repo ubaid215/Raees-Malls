@@ -8,61 +8,73 @@ const {
   updateProductValidator,
   productIdValidator,
   getProductsValidator,
-  getProductsForCustomersValidator
+  getProductsForCustomersValidator,
 } = require('../validation/productValidators');
 
-// Configure upload for baseImages and variantImages
-const uploadFields = upload.fields([
-  { name: 'baseImages', maxCount: 5 },
-  { name: 'variantImages[0]', maxCount: 15 },
-  { name: 'variantImages[1]', maxCount: 15 },
-  { name: 'variantImages[2]', maxCount: 5 } 
-]);
+// Dynamic upload configuration for variant images (supports up to 10 variants)
+const createUploadFields = (variantCount = 10) => {
+  const fields = [
+    { name: 'baseImages', maxCount: 5 }
+  ];
+  
+  for (let i = 0; i < variantCount; i++) {
+    fields.push({ name: `variantImages[${i}]`, maxCount: 5 });
+  }
+  
+  return upload.fields(fields);
+};
 
-// Public product routes (mounted under /api/products)
-router.get('/public',
-  getProductsForCustomersValidator,
+// Public product routes
+router.get(
+  '/public', 
+  getProductsForCustomersValidator, 
   productController.getAllProductsForCustomers
 );
 
-router.get('/public/:id',
-  productIdValidator,
+router.get(
+  '/public/:id', 
+  productIdValidator, 
   productController.getProductDetailsForCustomers
 );
 
-// Admin product management routes (mounted under /api/admin/products)
-router.post('/',
+// Admin product management routes
+router.post(
+  '/',
   ensureAuthenticated,
   authorizeRoles('admin'),
-  uploadFields,
+  createUploadFields(), // Use dynamic upload configuration
   createProductValidator,
   productController.createProduct
 );
 
-router.get('/',
-  ensureAuthenticated,
-  authorizeRoles('admin'),
-  getProductsValidator,
+router.get(
+  '/', 
+  ensureAuthenticated, 
+  authorizeRoles('admin'), 
+  getProductsValidator, 
   productController.getAllProducts
 );
 
-router.get('/:id',
+router.get(
+  '/:id', 
   ensureAuthenticated,
   authorizeRoles('admin'),
   productIdValidator,
   productController.getProductById
 );
 
-router.put('/:id',
+router.put(
+  '/:id',
   ensureAuthenticated,
   authorizeRoles('admin'),
-  uploadFields,
+  createUploadFields(), // Use dynamic upload configuration
   productIdValidator,
   updateProductValidator,
   productController.updateProduct
 );
 
-router.delete('/:id',
+router.delete(
+  '/:id',
   ensureAuthenticated,
   authorizeRoles('admin'),
   productIdValidator,
