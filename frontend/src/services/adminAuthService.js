@@ -84,21 +84,31 @@ const AdminAuthService = {
     }
   },
 
-  changeAdminPassword: async (currentPassword, newPassword) => {
+  changeAdminPassword: async (currentPassword, newPassword, confirmPassword) => {
     // Client-side validation
-    if (!currentPassword || !newPassword) {
-      throw { message: 'Current password and new password are required', status: 400 };
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      throw { message: 'All password fields are required', status: 400 };
     }
-    if (newPassword.length < 6) {
-      throw { message: 'New password must be at least 6 characters', status: 400 };
+    if (newPassword.length < 8) {
+      throw { message: 'New password must be at least 8 characters', status: 400 };
     }
-
+    if (newPassword !== confirmPassword) {
+      throw { message: 'New password and confirm password must match', status: 400 };
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(newPassword)) {
+      throw {
+        message: 'New password must contain at least one uppercase, one lowercase, one number, and one special character',
+        status: 400,
+      };
+    }
+  
     try {
       const response = await API.post('/admin/change-password', {
         currentPassword,
         newPassword,
+        confirmPassword,
       });
-
+  
       // Backend returns { success: true, message: string }
       return {
         message: response.data.message || 'Password changed successfully',

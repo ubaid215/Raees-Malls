@@ -31,20 +31,24 @@ const AdminProfile = () => {
     e.preventDefault();
     setLocalError('');
     setSuccess('');
-
+  
     if (!validatePasswords()) {
       return;
     }
-
+  
     try {
-      const result = await changeAdminPassword(formData.currentPassword, formData.newPassword);
+      const result = await changeAdminPassword(
+        formData.currentPassword,
+        formData.newPassword,
+        formData.confirmPassword
+      );
       setSuccess(result.message || 'Password changed successfully!');
       setFormData({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
       if (err.status === 429) {
         setLocalError(`Too many attempts. Please try again in ${err.retryAfter || 'a few'} seconds.`);
       } else if (err.errors && err.errors.length > 0) {
-        setLocalError(err.errors.join(', ')); // Display backend validation errors
+        setLocalError(err.errors.join(', '));
       } else {
         setLocalError(err.message || 'Failed to change password');
       }
