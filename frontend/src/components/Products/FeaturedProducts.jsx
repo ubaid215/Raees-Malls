@@ -145,7 +145,7 @@ function FeaturedProducts() {
           >
             {loading ? 'Loading...' : 'Retry Now'}
           </Button>
-          <Link to="/products" className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-500 transition-colors">
+          <Link to="/all-products" className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-500 transition-colors">
             View All Products <ArrowRight size={18} />
           </Link>
         </div>
