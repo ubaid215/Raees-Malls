@@ -7,7 +7,7 @@ import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
 import { API_BASE_URL } from '../shared/config';
-import SocketService from '../../services/SocketService';
+import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
 
 function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
