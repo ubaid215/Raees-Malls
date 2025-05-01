@@ -32,7 +32,7 @@ function Categories() {
   ];
 
   const handleClick = () => {
-    navigate('/categories');
+    navigate('/all-categories');
   };
 
   

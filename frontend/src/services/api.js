@@ -1,7 +1,15 @@
 import axios from 'axios';
 
+// Environment-based configuration
+const getBaseURL = () => {
+  if (import.meta.env.MODE === 'development') {
+    return 'http://localhost:5000/api'; // Local development
+  }
+  return 'https://api.raeesmalls.com/api'; // Production
+};
+
 const api = axios.create({
-  baseURL: 'http://localhost:5000/api',
+  baseURL: getBaseURL(), // Automatically switches between dev/prod
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
@@ -68,6 +76,25 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Helper function for token refresh
+const refreshToken = async () => {
+  try {
+    const response = await api.post('/auth/refresh-token', {
+      refreshToken: localStorage.getItem('refreshToken')
+    });
+    const { token } = response.data;
+    localStorage.setItem('token', token);
+    return token;
+  } catch (error) {
+    console.error('Failed to refresh token:', error);
+    // Clear auth state and redirect to login
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    window.location.href = '/login';
+    return null;
+  }
+};
 
 // Preserve existing publicRequest helper
 api.publicRequest = async (method, url, config = {}) => {

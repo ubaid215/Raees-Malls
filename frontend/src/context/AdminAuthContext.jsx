@@ -13,10 +13,9 @@ const AdminAuthProvider = ({ children }) => {
     isRateLimited: false,
     retryAfter: null,
     isRefreshingToken: false,
-    isAdminAuthenticated: false
+    isAdminAuthenticated: false,
   });
 
-  // Initialize auth state based on localStorage token
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem('adminToken');
@@ -24,17 +23,14 @@ const AdminAuthProvider = ({ children }) => {
         setAuthState(prev => ({ 
           ...prev, 
           loading: true
-          // Don't set isAdminAuthenticated until we verify the token
         }));
         
         try {
-          // Attempt to refresh token to validate it and get user data
           await refreshAdminToken();
         } catch (err) {
           console.error('Token validation failed during initialization:', err);
-          resetAuthState(); // Clear state if token is invalid
+          resetAuthState();
         } finally {
-          // Ensure loading state is cleared even if there's an error
           setAuthState(prev => ({ ...prev, loading: false }));
         }
       }
@@ -86,7 +82,7 @@ const AdminAuthProvider = ({ children }) => {
       isRateLimited: false,
       retryAfter: null,
       isRefreshingToken: false,
-      isAdminAuthenticated: false
+      isAdminAuthenticated: false,
     });
     localStorage.removeItem('adminToken');
     localStorage.removeItem('refreshToken');
@@ -108,7 +104,6 @@ const AdminAuthProvider = ({ children }) => {
     try {
       const adminData = await AdminAuthService.login(credentials);
       
-      // Ensure tokens are stored before updating state
       if (adminData.token) {
         localStorage.setItem('adminToken', adminData.token);
       }
@@ -124,7 +119,7 @@ const AdminAuthProvider = ({ children }) => {
         isRateLimited: false,
         retryAfter: null,
         isRefreshingToken: false,
-        isAdminAuthenticated: true 
+        isAdminAuthenticated: true,
       });
       
       setupSocketConnection(adminData.user);
@@ -150,14 +145,12 @@ const AdminAuthProvider = ({ children }) => {
     }
   };
 
-  // This reference allows us to call refreshAdminToken within useEffect
   const refreshAdminToken = async () => {
     setAuthState(prev => ({ ...prev, isRefreshingToken: true, loading: true }));
     
     try {
       const adminData = await AdminAuthService.refreshToken();
       
-      // Update tokens in localStorage if new ones are returned
       if (adminData.token) {
         localStorage.setItem('adminToken', adminData.token);
       }
@@ -174,7 +167,7 @@ const AdminAuthProvider = ({ children }) => {
         errors: [],
         isRateLimited: false,
         retryAfter: null,
-        isAdminAuthenticated: true
+        isAdminAuthenticated: true,
       }));
       
       return adminData;
@@ -186,22 +179,43 @@ const AdminAuthProvider = ({ children }) => {
       setAuthState(prev => ({ 
         ...prev, 
         isRefreshingToken: false,
-        loading: false  // Ensure loading is false even on error
+        loading: false
       }));
     }
   };
 
-  // Simplified and consistent auth check
+  const changeAdminPassword = async (currentPassword, newPassword) => {
+    setAuthState(prev => ({ ...prev, loading: true, error: null, errors: [] }));
+    
+    try {
+      const result = await AdminAuthService.changeAdminPassword(currentPassword, newPassword);
+      setAuthState(prev => ({ ...prev, loading: false }));
+      return result;
+    } catch (err) {
+      setAuthState(prev => ({
+        ...prev,
+        loading: false,
+        error: err.message,
+        errors: err.errors || [],
+      }));
+      throw err;
+    }
+  };
+
   const isAuthenticated = authState.isAdminAuthenticated && authState.admin;
 
-  const contextValue = useMemo(() => ({
-    ...authState,
-    isAdminAuthenticated: isAuthenticated,
-    loginAdmin,
-    logoutAdmin,
-    refreshAdminToken,
-    resetAuthState
-  }), [authState, isAuthenticated]);
+  const contextValue = useMemo(
+    () => ({
+      ...authState,
+      isAdminAuthenticated: isAuthenticated,
+      loginAdmin,
+      logoutAdmin,
+      refreshAdminToken,
+      resetAuthState,
+      changeAdminPassword,
+    }),
+    [authState, isAuthenticated]
+  );
 
   return (
     <AdminAuthContext.Provider value={contextValue}>

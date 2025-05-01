@@ -29,17 +29,15 @@ const Sidebar = () => {
       items: [
         { path: '/admin/add-products', icon: FiShoppingBag, label: 'ProductForm' },
         { path: '/admin/inventory', icon: ShoppingBasket, label: 'All Products' },
-        { path: '/admin/hero-slider', icon: ImagePlus, label: 'Hero Images' },
         { path: '/admin/orders', icon: FiDollarSign, label: 'Orders' },
-        { path: '/admin/orders-history', icon: History, label: 'Orders History' },
       ]
     },
-    // {
-    //   title: 'PROFILE',
-    //   items: [
-    //     { path: '/admin/profile', icon: UserCircle, label: 'Profile' },
-    //   ]
-    // }
+    {
+      title: 'PROFILE',
+      items: [
+        { path: '/admin/profile', icon: UserCircle, label: 'Profile' },
+      ]
+    }
   ];
 
   const handleLogout = async () => {

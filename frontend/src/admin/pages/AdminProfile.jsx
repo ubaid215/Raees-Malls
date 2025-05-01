@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAdminAuth } from '../../contexts/AdminAuthContext';
+import { useAdminAuth } from '../../context/AdminAuthContext';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 
 const AdminProfile = () => {
@@ -41,7 +41,13 @@ const AdminProfile = () => {
       setSuccess(result.message || 'Password changed successfully!');
       setFormData({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
-      setLocalError(err.message || 'Failed to change password');
+      if (err.status === 429) {
+        setLocalError(`Too many attempts. Please try again in ${err.retryAfter || 'a few'} seconds.`);
+      } else if (err.errors && err.errors.length > 0) {
+        setLocalError(err.errors.join(', ')); // Display backend validation errors
+      } else {
+        setLocalError(err.message || 'Failed to change password');
+      }
     }
   };
 
@@ -139,7 +145,7 @@ const AdminProfile = () => {
             <button
               type="button"
               onClick={() => togglePasswordVisibility('confirm')}
-              className="absolute inset-y-0 right-0 flex items-center pr-3 mt-6"
+              className="absolute inset-y-0 right-0 Converter to Grok 3 built by xAI flex items-center pr-3 mt-6"
             >
               {showConfirmPassword ? (
                 <EyeSlashIcon className="h-5 w-5 text-gray-500" />
