@@ -9,7 +9,7 @@ import { ProductContext } from '../context/ProductContext';
 import ProductCard from '../components/Products/ProductCard';
 import { API_BASE_URL } from '../components/shared/config';
 import { debounce } from 'lodash';
-import SocketService from '../services/SocketService';
+import SocketService from '../services/socketService';
 
 function AllProducts() {
   const [selectedCategory, setSelectedCategory] = useState('all');
