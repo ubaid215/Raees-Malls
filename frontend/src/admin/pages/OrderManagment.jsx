@@ -46,59 +46,68 @@ const OrderManagement = () => {
 
   useEffect(() => {
     const setupSocket = () => {
-      if (!socketService.isConnected()) {
-        socketService.connect(admin?._id, admin?.role);
-        console.log("Socket connection established");
-      }
-      
-      socketService.off('orderCreated');
-      socketService.off('orderStatusUpdated');
-      socketService.off('reconnect');
-      socketService.off('disconnect');
-
-      socketService.on('orderCreated', (newOrder) => {
-        console.log("New order received via socket:", newOrder);
-        if (!newOrder || !newOrder.orderId) {
-          console.error("Invalid order data received:", newOrder);
-          return;
+      try {
+        if (!socketService.getConnectionState()) {
+          socketService.connect(admin?._id, admin?.role);
+          console.log("Socket connection established for admin:", admin?._id);
         }
         
-        setNewOrderIds(prev => [...prev, newOrder.orderId]);
-        toast.info(`New Order Received: ${newOrder.orderId}`, {
-          position: "top-right",
-          autoClose: 5000,
-          onClick: () => {
-            setFilterStatus('pending');
-            fetchOrders(1, pagination?.limit || 10, 'pending');
+        socketService.off('orderCreated');
+        socketService.off('orderStatusUpdated');
+        socketService.off('reconnect');
+        socketService.off('disconnect');
+
+        socketService.on('orderCreated', (newOrder) => {
+          console.log("New order received via socket:", newOrder);
+          if (!newOrder || !newOrder.orderId) {
+            console.error("Invalid order data received:", newOrder);
+            return;
           }
+          
+          setNewOrderIds(prev => [...prev, newOrder.orderId]);
+          toast.info(`New Order Received: ${newOrder.orderId}`, {
+            position: "top-right",
+            autoClose: 5000,
+            onClick: () => {
+              setFilterStatus('pending');
+              fetchOrders(1, pagination?.limit || 10, 'pending');
+            }
+          });
+          
+          setTimeout(() => {
+            setNewOrderIds(prev => prev.filter(id => id !== newOrder.orderId));
+          }, 30000);
         });
-        
-        setTimeout(() => {
-          setNewOrderIds(prev => prev.filter(id => id !== newOrder.orderId));
-        }, 30000);
-      });
 
-      socketService.on('orderStatusUpdated', (updatedOrder) => {
-        console.log("Order status updated via socket:", updatedOrder);
-        if (!newOrder || !newOrder.orderId) {
-          console.error("Invalid order data received:", updatedOrder);
-          return;
-        }
-        toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
-      });
+        socketService.on('orderStatusUpdated', (updatedOrder) => {
+          console.log("Order status updated via socket:", updatedOrder);
+          if (!updatedOrder || !updatedOrder.orderId) {
+            console.error("Invalid order data received:", updatedOrder);
+            return;
+          }
+          toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
+          fetchOrders(pagination.page, pagination?.limit || 10, filterStatus);
+        });
 
-      socketService.on('reconnect', () => {
-        console.log("Socket reconnected");
-        toast.success("Reconnected to server");
-      });
+        socketService.on('reconnect', () => {
+          console.log("Socket reconnected");
+          toast.success("Reconnected to server");
+          fetchOrders(pagination.page, pagination?.limit || 10, filterStatus);
+        });
 
-      socketService.on('disconnect', () => {
-        console.log("Socket disconnected");
-        toast.warning("Lost connection to server. Reconnecting...");
-      });
+        socketService.on('disconnect', () => {
+          console.log("Socket disconnected");
+          toast.warning("Lost connection to server. Reconnecting...");
+        });
+      } catch (err) {
+        console.error("Socket setup error:", err);
+        toast.error("Failed to setup socket connection");
+      }
     };
     
-    setupSocket();
+    if (admin) {
+      setupSocket();
+    }
     
     return () => {
       console.log("Cleaning up socket listeners");
@@ -107,7 +116,7 @@ const OrderManagement = () => {
       socketService.off('reconnect');
       socketService.off('disconnect');
     };
-  }, [fetchOrders, pagination?.limit, filterStatus, admin?._id, admin?.role]);
+  }, [fetchOrders, pagination?.limit, pagination?.page, filterStatus, admin]);
 
   useEffect(() => {
     if (!isAdminAuthenticated || !admin) {
@@ -118,11 +127,15 @@ const OrderManagement = () => {
     fetchOrders(1, pagination?.limit || 10, filterStatus);
     
     const pingInterval = setInterval(() => {
-      if (socketService.isConnected()) {
-        socketService.emit('ping');
-      } else {
-        console.log("Socket not connected, attempting to reconnect");
-        socketService.connect(admin?._id, admin?.role);
+      try {
+        if (socketService.getConnectionState()) {
+          socketService.emit('ping');
+        } else {
+          console.log("Socket not connected, attempting to reconnect");
+          socketService.connect(admin?._id, admin?.role);
+        }
+      } catch (err) {
+        console.error("Socket ping error:", err);
       }
     }, 30000);
     
@@ -359,9 +372,9 @@ const OrderManagement = () => {
           </div>
         </div>
         
-        <div className={`mb-3 text-xs px-3 py-1 rounded inline-flex items-center ${socketService.isConnected() ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-          <span className={`w-2 h-2 rounded-full mr-2 ${socketService.isConnected() ? 'bg-green-500' : 'bg-red-500'}`}></span>
-          {socketService.isConnected() ? 'Connected to server' : 'Disconnected - Click refresh to reconnect'}
+        <div className={`mb-3 text-xs px-3 py-1 rounded inline-flex items-center ${socketService.getConnectionState() ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+          <span className={`w-2 h-2 rounded-full mr-2 ${socketService.getConnectionState() ? 'bg-green-500' : 'bg-red-500'}`}></span>
+          {socketService.getConnectionState() ? 'Connected to server' : 'Disconnected - Click refresh to reconnect'}
         </div>
         
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">

@@ -44,55 +44,60 @@ const Profile = () => {
       fetchUserOrders(pagination.page);
       
       const setupSocket = () => {
-        if (!socketService.isConnected()) {
-          socketService.connect(user._id, user.role);
-          console.log("Socket connection established for user:", user._id);
-        }
-
-        socketService.off('orderCreated');
-        socketService.off('orderStatusUpdated');
-        socketService.off('disconnect');
-        socketService.off('reconnect');
-
-        socketService.on('orderCreated', (newOrder) => {
-          console.log("New order received via socket:", newOrder);
-          if (!newOrder || !newOrder.orderId) {
-            console.error("Invalid order data received:", newOrder);
-            return;
+        try {
+          if (!socketService.getConnectionState()) {
+            socketService.connect(user._id, user.role);
+            console.log("Socket connection established for user:", user._id);
           }
-          
-          setNewOrderIds(prev => [...prev, newOrder.orderId]);
-          toast.info(`New Order Placed: ${newOrder.orderId}`, {
-            position: "top-right",
-            autoClose: 5000,
+
+          socketService.off('orderCreated');
+          socketService.off('orderStatusUpdated');
+          socketService.off('disconnect');
+          socketService.off('reconnect');
+
+          socketService.on('orderCreated', (newOrder) => {
+            console.log("New order received via socket:", newOrder);
+            if (!newOrder || !newOrder.orderId) {
+              console.error("Invalid order data received:", newOrder);
+              return;
+            }
+            
+            setNewOrderIds(prev => [...prev, newOrder.orderId]);
+            toast.info(`New Order Placed: ${newOrder.orderId}`, {
+              position: "top-right",
+              autoClose: 5000,
+            });
+            fetchUserOrders(pagination.page);
+            
+            setTimeout(() => {
+              setNewOrderIds(prev => prev.filter(id => id !== newOrder.orderId));
+            }, 30000);
           });
-          fetchUserOrders(pagination.page);
-          
-          setTimeout(() => {
-            setNewOrderIds(prev => prev.filter(id => id !== newOrder.orderId));
-          }, 30000);
-        });
 
-        socketService.on('orderStatusUpdated', (updatedOrder) => {
-          console.log("Order status updated via socket:", updatedOrder);
-          if (!updatedOrder || !updatedOrder.orderId) {
-            console.error("Invalid order data received:", updatedOrder);
-            return;
-          }
-          toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
-          fetchUserOrders(pagination.page);
-        });
+          socketService.on('orderStatusUpdated', (updatedOrder) => {
+            console.log("Order status updated via socket:", updatedOrder);
+            if (!updatedOrder || !updatedOrder.orderId) {
+              console.error("Invalid order data received:", updatedOrder);
+              return;
+            }
+            toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
+            fetchUserOrders(pagination.page);
+          });
 
-        socketService.on('disconnect', () => {
-          console.log("Socket disconnected");
-          toast.warning("Lost connection to server. Reconnecting...");
-        });
+          socketService.on('disconnect', () => {
+            console.log("Socket disconnected");
+            toast.warning("Lost connection to server. Reconnecting...");
+          });
 
-        socketService.on('reconnect', () => {
-          console.log("Socket reconnected");
-          toast.success("Reconnected to server");
-          fetchUserOrders(pagination.page);
-        });
+          socketService.on('reconnect', () => {
+            console.log("Socket reconnected");
+            toast.success("Reconnected to server");
+            fetchUserOrders(pagination.page);
+          });
+        } catch (err) {
+          console.error("Socket setup error:", err);
+          toast.error("Failed to setup socket connection");
+        }
       };
 
       setupSocket();
@@ -110,6 +115,7 @@ const Profile = () => {
   const handleLogout = async () => {
     try {
       await logoutUser();
+      socketService.disconnect();
       navigate('/login');
     } catch (err) {
       toast.error(err.message || 'Failed to log out');
@@ -201,6 +207,10 @@ const Profile = () => {
     );
   }
 
+  // Debug user and orders
+  console.log('User object:', user);
+  console.log('Orders:', orders);
+
   return (
     <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-6xl mx-auto">
@@ -213,6 +223,11 @@ const Profile = () => {
             <FiLogOut />
             <span>Logout</span>
           </Button>
+        </div>
+
+        <div className={`mb-3 text-xs px-3 py-1 rounded inline-flex items-center ${socketService.getConnectionState() ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+          <span className={`w-2 h-2 rounded-full mr-2 ${socketService.getConnectionState() ? 'bg-green-500' : 'bg-red-500'}`}></span>
+          {socketService.getConnectionState() ? 'Connected to server' : 'Disconnected - Reconnecting...'}
         </div>
 
         {/* Bento Grid Layout */}
@@ -240,7 +255,7 @@ const Profile = () => {
               </div>
               <div>
                 <p className="text-gray-600">Addresses</p>
-                {user.addresses?.length > 0 ? (
+                {Array.isArray(user.addresses) && user.addresses.length > 0 ? (
                   user.addresses.map((addr, index) => (
                     <p key={index} className="font-medium text-gray-900">
                       {`${addr.street}, ${addr.city}, ${addr.state} ${addr.zip}, ${addr.country}`}
@@ -289,7 +304,7 @@ const Profile = () => {
                   <p className="text-center">Date</p>
                   <p className="text-right">Total</p>
                 </div>
-                {orders.length === 0 ? (
+                {(orders || []).length === 0 ? (
                   <p className="text-gray-600">No orders found</p>
                 ) : (
                   orders.map((order) => (
@@ -338,7 +353,7 @@ const Profile = () => {
               </div>
             ) : (
               <div className="space-y-6">
-                {orders.length === 0 ? (
+                {(orders || []).length === 0 ? (
                   <p className="text-gray-600 text-sm sm:text-base">No current orders</p>
                 ) : (
                   orders
@@ -405,7 +420,7 @@ const Profile = () => {
                 )}
               </div>
             )}
-            {!orderError && orders.length > 0 && (
+            {!orderError && (orders || []).length > 0 && (
               <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4">
                 <Button
                   onClick={() => handlePageChange(pagination.page - 1)}

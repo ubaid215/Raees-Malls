@@ -22,7 +22,7 @@ const createAdmin = async () => {
     console.log('Database Name:', mongoose.connection.db.databaseName);
 
     // Delete existing admin user to ensure clean state
-    const existingAdmin = await User.findOneAndDelete({ email: 'admin@example.com' });
+    const existingAdmin = await User.findOneAndDelete({ email: 'waheedjatala@gmail.com' });
     if (existingAdmin) {
       console.log('Deleted existing admin user:', existingAdmin.email);
     }
@@ -30,9 +30,9 @@ const createAdmin = async () => {
     // Create admin user
     console.log('Creating admin user...');
     const admin = new User({
-      name: 'System Admin',
-      email: 'admin@example.com',
-      password: 'Admin@1234', // Let pre('save') hook hash the password
+      name: 'Raees Mobiles',
+      email: 'waheedjatala@gmail.com',
+      password: 'Waheed@786', // Let pre('save') hook hash the password
       role: 'admin',
       isVerified: true,
       createdAt: new Date()
@@ -47,12 +47,12 @@ const createAdmin = async () => {
     console.log('Password after save (should be hashed):', admin.password);
 
     console.log('Admin user created successfully');
-    console.log('Email: admin@example.com');
-    console.log('Temporary password: Admin@1234');
+    console.log('Email: waheedjatala@gmail.com');
+    console.log('Temporary password: Waheed@786');
     console.log('IMPORTANT: Change this password immediately after first login!');
 
     // Verify user creation
-    const verifyUser = await User.findOne({ email: 'admin@example.com' });
+    const verifyUser = await User.findOne({ email: 'waheedjatala@gmail.com' });
     if (!verifyUser) {
       throw new Error('Failed to verify admin user creation');
     }
@@ -62,11 +62,11 @@ const createAdmin = async () => {
     console.log('Stored password from DB:', verifyUser.password);
 
     // Verify password hash
-    const isPasswordValid = await bcrypt.compare('Admin@1234', verifyUser.password);
+    const isPasswordValid = await bcrypt.compare('Waheed@786', verifyUser.password);
     if (!isPasswordValid) {
       // Debug: Manually hash and compare
-      const manualHash = await bcrypt.hash('Admin@1234', 12);
-      console.log('Manually generated hash for Admin@1234:', manualHash);
+      const manualHash = await bcrypt.hash('Waheed@786', 12);
+      console.log('Manually generated hash for Waheed@786:', manualHash);
       throw new Error('Password hash verification failed');
     }
     console.log('Password hash verified successfully');

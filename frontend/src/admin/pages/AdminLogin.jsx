@@ -75,7 +75,7 @@ const AdminLogin = () => {
     try {
       console.log('Attempting login with:', formData.email);
       const result = await loginAdmin(formData);
-      console.log('Login result:', result);
+      // console.log('Login result:', result);
     } catch (err) {
       console.error('Login failed:', err);
       setLocalError(err.message || 'Admin login failed. Please try again or contact support.');
