@@ -17,7 +17,6 @@ function FeaturedProducts() {
   const { banners, loading: bannersLoading, error: bannersError } = useBanners();
   const [needsFetch, setNeedsFetch] = useState(true);
 
-  // Clear cache on mount to ensure fresh data
   useEffect(() => {
     const clearProductCaches = () => {
       Object.keys(localStorage).forEach(key => {
@@ -31,7 +30,6 @@ function FeaturedProducts() {
     setNeedsFetch(true);
   }, []);
 
-  // Fetch featured products
   useEffect(() => {
     if (needsFetch) {
       handleFetchFeaturedProducts();
@@ -51,7 +49,6 @@ function FeaturedProducts() {
     }
   }, [fetchProducts]);
 
-  // Socket.IO integration for real-time updates
   useEffect(() => {
     SocketService.connect();
 
@@ -86,7 +83,6 @@ function FeaturedProducts() {
     };
   }, []);
 
-  // Get featured products banner
   const featuredBanner = banners.find((banner) => banner.position === 'featured-products-banner' && banner.isActive);
 
   const memoizedProducts = useMemo(() => {
@@ -171,33 +167,6 @@ function FeaturedProducts() {
             View All <ArrowRight size={16} />
           </Link>
         </nav>
-      </div>
-
-      {/* Mobile Banner (Shown only on small screens) */}
-      <div className="block sm:hidden w-full mb-6 rounded-lg overflow-hidden relative h-48">
-        {bannersLoading ? (
-          <div className="w-full h-full flex items-center justify-center bg-gray-200">
-            <LoadingSpinner size="md" />
-          </div>
-        ) : (
-          <>
-            <img
-              src={featuredBanner ? featuredBanner.image.url : Sidebanner}
-              alt={featuredBanner ? featuredBanner.image.alt || featuredBanner.title : 'Promotional banner for up to 50% off sale'}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-            <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col justify-center px-4">
-              <h5 className="uppercase text-white text-xs">{featuredBanner ? featuredBanner.title : 'Upto 50% off'}</h5>
-              <h1 className="text-white text-xl font-semibold mt-1">
-                {featuredBanner ? featuredBanner.description : 'Limited '}<span className="text-red-400">{featuredBanner ? '' : 'Stock'}</span>, {featuredBanner ? '' : 'Huge Saving'}
-              </h1>
-              <Link to={featuredBanner ? featuredBanner.targetUrl || '/products/sale' : '/products/sale'} className="mt-2">
-                <Button size="sm" className="text-white py-1 px-3">Shop Now</Button>
-              </Link>
-            </div>
-          </>
-        )}
       </div>
 
       <div className="flex items-start justify-center gap-4 lg:gap-8 w-full">

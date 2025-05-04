@@ -26,8 +26,6 @@ function HeroSection() {
       link: banner.targetUrl || '#',
     }));
 
-  // console.log('Slider banners:', sliderBanners); 
-
   // Fallback slider banners if none exist
   const fallbackSliderBanners = [
     { src: Airpods, alt: 'Summer Collection', title: 'Summer Collection', subtitle: 'Up to 50% off', link: '#' },
@@ -37,12 +35,9 @@ function HeroSection() {
 
   const activeSliderBanners = sliderBanners.length > 0 ? sliderBanners : fallbackSliderBanners;
 
-  // console.log('Active slider banners:', activeSliderBanners); 
-
   // Get banner by position for side banners
   const getBannerByPosition = (position) => {
     const banner = banners.find((banner) => banner.position === position && banner.isActive);
-    // console.log(`Banner for ${position}:`, banner); 
     return banner;
   };
 
@@ -55,9 +50,9 @@ function HeroSection() {
   }, [activeSliderBanners.length]);
 
   return (
-    <section className="px-6 mb-3 pb-5 pt-7 w-full h-[80vh] flex flex-col md:flex-row items-center justify-between gap-5">
+    <section className="px-4 sm:px-6 mb-3 pb-5 pt-7 w-full flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-5">
       {/* Main Slider Section */}
-      <div className="w-full md:w-[65%] h-full relative rounded-xl overflow-hidden">
+      <div className="w-full md:w-[65%] h-[30vh] sm:h-[50vh] md:h-[80vh] relative rounded-xl overflow-hidden">
         <div className="relative w-full h-full">
           {bannersLoading ? (
             <div className="w-full h-full flex items-center justify-center bg-gray-200">
@@ -73,12 +68,12 @@ function HeroSection() {
                   }`}
                 >
                   <img src={slide.src} alt={slide.alt} className="w-full h-full object-cover" />
-                  <div className="absolute bottom-10 left-10">
-                    <h2 className="text-3xl font-bold mb-2 text-red-500">{slide.title}</h2>
-                    {slide.subtitle && <p className="text-xl mb-4 text-blue-500">{slide.subtitle}</p>}
+                  <div className="absolute bottom-6 sm:bottom-10 left-4 sm:left-10">
+                    <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-red-500">{slide.title}</h2>
+                    {slide.subtitle && <p className="text-lg sm:text-xl mb-3 sm:mb-4 text-blue-500">{slide.subtitle}</p>}
                     <a
                       href={slide.link}
-                      className="px-6 py-2 bg-white text-gray-900 rounded-md hover:bg-opacity-90 transition"
+                      className="px-4 sm:px-6 py-1.5 sm:py-2 bg-white text-gray-900 rounded-md hover:bg-opacity-90 transition text-sm sm:text-base"
                     >
                       Shop Now
                     </a>
@@ -91,7 +86,7 @@ function HeroSection() {
                   <button
                     key={index}
                     onClick={() => setCurrentSlide(index)}
-                    className={`w-3 h-3 rounded-full ${
+                    className={`w-2 sm:w-3 h-2 sm:h-3 rounded-full ${
                       index === currentSlide ? 'bg-white' : 'bg-white bg-opacity-50'
                     }`}
                     aria-label={`Go to slide ${index + 1}`}
@@ -104,12 +99,12 @@ function HeroSection() {
       </div>
 
       {/* Side Banner Section */}
-      <div className="w-full md:w-[35%] h-full rounded-xl flex flex-col gap-4">
+      <div className="w-full md:w-[35%] flex flex-col gap-4 h-[30vh] md:h-[80vh]">
         {/* Top Banner */}
         <div className="w-full h-1/2 relative rounded-xl overflow-hidden">
           {bannersLoading ? (
             <div className="w-full h-full flex items-center justify-center bg-gray-200">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+              <div className="animate-spin rounded-full h-6 sm:h-8 w-6 sm:w-8 border-t-2 border-b-2 border-blue-500"></div>
             </div>
           ) : (
             <>
@@ -123,15 +118,15 @@ function HeroSection() {
                       alt={banner ? banner.image.alt || banner.title : fallback.alt}
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute bottom-4 left-4">
-                      <h3 className="text-xl font-bold text-yellow-500">{banner ? banner.title : fallback.title}</h3>
+                    <div className="absolute bottom-2 sm:bottom-4 left-2 sm:left-4">
+                      <h3 className="text-base sm:text-xl font-bold text-yellow-500">{banner ? banner.title : fallback.title}</h3>
                       {banner?.description || fallback.subtitle ? (
-                        <p className="text-sm text-green-500">{banner ? banner.description : fallback.subtitle}</p>
+                        <p className="text-xs sm:text-sm text-green-500">{banner ? banner.description : fallback.subtitle}</p>
                       ) : null}
                       {(banner?.targetUrl || fallback.link) && (
                         <a
                           href={banner ? banner.targetUrl : fallback.link}
-                          className="mt-2 inline-block text-sm px-3 py-1 bg-white text-gray-900 rounded hover:bg-opacity-90"
+                          className="mt-1 sm:mt-2 inline-block text-xs sm:text-sm px-2 sm:px-3 py-0.5 sm:py-1 bg-white text-gray-900 rounded hover:bg-opacity-90"
                         >
                           Shop Now
                         </a>
@@ -150,7 +145,7 @@ function HeroSection() {
           <div className="w-1/2 h-full relative rounded-xl overflow-hidden">
             {bannersLoading ? (
               <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
+                <div className="animate-spin rounded-full h-4 sm:h-6 w-4 sm:w-6 border-t-2 border-b-2 border-blue-500"></div>
               </div>
             ) : (
               <>
@@ -164,15 +159,15 @@ function HeroSection() {
                         alt={banner ? banner.image.alt || banner.title : fallback.alt}
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute bottom-2 left-2">
-                        <p className="text-xs font-medium text-orange-500">{banner ? banner.title : fallback.title}</p>
+                      <div className="absolute bottom-1 sm:bottom-2 left-1 sm:left-2">
+                        <p className="text-[10px] sm:text-xs font-medium text-orange-500">{banner ? banner.title : fallback.title}</p>
                         {banner?.description || fallback.subtitle ? (
-                          <p className="text-xs text-purple-500">{banner ? banner.description : fallback.subtitle}</p>
+                          <p className="text-[10px] sm:text-xs text-purple-500">{banner ? banner.description : fallback.subtitle}</p>
                         ) : null}
                         {(banner?.targetUrl || fallback.link) && (
                           <a
                             href={banner ? banner.targetUrl : fallback.link}
-                            className="mt-1 inline-block text-xs px-2 py-0.5 bg-white text-gray-900 rounded hover:bg-opacity-90"
+                            className="mt-0.5 sm:mt-1 inline-block text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 bg-white text-gray-900 rounded hover:bg-opacity-90"
                           >
                             View
                           </a>
@@ -189,7 +184,7 @@ function HeroSection() {
           <div className="w-1/2 h-full relative rounded-xl overflow-hidden">
             {bannersLoading ? (
               <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
+                <div className="animate-spin rounded-full h-4 sm:h-6 w-4 sm:w-6 border-t-2 border-b-2 border-blue-500"></div>
               </div>
             ) : (
               <>
@@ -203,15 +198,15 @@ function HeroSection() {
                         alt={banner ? banner.image.alt || banner.title : fallback.alt}
                         className="w-full h-full object-cover"
                       />
-                      <div className="absolute bottom-2 left-2">
-                        <p className="text-xs font-medium text-orange-500">{banner ? banner.title : fallback.title}</p>
+                      <div className="absolute bottom-1 sm:bottom-2 left-1 sm:left-2">
+                        <p className="text-[10px] sm:text-xs font-medium text-orange-500">{banner ? banner.title : fallback.title}</p>
                         {banner?.description || fallback.subtitle ? (
-                          <p className="text-xs text-purple-500">{banner ? banner.description : fallback.subtitle}</p>
+                          <p className="text-[10px] sm:text-xs text-purple-500">{banner ? banner.description : fallback.subtitle}</p>
                         ) : null}
                         {(banner?.targetUrl || fallback.link) && (
                           <a
                             href={banner ? banner.targetUrl : fallback.link}
-                            className="mt-1 inline-block text-xs px-2 py-0.5 bg-white text-gray-900 rounded hover:bg-opacity-90"
+                            className="mt-0.5 sm:mt-1 inline-block text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 bg-white text-gray-900 rounded hover:bg-opacity-90"
                           >
                             View
                           </a>

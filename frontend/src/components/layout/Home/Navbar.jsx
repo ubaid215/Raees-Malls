@@ -156,9 +156,7 @@ function Navbar() {
         </button>
 
         <div className="flex-shrink-0 mx-4">
-          <Link to="/" onClick={closeMobileMenu}>
-            <Logo isLink={false} />
-          </Link>
+          <h1 className='text-red-600 font-sans'>Raees <br /> Malls</h1>
         </div>
 
         <div className="flex items-center gap-4">
@@ -290,9 +288,7 @@ function Navbar() {
       {/* Desktop Top Navigation */}
       <nav className="hidden md:flex max-w-7xl mx-auto px-4 py-4 bg-white items-center justify-between border-b">
         <div className="flex-shrink-0">
-          <Link to="/">
-            <Logo isLink={false} />
-          </Link>
+          <h1 className='text-red-500 font-sans tracking-tighter'>Raees <br /> Malls</h1>
         </div>
 
         <div className="flex items-center flex-1 max-w-xl mx-6 relative">
