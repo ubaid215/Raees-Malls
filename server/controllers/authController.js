@@ -17,7 +17,7 @@ exports.register = async (req, res, next) => {
     const { name, email, password, role = 'user' } = req.body;
     const user = await authService.createUser(name, email, password, role);
     const tokens = jwtService.generateTokens(user);
-    
+
     // Store refresh token
     await Token.create({ userId: user._id, token: tokens.refreshToken });
 
@@ -26,9 +26,10 @@ exports.register = async (req, res, next) => {
       if (err) {
         return next(new ApiError(500, 'Failed to log in user after registration', [err.message]));
       }
-      ApiResponse.success(res, 201, 'User registered and logged in successfully', { 
-        user: authService.sanitizeUser(user), 
-        tokens 
+      ApiResponse.success(res, 201, 'User registered and logged in successfully', {
+        user: authService.sanitizeUser(user),
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
       });
     });
   } catch (error) {
@@ -56,13 +57,14 @@ exports.login = async (req, res, next) => {
 
         // Generate JWT tokens
         const tokens = jwtService.generateTokens(user);
-        
+
         // Store refresh token
         await Token.create({ userId: user._id, token: tokens.refreshToken });
 
-        ApiResponse.success(res, 200, 'Logged in successfully', { 
-          user: authService.sanitizeUser(user), 
-          tokens 
+        ApiResponse.success(res, 200, 'Logged in successfully', {
+          user: authService.sanitizeUser(user),
+          token: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         });
       });
     })(req, res, next);
@@ -75,15 +77,15 @@ exports.refreshToken = async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
     console.log('Refresh token request:', { refreshToken: refreshToken?.slice(0, 10) + '...' });
-    if (!refreshToken) {
+    if (!refreshToken || refreshToken === 'undefined') {
       throw new ApiError(400, 'Refresh token is required');
     }
 
     // Verify and find token
     const decoded = jwtService.verifyRefreshToken(refreshToken);
-    const storedToken = await Token.findOne({ 
-      token: refreshToken, 
-      userId: decoded.userId 
+    const storedToken = await Token.findOne({
+      token: refreshToken,
+      userId: decoded.userId,
     });
 
     if (!storedToken) {
@@ -97,13 +99,18 @@ exports.refreshToken = async (req, res, next) => {
     }
 
     const tokens = jwtService.generateTokens(user);
-    
+
     // Replace old refresh token
     await Token.findOneAndDelete({ token: refreshToken });
     await Token.create({ userId: user._id, token: tokens.refreshToken });
 
-    ApiResponse.success(res, 200, 'Token refreshed successfully', { tokens });
+    ApiResponse.success(res, 200, 'Token refreshed successfully', {
+      user: authService.sanitizeUser(user),
+      token: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    });
   } catch (error) {
+    console.error('Refresh token error:', error.message);
     next(error);
   }
 };
@@ -114,7 +121,12 @@ exports.logout = async (req, res, next) => {
     if (refreshToken) {
       await Token.findOneAndDelete({ token: refreshToken });
     }
-    ApiResponse.success(res, 200, 'Logged out successfully');
+    req.logout((err) => {
+      if (err) {
+        console.error('Logout error:', err);
+      }
+      ApiResponse.success(res, 200, 'Logged out successfully');
+    });
   } catch (error) {
     next(error);
   }

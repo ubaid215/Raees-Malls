@@ -4,7 +4,6 @@ const Schema = mongoose.Schema;
 const bannerSchema = new Schema({
   title: {
     type: String,
-    required: true,
     trim: true
   },
   description: {
@@ -28,6 +27,12 @@ const bannerSchema = new Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  position: {
+    type: String,
+    enum: ['hero-slider', 'hero-side-top', 'hero-side-bottom-left', 'hero-side-bottom-right', 'featured-products-banner'],
+    required: true,
+    trim: true
   },
   createdAt: {
     type: Date,

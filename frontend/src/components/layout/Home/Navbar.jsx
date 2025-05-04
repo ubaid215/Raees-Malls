@@ -7,6 +7,7 @@ import { CategoryContext } from '../../../context/CategoryContext';
 import { ProductContext } from '../../../context/ProductContext';
 import { useCart } from '../../../context/CartContext';
 
+// Navigation links
 const navLinks = [
   { name: 'Home', path: '/' },
   { name: 'Shop', path: '/products' },
@@ -25,6 +26,8 @@ function Navbar() {
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
+  
+  // Cart context
   const { cart } = useCart();
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
   const { products, fetchProducts } = useContext(ProductContext);
@@ -108,6 +111,19 @@ function Navbar() {
     setShowMobileMenu(false);
   };
 
+  // Direct navigation handlers with console logging for debugging
+  const handleCartClick = (e) => {
+    console.log("Cart link clicked");
+    navigate('/cart');
+    e.stopPropagation(); // Prevent event bubbling
+  };
+
+  const handleAccountClick = (e) => {
+    console.log("Account link clicked");
+    navigate('/account');
+    e.stopPropagation(); // Prevent event bubbling
+  };
+
   // Generate category links with paths
   const categoryLinks = categories.map((category) => ({
     ...category,
@@ -153,14 +169,19 @@ function Navbar() {
           >
             <CiSearch size={24} strokeWidth={1} />
           </button>
-          <Link to="/cart" className="p-2 relative text-red-600" aria-label="Cart">
+          {/* Modified cart link with onClick handler */}
+          <button
+            onClick={handleCartClick}
+            className="p-2 relative text-red-600"
+            aria-label="Cart"
+          >
             <CiShoppingCart size={24} strokeWidth={1} />
             {cartCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
                 {cartCount}
               </span>
             )}
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -252,6 +273,16 @@ function Navbar() {
                 {link.name}
               </NavLink>
             ))}
+            {/* Add account link to mobile menu */}
+            <button
+              onClick={(e) => {
+                handleAccountClick(e);
+                closeMobileMenu();
+              }}
+              className="block w-full text-left px-2 py-3 text-gray-700 border-b"
+            >
+              Account
+            </button>
           </div>
         </div>
       )}
@@ -361,9 +392,10 @@ function Navbar() {
         </div>
 
         <div className="flex items-center gap-4 lg:gap-6">
-          <Link
-            to="/cart"
-            className="p-2 text-red-600 hover:text-red-700 transition-colors relative"
+          {/* Modified cart button with onClick handler */}
+          <button
+            onClick={handleCartClick}
+            className="p-2 text-red-600 hover:text-red-700 transition-colors relative cursor-pointer"
             aria-label="Cart"
           >
             <CiShoppingCart size={24} strokeWidth={1} />
@@ -372,15 +404,17 @@ function Navbar() {
                 {cartCount}
               </span>
             )}
-          </Link>
-          <Link
-            to="/account"
-            className="flex items-center gap-1 p-2 text-red-600 hover:text-red-700 transition-colors"
+          </button>
+          
+          {/* Modified account button with onClick handler */}
+          <button
+            onClick={handleAccountClick}
+            className="flex items-center gap-1 p-2 text-red-600 hover:text-red-700 transition-colors cursor-pointer"
             aria-label="Account"
           >
             <CiUser size={24} strokeWidth={1} />
             <span className="text-sm">Account</span>
-          </Link>
+          </button>
         </div>
       </nav>
 

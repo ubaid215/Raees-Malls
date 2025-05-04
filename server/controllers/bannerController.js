@@ -6,7 +6,7 @@ const ApiError = require('../utils/apiError');
 // Upload a new banner
 exports.uploadBanner = async (req, res, next) => {
   try {
-    const { title, description, targetUrl, priority, isActive } = req.body;
+    const { title, description, targetUrl, priority, isActive, position } = req.body;
 
     if (!req.file) {
       throw new ApiError(400, 'Banner image is required');
@@ -20,6 +20,7 @@ exports.uploadBanner = async (req, res, next) => {
       targetUrl,
       priority: priority ? parseInt(priority) : 0,
       isActive: isActive !== undefined ? isActive : true,
+      position,
       image: {
         url: req.file.path, // Cloudinary URL provided by multer-storage-cloudinary
         public_id: req.file.filename, // Public ID provided by multer-storage-cloudinary
@@ -39,7 +40,7 @@ exports.uploadBanner = async (req, res, next) => {
 exports.updateBanner = async (req, res, next) => {
   try {
     const { bannerId } = req.params;
-    const { title, description, targetUrl, priority, isActive } = req.body;
+    const { title, description, targetUrl, priority, isActive, position } = req.body;
 
     const banner = await Banner.findById(bannerId);
     if (!banner) {
@@ -52,6 +53,7 @@ exports.updateBanner = async (req, res, next) => {
     banner.targetUrl = targetUrl || banner.targetUrl;
     banner.priority = priority ? parseInt(priority) : banner.priority;
     banner.isActive = isActive !== undefined ? isActive : banner.isActive;
+    banner.position = position || banner.position;
 
     // Update image if provided
     if (req.file) {
@@ -78,25 +80,25 @@ exports.updateBanner = async (req, res, next) => {
 
 // Delete a banner
 exports.deleteBanner = async (req, res, next) => {
-    try {
-      const { bannerId } = req.params;
-  
-      const banner = await Banner.findById(bannerId);
-      if (!banner) {
-        throw new ApiError(404, 'Banner not found');
-      }
-  
-      // Delete image from Cloudinary
-      await cloudinary.uploader.destroy(banner.image.public_id);
-  
-      // Delete banner from database
-      await banner.deleteOne();
-  
-      ApiResponse.success(res, 200, 'Banner deleted successfully');
-    } catch (error) {
-      next(error);
+  try {
+    const { bannerId } = req.params;
+
+    const banner = await Banner.findById(bannerId);
+    if (!banner) {
+      throw new ApiError(404, 'Banner not found');
     }
-  };
+
+    // Delete image from Cloudinary
+    await cloudinary.uploader.destroy(banner.image.public_id);
+
+    // Delete banner from database
+    await banner.deleteOne();
+
+    ApiResponse.success(res, 200, 'Banner deleted successfully');
+  } catch (error) {
+    next(error);
+  }
+};
 
 // Get all banners (admin)
 exports.getAllBanners = async (req, res, next) => {

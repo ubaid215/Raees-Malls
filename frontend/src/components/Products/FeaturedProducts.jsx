@@ -6,13 +6,15 @@ import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
 import { ProductContext } from '../../context/ProductContext';
+import { useBanners } from '../../context/BannerContext';
 import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../shared/config';
 import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
 
 function FeaturedProducts() {
-  const { products, loading, error, fetchProducts } = useContext(ProductContext);
+  const { products, loading: productsLoading, error: productsError, fetchProducts } = useContext(ProductContext);
+  const { banners, loading: bannersLoading, error: bannersError } = useBanners();
   const [needsFetch, setNeedsFetch] = useState(true);
 
   // Clear cache on mount to ensure fresh data
@@ -26,7 +28,7 @@ function FeaturedProducts() {
     };
 
     clearProductCaches();
-    setNeedsFetch(true); // Trigger fresh fetch
+    setNeedsFetch(true);
   }, []);
 
   // Fetch featured products
@@ -40,11 +42,11 @@ function FeaturedProducts() {
     try {
       await fetchProducts(
         { page: 1, limit: 6, isFeatured: true, sort: '-createdAt' },
-        { isPublic: true, skipCache: true } // Skip cache to avoid stale data
+        { isPublic: true, skipCache: true }
       );
       setNeedsFetch(false);
     } catch (err) {
-      console.error('Fetch error:', err);
+      console.error('Fetch products error:', err);
       toast.error(err.message || 'Failed to load featured products');
     }
   }, [fetchProducts]);
@@ -54,7 +56,6 @@ function FeaturedProducts() {
     SocketService.connect();
 
     const handleProductCreated = (data) => {
-      // Trigger fetch if the new product is featured and in stock
       if (data.product.isFeatured && data.product.stock > 0) {
         setNeedsFetch(true);
         toast.success(`New featured product added: ${data.product.title}`);
@@ -62,7 +63,6 @@ function FeaturedProducts() {
     };
 
     const handleProductUpdated = (data) => {
-      // Trigger fetch if the product is featured
       if (data.product.isFeatured) {
         setNeedsFetch(true);
         toast.info(`Featured product updated: ${data.product.title}`);
@@ -70,7 +70,6 @@ function FeaturedProducts() {
     };
 
     const handleProductDeleted = (data) => {
-      // Trigger fetch to refresh the list
       setNeedsFetch(true);
       toast.warn('Featured product removed');
     };
@@ -87,11 +86,13 @@ function FeaturedProducts() {
     };
   }, []);
 
+  // Get featured products banner
+  const featuredBanner = banners.find((banner) => banner.position === 'featured-products-banner' && banner.isActive);
+
   const memoizedProducts = useMemo(() => {
     const productArray = Array.isArray(products) ? products : [];
     
     return productArray.map((product) => {
-      // Ensure images are properly structured
       const images = product.images && product.images.length > 0
         ? product.images.map(image => ({
             url: image.url
@@ -109,7 +110,7 @@ function FeaturedProducts() {
         title: product.title || product.name || 'Untitled Product',
         price: product.discountPrice || product.price || 0,
         originalPrice: product.price || 0,
-        images, // Pass the properly structured images array
+        images,
         averageRating: product.averageRating || product.rating || 0,
         numReviews: product.numReviews || 0,
         stock: product.stock || 0,
@@ -121,7 +122,7 @@ function FeaturedProducts() {
     });
   }, [products]);
 
-  if (loading && memoizedProducts.length === 0) {
+  if (productsLoading && memoizedProducts.length === 0) {
     return (
       <section aria-label="Loading Featured Products" className="w-full px-4 sm:px-6 my-6 sm:my-8 pb-5 text-center">
         <div className="flex justify-center">
@@ -131,19 +132,19 @@ function FeaturedProducts() {
     );
   }
 
-  if (error) {
+  if (productsError) {
     return (
       <section aria-label="No Featured Products" className="w-full px-4 sm:px-6 my-6 sm:my-8 pb-5 text-center">
         <p className="text-base sm:text-lg text-gray-500 mb-4">
-          Failed to load featured products: {error}
+          Failed to load featured products: {productsError}
         </p>
         <div className="flex flex-col items-center gap-2">
           <Button
             onClick={handleFetchFeaturedProducts}
             variant="outline"
-            disabled={loading}
+            disabled={productsLoading}
           >
-            {loading ? 'Loading...' : 'Retry Now'}
+            {productsLoading ? 'Loading...' : 'Retry Now'}
           </Button>
           <Link to="/all-products" className="flex items-center gap-2 text-sm text-gray-500 hover:text-red-500 transition-colors">
             View All Products <ArrowRight size={16} className="sm:size-18" />
@@ -173,40 +174,56 @@ function FeaturedProducts() {
       </div>
 
       {/* Mobile Banner (Shown only on small screens) */}
-      <div className="block sm:hidden w-full mb-6 rounded-lg overflow-hidden relative">
-        <img
-          src={Sidebanner}
-          alt="Promotional banner for up to 50% off sale"
-          className="w-full h-auto max-h-40 object-cover"
-          loading="lazy"
-        />
-        <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col justify-center px-4">
-          <h5 className="uppercase text-white text-xs">Upto 50% off</h5>
-          <h1 className="text-white text-xl font-semibold mt-1">
-            Limited <span className="text-red-400">Stock</span>, Huge Saving
-          </h1>
-          <Link to="/products/sale" className="mt-2">
-            <Button size="sm" className="text-white py-1 px-3">Shop Now</Button>
-          </Link>
-        </div>
+      <div className="block sm:hidden w-full mb-6 rounded-lg overflow-hidden relative h-48">
+        {bannersLoading ? (
+          <div className="w-full h-full flex items-center justify-center bg-gray-200">
+            <LoadingSpinner size="md" />
+          </div>
+        ) : (
+          <>
+            <img
+              src={featuredBanner ? featuredBanner.image.url : Sidebanner}
+              alt={featuredBanner ? featuredBanner.image.alt || featuredBanner.title : 'Promotional banner for up to 50% off sale'}
+              className="w-full h-full object-cover"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-black bg-opacity-30 flex flex-col justify-center px-4">
+              <h5 className="uppercase text-white text-xs">{featuredBanner ? featuredBanner.title : 'Upto 50% off'}</h5>
+              <h1 className="text-white text-xl font-semibold mt-1">
+                {featuredBanner ? featuredBanner.description : 'Limited '}<span className="text-red-400">{featuredBanner ? '' : 'Stock'}</span>, {featuredBanner ? '' : 'Huge Saving'}
+              </h1>
+              <Link to={featuredBanner ? featuredBanner.targetUrl || '/products/sale' : '/products/sale'} className="mt-2">
+                <Button size="sm" className="text-white py-1 px-3">Shop Now</Button>
+              </Link>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex items-start justify-center gap-4 lg:gap-8 w-full">
         {/* Desktop Side Banner (Shown only on large screens) */}
         <div className="hidden lg:block w-[30%] h-[160vh] rounded-xl overflow-hidden relative">
-          <img
-            src={Sidebanner}
-            alt="Promotional banner for up to 50% off sale"
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-          <h5 className="uppercase absolute top-10 left-7 text-white">Upto 50% off</h5>
-          <h1 className="absolute top-20 left-7 text-white text-3xl font-semibold">
-            Limited <span className="text-red-600">Stock</span>, <br />Huge Saving
-          </h1>
-          <Link to="/products/sale">
-            <Button className="absolute top-44 left-7 text-white">Shop Now</Button>
-          </Link>
+          {bannersLoading ? (
+            <div className="w-full h-full flex items-center justify-center bg-gray-200">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : (
+            <>
+              <img
+                src={featuredBanner ? featuredBanner.image.url : Sidebanner}
+                alt={featuredBanner ? featuredBanner.image.alt || featuredBanner.title : 'Promotional banner for up to 50% off sale'}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+              <h5 className="uppercase absolute top-10 left-7 text-white">{featuredBanner ? featuredBanner.title : 'Upto 50% off'}</h5>
+              <h1 className="absolute top-20 left-7 text-white text-3xl font-semibold">
+                {featuredBanner ? featuredBanner.description : 'Limited '}<span className="text-red-600">{featuredBanner ? '' : 'Stock'}</span>, <br />{featuredBanner ? '' : 'Huge Saving'}
+              </h1>
+              <Link to={featuredBanner ? featuredBanner.targetUrl || '/products/sale' : '/products/sale'}>
+                <Button className="absolute top-44 left-7 text-white">Shop Now</Button>
+              </Link>
+            </>
+          )}
         </div>
 
         <div className="w-full lg:w-[70%] grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 xs:gap-3 sm:gap-4 md:gap-6">
