@@ -22,6 +22,10 @@ const bannerSchema = yup.object().shape({
   isActive: yup
     .boolean()
     .optional(),
+  position: yup
+    .string()
+    .required('Position is required')
+    .oneOf(['hero-slider', 'hero-side-top', 'hero-side-bottom-left', 'hero-side-bottom-right', 'featured-products-banner'], 'Invalid position'),
 });
 
 // Get active banners (public)
@@ -74,12 +78,6 @@ export const createBanner = async (bannerData, image) => {
       const messages = errorData.errors.map((e) => e.msg).join(', ');
       throw new Error(messages);
     }
-    if (error.response?.status === 401) {
-      throw new Error('Unauthorized: Please log in again');
-    }
-    if (error.response?.status === 403) {
-      throw new Error('Forbidden: Admin access required');
-    }
     if (error.response?.status === 429) {
       const retryAfter = error.response?.headers['retry-after'] || '30';
       throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
@@ -114,12 +112,6 @@ export const updateBanner = async (id, bannerData, image) => {
       const messages = errorData.errors.map((e) => e.msg).join(', ');
       throw new Error(messages);
     }
-    if (error.response?.status === 401) {
-      throw new Error('Unauthorized: Please log in again');
-    }
-    if (error.response?.status === 403) {
-      throw new Error('Forbidden: Admin access required');
-    }
     if (error.response?.status === 429) {
       const retryAfter = error.response?.headers['retry-after'] || '30';
       throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
@@ -143,12 +135,6 @@ export const deleteBanner = async (id) => {
     if (errorData?.errors?.length) {
       const messages = errorData.errors.map((e) => e.msg).join(', ');
       throw new Error(messages);
-    }
-    if (error.response?.status === 401) {
-      throw new Error('Unauthorized: Please log in again');
-    }
-    if (error.response?.status === 403) {
-      throw new Error('Forbidden: Admin access required');
     }
     if (error.response?.status === 429) {
       const retryAfter = error.response?.headers['retry-after'] || '30';

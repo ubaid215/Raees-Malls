@@ -13,6 +13,7 @@ const BannerManager = () => {
     targetUrl: '',
     priority: 0,
     isActive: true,
+    position: 'hero-slider',
   });
   const [image, setImage] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -46,6 +47,7 @@ const BannerManager = () => {
       errors.image = 'Only JPEG or PNG images are allowed';
     }
     if (formData.priority < 0) errors.priority = 'Priority must be non-negative';
+    if (!formData.position) errors.position = 'Position is required';
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -60,33 +62,35 @@ const BannerManager = () => {
     try {
       let updatedBanner;
       if (editingId) {
-        // Update existing banner
         updatedBanner = await updateBanner(editingId, formData, image);
+        console.log('Updated banner:', updatedBanner);
         setBanners((prev) =>
           prev.map((banner) => (banner._id === editingId ? updatedBanner : banner))
         );
         toast.success('Banner updated successfully', { position: 'top-right', autoClose: 3000 });
       } else {
-        // Create new banner
         updatedBanner = await createBanner(formData, image);
+        console.log('Created banner:', updatedBanner);
         setBanners((prev) => [...prev, updatedBanner]);
         toast.success('Banner created successfully', { position: 'top-right', autoClose: 3000 });
       }
-      // Reset form
       setFormData({
         title: '',
         description: '',
         targetUrl: '',
         priority: 0,
         isActive: true,
+        position: 'hero-slider',
       });
       setImage(null);
       setEditingId(null);
       setFormErrors({});
+      setNeedsFetch(true);
     } catch (err) {
       const errorMessage = err.message.includes(',')
         ? err.message.split(', ').join('; ')
         : err.message;
+      console.error('Banner submission error:', err);
       toast.error(errorMessage, { position: 'top-right', autoClose: 5000 });
     }
   };
@@ -98,6 +102,7 @@ const BannerManager = () => {
       targetUrl: banner.targetUrl || '',
       priority: banner.priority,
       isActive: banner.isActive,
+      position: banner.position,
     });
     setImage(null);
     setEditingId(banner._id);
@@ -110,7 +115,9 @@ const BannerManager = () => {
       await deleteBanner(id);
       setBanners((prev) => prev.filter((banner) => banner._id !== id));
       toast.success('Banner deleted successfully', { position: 'top-right', autoClose: 3000 });
+      setNeedsFetch(true);
     } catch (err) {
+      console.error('Banner deletion error:', err);
       toast.error(err.message, { position: 'top-right', autoClose: 5000 });
     }
   };
@@ -128,7 +135,6 @@ const BannerManager = () => {
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8">Manage Banners</h1>
 
-      {/* Banner Form */}
       <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
         <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">
           {editingId ? 'Edit Banner' : 'Create Banner'}
@@ -193,6 +199,27 @@ const BannerManager = () => {
             />
             {formErrors.priority && <p className="mt-1 text-sm text-red-600">{formErrors.priority}</p>}
           </div>
+          <div>
+            <label htmlFor="position" className="block text-sm font-medium text-gray-700">
+              Position
+            </label>
+            <select
+              name="position"
+              id="position"
+              value={formData.position}
+              onChange={handleInputChange}
+              className={`mt-1 block w-full border ${
+                formErrors.position ? 'border-red-500' : 'border-gray-300'
+              } rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+            >
+              <option value="hero-slider">Hero Slider</option>
+              <option value="hero-side-top">Side Top</option>
+              <option value="hero-side-bottom-left">Side Bottom Left</option>
+              <option value="hero-side-bottom-right">Side Bottom Right</option>
+              <option value="featured-products-banner">Featured Products Banner</option>
+            </select>
+            {formErrors.position && <p className="mt-1 text-sm text-red-600">{formErrors.position}</p>}
+          </div>
           <div className="flex items-center">
             <input
               type="checkbox"
@@ -233,6 +260,7 @@ const BannerManager = () => {
                     targetUrl: '',
                     priority: 0,
                     isActive: true,
+                    position: 'hero-slider',
                   });
                   setImage(null);
                   setEditingId(null);
@@ -253,7 +281,6 @@ const BannerManager = () => {
         </form>
       </div>
 
-      {/* Banner Table */}
       <div className="bg-white rounded-lg shadow-sm p-6">
         <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Banners</h2>
         {banners.length === 0 ? (
@@ -270,6 +297,9 @@ const BannerManager = () => {
                     Title
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Position
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Priority
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -281,41 +311,44 @@ const BannerManager = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {banners.map((banner) => (
-                  <tr key={banner._id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <img
-                        src={banner.image.url}
-                        alt={banner.image.alt || banner.title}
-                        className="h-12 w-12 object-cover rounded"
-                      />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {banner.title}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {banner.priority}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {banner.isActive ? 'Yes' : 'No'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <Button
-                        onClick={() => handleEdit(banner)}
-                        className="text-blue-600 hover:text-blue-800 mr-4"
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        onClick={() => handleDelete(banner._id)}
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        Delete
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+                  {banners.map((banner) => (
+                    <tr key={banner._id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <img
+                          src={banner.image.url}
+                          alt={banner.image.alt || banner.title}
+                          className="h-12 w-12 object-cover rounded"
+                        />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {banner.title}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {banner.position}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {banner.priority}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {banner.isActive ? 'Yes' : 'No'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <Button
+                          onClick={() => handleEdit(banner)}
+                          className="text-blue-600 hover:text-blue-800 mr-4"
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          onClick={() => handleDelete(banner._id)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          Delete
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
             </table>
           </div>
         )}

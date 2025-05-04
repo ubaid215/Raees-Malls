@@ -1,120 +1,41 @@
-import React, { createContext, useState, useContext, useCallback, useMemo, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getBanners } from '../services/bannerService';
-import { useAuth } from './AuthContext';
 
-export const BannerContext = createContext();
+const BannerContext = createContext();
 
 export const BannerProvider = ({ children }) => {
-  const { logoutUser } = useAuth();
   const [banners, setBanners] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(null);
   const [needsFetch, setNeedsFetch] = useState(true);
 
-  const cacheKey = 'banners';
-  const cacheTTL = 3600000; // 1 hour in ms
-  const cacheCleanupTTL = 86400000; // 24 hours in ms
-
-  // Load banners from cache
-  const loadFromCache = useCallback(() => {
-    try {
-      const cachedStr = localStorage.getItem(cacheKey);
-      const timestampStr = localStorage.getItem(`${cacheKey}_timestamp`);
-      const now = Date.now();
-
-      if (cachedStr && timestampStr) {
-        const cachedData = JSON.parse(cachedStr);
-        const cachedTimestamp = parseInt(timestampStr);
-
-        if (now - cachedTimestamp < cacheTTL) {
-          setBanners(Array.isArray(cachedData) ? cachedData : []);
-          setNeedsFetch(false);
-          return true;
-        }
-      }
-    } catch (cacheErr) {
-      console.warn('Banner cache read error:', cacheErr);
-    }
-    return false;
-  }, []);
-
-  // Clean up stale cache
-  const cleanupCache = useCallback(() => {
-    try {
-      const timestampStr = localStorage.getItem(`${cacheKey}_timestamp`);
-      if (timestampStr) {
-        const timestamp = parseInt(timestampStr);
-        const now = Date.now();
-        if (now - timestamp > cacheCleanupTTL) {
-          localStorage.removeItem(cacheKey);
-          localStorage.removeItem(`${cacheKey}_timestamp`);
-        }
-      }
-    } catch (err) {
-      console.warn('Banner cache cleanup error:', err);
-    }
-  }, []);
-
-  // Fetch banners from API
-  const fetchBanners = useCallback(async () => {
-    if (loadFromCache()) {
-      setLoading(false);
-      setError('');
-      return;
-    }
-
+  const fetchBanners = async () => {
     setLoading(true);
-    setError('');
     try {
-      const bannerData = await getBanners();
-      const validBannerData = Array.isArray(bannerData) ? bannerData : [];
-
-      setBanners(validBannerData);
-      setNeedsFetch(false);
-
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify(validBannerData));
-        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
-      } catch (cacheErr) {
-        console.warn('Banner cache write error:', cacheErr);
-      }
+      const fetchedBanners = await getBanners();
+      console.log('Fetched banners:', fetchedBanners); // Debugging log
+      setBanners(fetchedBanners);
+      setError(null);
     } catch (err) {
-      setError(err.message || 'Failed to fetch banners');
-      setNeedsFetch(true);
-      if (err.message.includes('Unauthorized')) {
-        await logoutUser();
-      }
-      if (loadFromCache()) {
-        setError('Using cached banners due to fetch error');
-      }
+      console.error('Fetch banners error:', err.message); // Debugging log
+      setError(err.message);
     } finally {
       setLoading(false);
+      setNeedsFetch(false);
     }
-  }, [loadFromCache, logoutUser]);
+  };
 
-  // Fetch banners when needsFetch changes
   useEffect(() => {
     if (needsFetch) {
       fetchBanners();
     }
-  }, [needsFetch, fetchBanners]);
+  }, [needsFetch]);
 
-  // Run cache cleanup on mount
-  useEffect(() => {
-    cleanupCache();
-  }, [cleanupCache]);
-
-  const value = useMemo(() => ({
-    banners,
-    loading,
-    error,
-    needsFetch,
-    fetchBanners,
-    setBanners, // Added to allow updating banners after create/update/delete
-    setNeedsFetch,
-  }), [banners, loading, error, needsFetch, fetchBanners]);
-
-  return <BannerContext.Provider value={value}>{children}</BannerContext.Provider>;
+  return (
+    <BannerContext.Provider value={{ banners, loading, error, fetchBanners, setBanners, setNeedsFetch }}>
+      {children}
+    </BannerContext.Provider>
+  );
 };
 
 export const useBanners = () => {

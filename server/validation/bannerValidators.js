@@ -1,7 +1,6 @@
 const { body, param, query, validationResult } = require('express-validator');
 const ApiError = require('../utils/apiError');
 
-// Validator for uploading/updating banners
 const bannerValidator = [
   body('title')
     .trim().notEmpty().withMessage('Title is required'),
@@ -15,6 +14,11 @@ const bannerValidator = [
   body('isActive')
     .optional()
     .isBoolean().withMessage('isActive must be a boolean'),
+  body('position')
+    .trim()
+    .notEmpty().withMessage('Position is required')
+    .isIn(['hero-slider', 'hero-side-top', 'hero-side-bottom-left', 'hero-side-bottom-right', 'featured-products-banner'])
+    .withMessage('Invalid position'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -24,20 +28,18 @@ const bannerValidator = [
   }
 ];
 
-// Validator for banner ID
 const bannerIdValidator = [
-    param('bannerId')
-      .isMongoId().withMessage('Invalid banner ID'),
-    (req, res, next) => {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return next(new ApiError(400, 'Validation failed', errors.array()));
-      }
-      next();
+  param('bannerId')
+    .isMongoId().withMessage('Invalid banner ID'),
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new ApiError(400, 'Validation failed', errors.array()));
     }
-  ];
+    next();
+  }
+];
 
-// Validator for getting banners
 const getBannersValidator = [
   query('page')
     .optional()
