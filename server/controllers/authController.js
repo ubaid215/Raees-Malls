@@ -74,6 +74,7 @@ exports.login = async (req, res, next) => {
 exports.refreshToken = async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
+    console.log('Refresh token request:', { refreshToken: refreshToken?.slice(0, 10) + '...' });
     if (!refreshToken) {
       throw new ApiError(400, 'Refresh token is required');
     }
@@ -113,16 +114,7 @@ exports.logout = async (req, res, next) => {
     if (refreshToken) {
       await Token.findOneAndDelete({ token: refreshToken });
     }
-
-    // Destroy the session and clear the cookie
-    req.logout((err) => {
-      if (err) return next(err);
-      req.session.destroy((err) => {
-        if (err) return next(err);
-        res.clearCookie('connect.sid');
-        ApiResponse.success(res, 200, 'Logged out successfully');
-      });
-    });
+    ApiResponse.success(res, 200, 'Logged out successfully');
   } catch (error) {
     next(error);
   }
@@ -134,13 +126,61 @@ exports.getMe = async (req, res, next) => {
       throw new ApiError(401, 'User not authenticated');
     }
 
-    const user = await User.findById(req.user.userId).select('-password');
+    let userId;
+    if (req.user._id) {
+      // Session-based: req.user is the full user object
+      userId = req.user._id;
+    } else if (req.user.userId) {
+      // JWT-based: req.user is the decoded JWT payload
+      userId = req.user.userId;
+    } else {
+      throw new ApiError(401, 'Invalid user data');
+    }
+
+    const user = await User.findById(userId).select('-password');
     if (!user) {
       throw new ApiError(404, 'User not found');
     }
 
     ApiResponse.success(res, 200, 'User data retrieved', {
       user: authService.sanitizeUser(user),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateProfile = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw new ApiError(400, 'Validation failed', errors.array());
+    }
+
+    if (!req.user) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
+    const { name, email, addresses } = req.body;
+    const userId = req.user.userId || req.user._id.toString();
+
+    const existingUser = await User.findOne({ email, _id: { $ne: userId } });
+    if (existingUser) {
+      throw new ApiError(400, 'Email is already in use');
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { name, email, addresses },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!updatedUser) {
+      throw new ApiError(404, 'User not found');
+    }
+
+    ApiResponse.success(res, 200, 'Profile updated successfully', {
+      user: authService.sanitizeUser(updatedUser),
     });
   } catch (error) {
     next(error);

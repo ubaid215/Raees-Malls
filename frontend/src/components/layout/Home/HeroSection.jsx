@@ -42,7 +42,7 @@ function HeroSection() {
   };
 
   return (
-    <section className='px-6 my-3 pb-5 w-full h-[80vh] flex flex-col md:flex-row items-center justify-between gap-5'>
+    <section className='px-6 mb-3 pb-5 pt-7 w-full h-[80vh] flex flex-col md:flex-row items-center justify-between gap-5'>
       {/* Main Slider Section */}
       <div className='w-full md:w-[65%] h-full relative rounded-xl overflow-hidden'>
         <div className="relative w-full h-full">

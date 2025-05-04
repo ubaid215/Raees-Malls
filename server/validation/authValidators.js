@@ -80,3 +80,29 @@ exports.changePasswordValidator = [
     next();
   }
 ];
+
+exports.updateProfileValidator = [
+  body('name').trim().notEmpty().withMessage('Name is required'),
+  body('email').isEmail().withMessage('Invalid email format'),
+  body('addresses')
+    .optional()
+    .isArray()
+    .withMessage('Addresses must be an array')
+    .custom((addresses) => {
+      if (!addresses) return true;
+      return addresses.every(
+        (addr) =>
+          addr.street &&
+          addr.city &&
+          addr.state &&
+          addr.zip &&
+          addr.country &&
+          typeof addr.street === 'string' &&
+          typeof addr.city === 'string' &&
+          typeof addr.state === 'string' &&
+          typeof addr.zip === 'string' &&
+          typeof addr.country === 'string'
+      );
+    })
+    .withMessage('Each address must have valid street, city, state, zip, and country'),
+];

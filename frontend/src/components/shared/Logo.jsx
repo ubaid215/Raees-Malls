@@ -70,7 +70,7 @@ const Logo = ({
           <span className={`block font-bold ${variants[variant].primary} ${size === 'xl' ? 'text-2xl' : 'text-lg'}`}>
             Raees
           </span>
-          <span className={`block font-medium ${variants[variant].secondary} ${size === 'xl' ? 'text-xl' : 'text-base'}`}>
+          <span className={`block font-medium ${variants[variant].primary} ${size === 'xl' ? 'text-xl' : 'text-base'}`}>
             Malls
           </span>
         </div>

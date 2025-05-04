@@ -1,9 +1,11 @@
-import React, { createContext, useState, useContext, useCallback, useMemo } from 'react';
+import React, { createContext, useState, useContext, useCallback, useMemo, useEffect } from 'react';
 import { getBanners } from '../services/bannerService';
+import { useAuth } from './AuthContext';
 
 export const BannerContext = createContext();
 
 export const BannerProvider = ({ children }) => {
+  const { logoutUser } = useAuth();
   const [banners, setBanners] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -13,7 +15,7 @@ export const BannerProvider = ({ children }) => {
   const cacheTTL = 3600000; // 1 hour in ms
   const cacheCleanupTTL = 86400000; // 24 hours in ms
 
-  // Load banners from cache on mount
+  // Load banners from cache
   const loadFromCache = useCallback(() => {
     try {
       const cachedStr = localStorage.getItem(cacheKey);
@@ -55,7 +57,6 @@ export const BannerProvider = ({ children }) => {
 
   // Fetch banners from API
   const fetchBanners = useCallback(async () => {
-    // Check cache first
     if (loadFromCache()) {
       setLoading(false);
       setError('');
@@ -67,11 +68,10 @@ export const BannerProvider = ({ children }) => {
     try {
       const bannerData = await getBanners();
       const validBannerData = Array.isArray(bannerData) ? bannerData : [];
-      
+
       setBanners(validBannerData);
       setNeedsFetch(false);
 
-      // Update cache
       try {
         localStorage.setItem(cacheKey, JSON.stringify(validBannerData));
         localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
@@ -81,17 +81,28 @@ export const BannerProvider = ({ children }) => {
     } catch (err) {
       setError(err.message || 'Failed to fetch banners');
       setNeedsFetch(true);
-      // Fallback to cache if available
+      if (err.message.includes('Unauthorized')) {
+        await logoutUser();
+      }
       if (loadFromCache()) {
         setError('Using cached banners due to fetch error');
       }
     } finally {
       setLoading(false);
     }
-  }, [loadFromCache]);
+  }, [loadFromCache, logoutUser]);
+
+  // Fetch banners when needsFetch changes
+  useEffect(() => {
+    if (needsFetch) {
+      fetchBanners();
+    }
+  }, [needsFetch, fetchBanners]);
 
   // Run cache cleanup on mount
-  cleanupCache();
+  useEffect(() => {
+    cleanupCache();
+  }, [cleanupCache]);
 
   const value = useMemo(() => ({
     banners,
@@ -99,6 +110,8 @@ export const BannerProvider = ({ children }) => {
     error,
     needsFetch,
     fetchBanners,
+    setBanners, // Added to allow updating banners after create/update/delete
+    setNeedsFetch,
   }), [banners, loading, error, needsFetch, fetchBanners]);
 
   return <BannerContext.Provider value={value}>{children}</BannerContext.Provider>;

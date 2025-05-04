@@ -28,27 +28,37 @@ function AllProducts() {
     ? [{ _id: 'all', name: 'All Categories', slug: 'all' }, ...categories]
     : [{ _id: 'all', name: 'All Categories', slug: 'all' }];
 
-  const debouncedFetchProducts = useCallback(
-    debounce(async (page, limit, categoryId) => {
-      try {
-        const result = await fetchProducts(
-          { page, limit, categoryId: categoryId !== 'all' ? categoryId : null, sort: '-createdAt' },
-          { isPublic: true, skipCache: true } // Skip cache to avoid stale data
-        );
-
-        setPagination((prev) => ({
-          ...prev,
-          pages: result.totalPages || 1,
-          total: result.totalItems || 0,
-        }));
-        setNeedsFetch(false);
-      } catch (err) {
-        console.error('Product fetch error:', err);
-        toast.error(err.message || 'Failed to load products');
-      }
-    }, 500),
-    [fetchProducts]
-  );
+    const debouncedFetchProducts = useCallback(
+      debounce(async (page, limit, categoryId) => {
+        try {
+          const result = await fetchProducts(
+            { page, limit, categoryId: categoryId !== 'all' ? categoryId : null, sort: '-createdAt' },
+            { isPublic: true } // Remove skipCache: true to leverage caching
+          );
+    
+          if (!result || typeof result !== 'object') {
+            throw new Error('Invalid response from fetchProducts');
+          }
+    
+          setPagination((prev) => ({
+            ...prev,
+            pages: result.totalPages || 1,
+            total: result.totalItems || 0,
+          }));
+          setNeedsFetch(false);
+        } catch (err) {
+          console.error('Product fetch error:', err);
+          toast.error(err.message || 'Failed to load products');
+          // Set default pagination values to prevent further errors
+          setPagination((prev) => ({
+            ...prev,
+            pages: 1,
+            total: 0,
+          }));
+        }
+      }, 500),
+      [fetchProducts]
+    );
 
   // Clear cache on mount to ensure fresh data
   useEffect(() => {

@@ -2,6 +2,8 @@ import api from './api';
 
 export const getProducts = async (page = 1, limit = 10, sort = null, filters = {}, options = {}) => {
   const { isPublic = false } = options;
+  let endpoint; // Define endpoint at the function scope level so it's available in the catch block
+  
   try {
     const query = new URLSearchParams({
       page,
@@ -10,15 +12,10 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
       ...filters,
     }).toString();
 
-    const endpoint = isPublic ? `/products/public?${query}` : `/admin/products?${query}`;
+    endpoint = isPublic ? `/products/public?${query}` : `/admin/products?${query}`;
     const response = await api.get(endpoint, { skipAuth: isPublic });
     
-    // console.log('Get products response:', { 
-    //   endpoint,
-    //   status: response.status,
-    //   count: response.data?.data?.products?.length || 0
-    // });
-
+    // Rest of the function remains the same
     if (!response.data || typeof response.data !== 'object') {
       throw new Error('Invalid response: No data received');
     }
@@ -47,7 +44,7 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
     };
   } catch (error) {
     console.error('Get products error:', {
-      endpoint,
+      endpoint, // Now this is defined
       status: error.response?.status,
       message: error.message,
       responseData: error.response?.data

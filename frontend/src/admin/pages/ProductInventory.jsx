@@ -355,15 +355,8 @@ const ProductInventory = memo(() => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-2">
-                        <button
-                          onClick={() => handlePreview(product)}
-                          className="text-blue-600 hover:text-blue-900"
-                          title="Preview"
-                          aria-label={`Preview ${product.title}`}
-                        >
-                          <FiEye className="h-5 w-5" />
-                        </button>
+                      <div className="flex justify-end gap-5 space-x-2">
+                        
                         <Link to={`/admin/edit-product/${product._id}`}>
                           <button
                             className="text-indigo-600 hover:text-indigo-900"

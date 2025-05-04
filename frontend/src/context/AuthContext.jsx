@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
-import { login, register, logout, refreshToken, getMe } from '../services/authServices';
+import { login, register, logout, refreshToken, getMe, updateUser } from '../services/authServices';
 import socketService from '../services/socketService';
 
 const AuthContext = createContext();
@@ -12,32 +12,26 @@ const AuthProvider = ({ children }) => {
     needsFetch: false, // Changed from true so we control fetch explicitly
   });
 
-  // Add this useEffect to initialize authentication state on app mount/refresh
+  // Initialize authentication state on app mount/refresh
   useEffect(() => {
     const initializeAuth = async () => {
-      // If we have a token in localStorage, attempt to restore the session
       const storedToken = localStorage.getItem('token');
       if (storedToken) {
         try {
-          // Try to either use cached user data or refresh the token
           await fetchUser();
         } catch (error) {
-          // If fetchUser fails, try token refresh as fallback
           try {
             await refreshUserToken();
           } catch (refreshError) {
-            // If both fail, we truly need to log out
             resetAuthState();
           }
         }
       } else {
-        // No token, definitely not authenticated
-        setAuthState(prev => ({ ...prev, loading: false }));
+        setAuthState((prev) => ({ ...prev, loading: false }));
       }
     };
 
     initializeAuth();
-    // No dependencies means this runs once on mount
   }, []);
 
   const setupSocketConnection = (user) => {
@@ -49,9 +43,7 @@ const AuthProvider = ({ children }) => {
     console.error('Auth error:', error);
     let errorMessage = error.message;
 
-    // Check if the error is a validation error (from yup or backend)
     if (error.message.includes(',')) {
-      // Validation errors are joined with commas
       errorMessage = error.message.split(', ').map((msg) => ({ msg }));
     } else if (error.message === 'This email is already registered') {
       errorMessage = [{ msg: 'This email is already registered' }];
@@ -65,7 +57,7 @@ const AuthProvider = ({ children }) => {
       ...prev,
       error: errorMessage,
       loading: false,
-      needsFetch: false, // Changed from true to avoid infinite fetch loops
+      needsFetch: false,
     }));
 
     if (error.message.includes('Too many requests')) {
@@ -179,10 +171,28 @@ const AuthProvider = ({ children }) => {
         ...prev,
         user: userData || prev.user,
         loading: false,
-        needsFetch: false, // Always set to false after attempt
+        needsFetch: false,
       }));
       if (userData) setupSocketConnection(userData);
       return userData;
+    } catch (err) {
+      handleAuthError(err);
+      throw err;
+    }
+  };
+
+  const updateUser = async (userData) => {
+    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const updatedUser = await updateUser(userData);
+      setAuthState({
+        user: updatedUser,
+        loading: false,
+        error: null,
+        needsFetch: false,
+      });
+      setupSocketConnection(updatedUser);
+      return updatedUser;
     } catch (err) {
       handleAuthError(err);
       throw err;
@@ -198,6 +208,7 @@ const AuthProvider = ({ children }) => {
       logoutUser,
       refreshUserToken,
       fetchUser,
+      updateUser,
     }),
     [authState]
   );
