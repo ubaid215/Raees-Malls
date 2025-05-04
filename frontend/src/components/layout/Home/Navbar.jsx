@@ -3,7 +3,6 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import Logo from '../../shared/Logo';
 import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
-import { FiPhoneCall } from 'react-icons/fi';
 import { CategoryContext } from '../../../context/CategoryContext';
 import { ProductContext } from '../../../context/ProductContext';
 import { useCart } from '../../../context/CartContext';
@@ -116,10 +115,10 @@ function Navbar() {
   }));
 
   return (
-    <header className="sticky top-0 z-50 bg-[#f5f5f5] shadow-sm mb-5">
+    <header className="sticky top-0 z-50 bg-white shadow-md">
       {/* Error Message */}
       {error && (
-        <div className="bg-red-100 text-red-700 text-center py-1 px-4 text-sm">
+        <div className="bg-red-50 text-red-700 text-center py-1 px-4 text-sm">
           {error}
           <button
             onClick={() => fetchCategories({ isPublic: true })}
@@ -131,10 +130,10 @@ function Navbar() {
       )}
 
       {/* Mobile Top Bar */}
-      <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#232F3F] text-white">
+      <div className="md:hidden flex items-center justify-between px-4 py-3 bg-white border-b">
         <button
           onClick={() => setShowMobileMenu(!showMobileMenu)}
-          className="p-2"
+          className="p-2 text-red-600"
           aria-label="Toggle menu"
         >
           <CiMenuBurger size={24} strokeWidth={1} />
@@ -149,12 +148,12 @@ function Navbar() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => setShowMobileSearch(!showMobileSearch)}
-            className="p-2"
+            className="p-2 text-red-600"
             aria-label="Search"
           >
             <CiSearch size={24} strokeWidth={1} />
           </button>
-          <Link to="/cart" className="p-2 relative" aria-label="Cart">
+          <Link to="/cart" className="p-2 relative text-red-600" aria-label="Cart">
             <CiShoppingCart size={24} strokeWidth={1} />
             {cartCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
@@ -167,14 +166,14 @@ function Navbar() {
 
       {/* Mobile Search */}
       {showMobileSearch && (
-        <div className="md:hidden px-4 py-3 bg-[#232F3F] relative">
+        <div className="md:hidden px-4 py-3 bg-white border-b relative">
           <form onSubmit={handleSearch} className="flex">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search..."
-              className="flex-1 px-4 py-2 rounded-l-md focus:outline-none text-[#232F3F]"
+              className="flex-1 px-4 py-2 rounded-l-md border border-gray-300 focus:outline-none focus:border-red-500 text-gray-800"
               aria-label="Search products"
             />
             <button
@@ -206,7 +205,7 @@ function Navbar() {
                       />
                       <div>
                         <p className="font-medium text-gray-800 truncate">{product.title}</p>
-                        <p className="text-sm text-gray-600">${product.price}</p>
+                        <p className="text-sm text-red-600">${product.price}</p>
                       </div>
                     </div>
                   </div>
@@ -254,33 +253,11 @@ function Navbar() {
               </NavLink>
             ))}
           </div>
-          <div className="px-4 py-2 border-t">
-            {loading ? (
-              <div className="px-2 py-2 text-gray-700">Loading categories...</div>
-            ) : categoryLinks.length > 0 ? (
-              categoryLinks.slice(0, 5).map((category) => (
-                <Link
-                  key={category._id}
-                  to={category.path}
-                  className="block px-2 py-2 text-gray-700 hover:text-red-600"
-                  onClick={closeMobileMenu}
-                >
-                  {category.name}
-                </Link>
-              ))
-            ) : (
-              <div className="px-2 py-2 text-gray-700">No categories available</div>
-            )}
-          </div>
-          <div className="px-4 py-3 flex items-center gap-2 text-gray-700">
-            <FiPhoneCall size={18} />
-            <span>+923006530063</span>
-          </div>
         </div>
       )}
 
       {/* Desktop Top Navigation */}
-      <nav className="hidden md:flex max-w-7xl mx-auto h-20 px-4 py-4 bg-[#232F3F] text-white items-center justify-between">
+      <nav className="hidden md:flex max-w-7xl mx-auto px-4 py-4 bg-white items-center justify-between border-b">
         <div className="flex-shrink-0">
           <Link to="/">
             <Logo isLink={false} />
@@ -291,7 +268,7 @@ function Navbar() {
           <div className="relative">
             <button
               onClick={() => setShowDropdown(!showDropdown)}
-              className="px-4 py-3 flex items-center gap-2 bg-white text-[#232F3F] rounded-l-md border-r hover:bg-gray-100 transition-colors hover:shadow-md min-w-[180px] justify-between"
+              className="px-4 py-3 flex items-center gap-2 bg-gray-50 text-gray-700 rounded-l-md border-r border hover:bg-gray-100 transition-colors hover:shadow-md min-w-[180px] justify-between"
               aria-label="Select category"
               disabled={loading}
             >
@@ -331,12 +308,12 @@ function Navbar() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="What you are looking for..."
-              className="w-full px-4 py-3 bg-white placeholder-gray-400 text-[#232F3F] focus:outline-none"
+              className="w-full px-4 py-3 border border-l-0 placeholder-gray-400 text-gray-800 focus:outline-none focus:border-red-300"
               aria-label="Search products"
             />
             <button
               type="submit"
-              className="px-4 py-3 bg-red-600 text-white rounded-r-md hover:bg-red-700 transition-colors"
+              className="px-6 py-3 bg-red-600 text-white rounded-r-md hover:bg-red-700 transition-colors"
               aria-label="Submit search"
             >
               <CiSearch size={20} strokeWidth={1} />
@@ -363,7 +340,7 @@ function Navbar() {
                           />
                           <div>
                             <p className="font-medium text-gray-800 truncate">{product.title}</p>
-                            <p className="text-sm text-gray-600">${product.price}</p>
+                            <p className="text-sm text-red-600">${product.price}</p>
                           </div>
                         </div>
                       </div>
@@ -386,7 +363,7 @@ function Navbar() {
         <div className="flex items-center gap-4 lg:gap-6">
           <Link
             to="/cart"
-            className="p-2 hover:text-red-400 transition-colors relative"
+            className="p-2 text-red-600 hover:text-red-700 transition-colors relative"
             aria-label="Cart"
           >
             <CiShoppingCart size={24} strokeWidth={1} />
@@ -398,7 +375,7 @@ function Navbar() {
           </Link>
           <Link
             to="/account"
-            className="flex items-center gap-1 p-2 hover:text-red-400 transition-colors"
+            className="flex items-center gap-1 p-2 text-red-600 hover:text-red-700 transition-colors"
             aria-label="Account"
           >
             <CiUser size={24} strokeWidth={1} />
@@ -408,33 +385,8 @@ function Navbar() {
       </nav>
 
       {/* Desktop Bottom Navigation */}
-      <nav className="hidden md:flex max-w-7xl mx-auto h-14 bg-white border-b items-center justify-between px-4 lg:px-6">
-        <div className="relative group">
-          <button className="flex items-center gap-1 px-4 py-2 bg-[#232F3F] text-white rounded-md hover:bg-opacity-90">
-            <CiMenuBurger size={18} strokeWidth={1} />
-            <span>Categories</span>
-            <RiArrowDownLine size={16} />
-          </button>
-          <div className="absolute left-0 mt-1 w-56 bg-white rounded-md shadow-lg z-10 hidden group-hover:block max-h-96 overflow-y-auto">
-            {loading ? (
-              <div className="px-4 py-2 text-gray-800">Loading categories...</div>
-            ) : categoryLinks.length > 0 ? (
-              categoryLinks.map((category) => (
-                <Link
-                  key={category._id}
-                  to={category.path}
-                  className="block px-4 py-2 text-gray-800 hover:bg-gray-100"
-                >
-                  {category.name}
-                </Link>
-              ))
-            ) : (
-              <div className="px-4 py-2 text-gray-800">No categories available</div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-4 lg:space-x-6">
+      <nav className="hidden md:flex max-w-7xl mx-auto h-14 bg-white items-center justify-center px-4 lg:px-6">
+        <div className="flex items-center space-x-4 lg:space-x-8">
           {navLinks.map((link) => (
             <NavLink
               key={link.path}
@@ -448,11 +400,6 @@ function Navbar() {
               {link.name}
             </NavLink>
           ))}
-        </div>
-
-        <div className="flex items-center gap-3 text-sm">
-          <FiPhoneCall size={16} />
-          <span>+923006530063</span>
         </div>
       </nav>
     </header>

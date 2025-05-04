@@ -35,6 +35,33 @@ const loginSchema = yup.object().shape({
   password: yup.string().required('Password is required'),
 });
 
+const updateProfileSchema = yup.object().shape({
+  name: yup
+    .string()
+    .trim()
+    .required('Name is required')
+    .min(2, 'Name must be at least 2 characters')
+    .max(50, 'Name must not exceed 50 characters'),
+  email: yup
+    .string()
+    .trim()
+    .required('Email is required')
+    .email('Invalid email format')
+    .lowercase('Email must be in lowercase'),
+  addresses: yup
+    .array()
+    .of(
+      yup.object().shape({
+        street: yup.string().trim().required('Street is required'),
+        city: yup.string().trim().required('City is required'),
+        state: yup.string().trim().required('State is required'),
+        zip: yup.string().trim().required('Zip code is required'),
+        country: yup.string().trim().required('Country is required'),
+      })
+    )
+    .optional(),
+});
+
 export const login = async (email, password) => {
   try {
     const credentials = await loginSchema.validate(
@@ -112,7 +139,7 @@ export const register = async (name, email, password) => {
     const validationErrors = errorData?.errors;
 
     if (Array.isArray(validationErrors) && validationErrors.length > 0) {
-      const messages = validationErrors.map((e) => e.msg).join(', ');
+      const messages = validationExperts.map((e) => e.msg).join(', ');
       console.error('Backend Validation Errors:', messages);
       throw new Error(messages);
     }
@@ -121,7 +148,7 @@ export const register = async (name, email, password) => {
       errorData?.message || error.message || 'Registration failed';
     console.error('Registration Error:', errorMessage);
 
-    if (errorData?.message === 'Email already in use') {
+    if (errorData?.message === 'This email is already registered') {
       throw new Error('This email is already registered');
     }
 
@@ -220,5 +247,63 @@ export const getMe = async () => {
     throw new Error(
       error.response?.data?.message || error.message || 'Failed to fetch user details'
     );
+  }
+};
+
+export const updateUser = async (userData) => {
+  try {
+    const validatedData = await updateProfileSchema.validate(userData, {
+      abortEarly: false,
+    });
+
+    const response = await api.put('/auth/update', validatedData);
+    console.log('Update user response:', response.data);
+    const { success, data } = response.data;
+
+    if (!success || !data?.user) {
+      console.error('Invalid response data:', response.data);
+      throw new Error('Invalid response: Missing user data');
+    }
+
+    try {
+      localStorage.setItem('userData', JSON.stringify(data.user));
+      localStorage.setItem('userDataTimestamp', Date.now().toString());
+    } catch (cacheErr) {
+      console.warn('Failed to cache user data:', cacheErr);
+    }
+
+    return data.user;
+  } catch (error) {
+    if (error instanceof yup.ValidationError) {
+      const errors = error.inner.map((err) => err.message).join(', ');
+      console.error('Validation Errors:', errors);
+      throw new Error(errors);
+    }
+
+    const errorData = error.response?.data;
+    const validationErrors = errorData?.errors;
+
+    if (Array.isArray(validationErrors) && validationErrors.length > 0) {
+      const messages = validationErrors.map((e) => e.msg).join(', ');
+      console.error('Backend Validation Errors:', messages);
+      throw new Error(messages);
+    }
+
+    const errorMessage =
+      errorData?.message || error.message || 'Failed to update profile';
+    console.error('Update Profile Error:', errorMessage);
+
+    if (errorData?.message === 'This email is already registered') {
+      throw new Error('This email is already registered');
+    }
+
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers['retry-after'] || '30';
+      throw new Error(
+        `Too many requests. Please try again in ${retryAfter} seconds.`
+      );
+    }
+
+    throw new Error(errorMessage);
   }
 };

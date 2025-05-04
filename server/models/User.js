@@ -30,13 +30,15 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  addresses: [{
-    street: { type: String, required: true },
-    city: { type: String, required: true },
-    state: { type: String, required: true },
-    zip: { type: String, required: true },
-    country: { type: String, required: true }
-  }],
+  addresses: [
+    {
+      street: { type: String, required: true, trim: true },
+      city: { type: String, required: true, trim: true },
+      state: { type: String, required: true, trim: true },
+      zip: { type: String, required: true, trim: true },
+      country: { type: String, required: true, trim: true },
+    },
+  ],
   createdAt: {
     type: Date,
     default: Date.now

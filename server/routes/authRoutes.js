@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const { authenticateJWT } = require('../middleware/auth');
-const { registerValidator, loginValidator, validate } = require('../validation/authValidators');
+const { registerValidator, loginValidator, updateProfileValidator, validate } = require('../validation/authValidators');
 const { authLimiter, apiLimiter } = require('../middleware/rateLimiter');
 
 // Apply rate limiting
@@ -14,10 +14,11 @@ router.post('/login', authLimiter, loginValidator, validate, authController.logi
 
 
 // Protected routes (JWT only)
-router.post('/refresh-token', authenticateJWT, authController.refreshToken); 
+router.post('/refresh-token',  authController.refreshToken); 
 router.post('/logout', authenticateJWT, authController.logout);
 
 // Protected route
 router.get('/me', authenticateJWT, authController.getMe);
+router.put('/update', authenticateJWT, updateProfileValidator, validate, authController.updateProfile); // New route
 
 module.exports = router;

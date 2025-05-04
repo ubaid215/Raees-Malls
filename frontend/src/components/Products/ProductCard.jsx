@@ -28,7 +28,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         try {
           setLoading(true);
           const fetchedProduct = await getProduct(productId, { skipCache: false });
-          // console.log('Fetched product:', fetchedProduct);
           setProduct(fetchedProduct);
         } catch (error) {
           console.error('Failed to fetch product:', error);
@@ -38,8 +37,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         }
       };
       fetchProduct();
-    } else if (initialProduct) {
-      // console.log('Initial product:', initialProduct);
     }
   }, [productId, initialProduct, getProduct]);
 
@@ -78,7 +75,16 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const handleAddToCartClick = async (e) => {
     e.stopPropagation();
     if (!user) {
-      toast.info('Please login to add items to cart');
+      toast.info('Please login to add items to cart', {
+        position: "top-center",
+        autoClose: 3000,
+        hideProgressBar: false,
+        closeOnClick: true,
+        pauseOnHover: true,
+        draggable: true,
+        className: "bg-white text-gray-800 border-l-4 border-blue-500 shadow-md",
+        bodyClassName: "font-medium"
+      });
       navigate('/login', { state: { from: window.location.pathname } });
       return;
     }
@@ -86,7 +92,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     setAddToCartStatus({ loading: true, success: false, error: null });
     
     try {
-      const result = await addItemToCart(product._id, null, 1); // Corrected: variantId = null, quantity = 1
+      const result = await addItemToCart(product._id, null, 1);
       if (result.success) {
         toast.success(result.message || `${product.title} added to cart!`);
         setAddToCartStatus({
@@ -156,7 +162,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
 
   return (
     <div
-      className="w-full bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all cursor-pointer flex flex-col touch-manipulation"
+      className="w-full max-w-[180px] xs:max-w-[200px] sm:max-w-none bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all cursor-pointer flex flex-col touch-manipulation mx-auto"
       onClick={handleCardClick}
       role="button"
       tabIndex={0}
@@ -183,21 +189,21 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         )}
       </div>
 
-      <div className="p-3 sm:p-4 flex flex-col gap-2 flex-grow">
-        <h2 className="text-base sm:text-lg font-semibold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight">
+      <div className="p-2 sm:p-4 flex flex-col gap-1 sm:gap-2 flex-grow">
+        <h2 className="text-sm sm:text-lg font-semibold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight">
           {product.title}
         </h2>
-        <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">
+        <p className="text-xs text-gray-500 hidden sm:block">
           SKU: <span className="text-gray-700 font-medium">{product.sku || 'N/A'}</span>
         </p>
-        <p className="text-xs sm:text-sm text-gray-500 line-clamp-1 hidden sm:block">
+        <p className="text-xs text-gray-500 line-clamp-1 hidden sm:block">
           Category: <span className="text-gray-700">{categoryNames}</span>
         </p>
         
         <div className="mt-1 sm:mt-2">
           {hasDiscount ? (
             <div className="flex flex-col">
-              <p className="text-base sm:text-lg font-bold text-red-600">{formattedPrice}</p>
+              <p className="text-sm sm:text-lg font-bold text-red-600">{formattedPrice}</p>
               <p className="text-xs sm:text-sm text-gray-500 line-through">
                 {new Intl.NumberFormat('en-PK', {
                   style: 'currency',
@@ -207,11 +213,11 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
               </p>
             </div>
           ) : (
-            <p className="text-base sm:text-lg font-bold text-gray-900">{formattedPrice}</p>
+            <p className="text-sm sm:text-lg font-bold text-gray-900">{formattedPrice}</p>
           )}
         </div>
 
-        <div className="flex items-center gap-1 text-xs sm:text-sm mt-auto">
+        <div className="flex items-center gap-1 text-xs mt-auto">
           {renderStars(product.averageRating || 0)}
           {product.numReviews ? (
             <span className="text-gray-500 ml-1">({product.numReviews})</span>
@@ -227,14 +233,13 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             addToCartStatus.success ? 'bg-green-600' :
             addToCartStatus.error ? 'bg-yellow-600' :
             isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
-          } text-white px-3 sm:px-4 py-2 rounded-md flex items-center justify-center gap-2 text-xs sm:text-sm`}
+          } text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-md flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm`}
           aria-label={`Add ${product.title} to cart`}
-          disabled={isOutOfStock || addToCartStatus.loading || !user}
+          disabled={isOutOfStock || addToCartStatus.loading}
         >
-          <CiShoppingCart size={16} className="sm:w-5 sm:h-5" />
+          <CiShoppingCart size={14} className="sm:w-5 sm:h-5" />
           <span>
-            {!user ? 'Login to Add' : 
-             isOutOfStock ? 'Out of Stock' : getButtonState()}
+            {isOutOfStock ? 'Out of Stock' : getButtonState()}
           </span>
         </Button>
       </div>

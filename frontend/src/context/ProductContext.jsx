@@ -7,6 +7,7 @@ import {
   deleteProduct,
 } from '../services/productService';
 import SocketService from '../services/socketService';
+import { debounce } from 'lodash';
 
 export const ProductContext = createContext();
 
@@ -131,77 +132,80 @@ export const ProductProvider = ({ children }) => {
     }
   }, []);
 
-  const fetchProducts = useCallback(async (params = {}, options = {}) => {
-    const {
-      page = 1,
-      limit = 10,
-      categoryId = null,
-      search = null,
-      minPrice = null,
-      maxPrice = null,
-      sort = '-createdAt'
-    } = params;
-
-    const { isPublic = true, skipCache = false } = options;
-
-    const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}`;
-
-    if (!skipCache) {
-      const cached = getCache(cacheKey);
-      if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
-        setProducts(cached.data.products || []);
+  const fetchProducts = useCallback(
+    debounce(async (params = {}, options = {}) => {
+      const {
+        page = 1,
+        limit = 10,
+        categoryId = null,
+        search = null,
+        minPrice = null,
+        maxPrice = null,
+        sort = '-createdAt',
+      } = params;
+  
+      const { isPublic = true, skipCache = false } = options;
+  
+      const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}`;
+  
+      if (!skipCache) {
+        const cached = getCache(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
+          setProducts(cached.data.products || []);
+          setPagination({
+            page,
+            limit,
+            totalPages: cached.data.totalPages || 1,
+            totalItems: cached.data.totalItems || 0,
+          });
+          return cached.data;
+        }
+      }
+  
+      setLoading(true);
+      setError(null);
+  
+      try {
+        const filters = {};
+        if (categoryId) filters.categoryId = categoryId;
+        if (search) filters.search = search;
+        if (minPrice) filters.minPrice = minPrice;
+        if (maxPrice) filters.maxPrice = maxPrice;
+  
+        const result = await withRetry(() =>
+          getProducts(page, limit, sort, filters, { isPublic })
+        );
+  
+        const responseData = {
+          products: result.products || [],
+          totalPages: result.totalPages || 1,
+          totalItems: result.totalItems || 0,
+        };
+  
+        setProducts(responseData.products);
         setPagination({
           page,
           limit,
-          totalPages: cached.data.totalPages || 1,
-          totalItems: cached.data.totalItems || 0
+          totalPages: responseData.totalPages,
+          totalItems: responseData.totalItems,
         });
-        return cached.data;
+        setCache(cacheKey, responseData);
+  
+        return responseData;
+      } catch (err) {
+        setError(err.message || 'Failed to fetch products');
+        const cached = getCache(cacheKey);
+        if (cached?.data) {
+          setProducts(cached.data.products || []);
+          return cached.data;
+        }
+        throw err;
+      } finally {
+        setLoading(false);
       }
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const filters = {};
-      if (categoryId) filters.categoryId = categoryId;
-      if (search) filters.search = search;
-      if (minPrice) filters.minPrice = minPrice;
-      if (maxPrice) filters.maxPrice = maxPrice;
-
-      const result = await withRetry(() =>
-        getProducts(page, limit, sort, filters, { isPublic })
-      );
-
-      const responseData = {
-        products: result.products || [],
-        totalPages: result.totalPages || 1,
-        totalItems: result.totalItems || 0
-      };
-
-      setProducts(responseData.products);
-      setPagination({
-        page,
-        limit,
-        totalPages: responseData.totalPages,
-        totalItems: responseData.totalItems
-      });
-      setCache(cacheKey, responseData);
-
-      return responseData;
-    } catch (err) {
-      setError(err.message || 'Failed to fetch products');
-      const cached = getCache(cacheKey);
-      if (cached?.data) {
-        setProducts(cached.data.products || []);
-        return cached.data;
-      }
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [getCache, setCache, withRetry]);
+    }, 500), // 500ms debounce delay
+    [getCache, setCache, withRetry]
+  );
 
   const getProduct = useCallback(async (id, options = {}) => {
     const { isPublic = true, skipCache = false } = options;

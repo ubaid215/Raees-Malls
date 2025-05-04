@@ -9,11 +9,25 @@ import Button from '../../components/core/Button';
 import socketService from '../../services/socketService';
 
 const Profile = () => {
-  const { user, logoutUser, fetchUser, needsFetch, error: authError } = useAuth();
+  const { user, logoutUser, fetchUser, updateUser, needsFetch, error: authError, loading: authLoading } = useAuth();
   const { orders, pagination, loading: orderLoading, error: orderError, fetchUserOrders } = useOrder();
   const [isLoading, setIsLoading] = useState(false);
   const [newOrderIds, setNewOrderIds] = useState([]);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [formData, setFormData] = useState({ name: '', email: '', addresses: [] });
+  const [formErrors, setFormErrors] = useState({});
   const navigate = useNavigate();
+
+  // Initialize form data when user is loaded
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        name: user.name || '',
+        email: user.email || '',
+        addresses: user.addresses || [],
+      });
+    }
+  }, [user]);
 
   const handleFetchUser = async () => {
     setIsLoading(true);
@@ -156,6 +170,72 @@ const Profile = () => {
     );
   };
 
+  // Form validation
+  const validateForm = () => {
+    const errors = {};
+    if (!formData.name.trim()) errors.name = 'Name is required';
+    if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Valid email is required';
+    }
+    formData.addresses.forEach((addr, index) => {
+      if (!addr.street?.trim()) errors[`address_${index}_street`] = 'Street is required';
+      if (!addr.city?.trim()) errors[`address_${index}_city`] = 'City is required';
+      if (!addr.state?.trim()) errors[`address_${index}_state`] = 'State is required';
+      if (!addr.zip?.trim()) errors[`address_${index}_zip`] = 'Zip code is required';
+      if (!addr.country?.trim()) errors[`address_${index}_country`] = 'Country is required';
+    });
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  // Handle form input changes
+  const handleInputChange = (e, index = null, field = null) => {
+    if (index !== null && field) {
+      // Update address field
+      const updatedAddresses = [...formData.addresses];
+      updatedAddresses[index] = { ...updatedAddresses[index], [field]: e.target.value };
+      setFormData({ ...formData, addresses: updatedAddresses });
+    } else {
+      // Update name or email
+      setFormData({ ...formData, [e.target.name]: e.target.value });
+    }
+    setFormErrors({}); // Clear errors on input change
+  };
+
+  // Add new address
+  const addAddress = () => {
+    setFormData({
+      ...formData,
+      addresses: [
+        ...formData.addresses,
+        { street: '', city: '', state: '', zip: '', country: '' },
+      ],
+    });
+  };
+
+  // Remove address
+  const removeAddress = (index) => {
+    setFormData({
+      ...formData,
+      addresses: formData.addresses.filter((_, i) => i !== index),
+    });
+    setFormErrors({});
+  };
+
+  // Handle form submission
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+
+    try {
+      await updateUser(formData);
+      setIsEditModalOpen(false);
+      setFormErrors({});
+    } catch (err) {
+      console.error('Update profile error:', err);
+    }
+  };
+
   if (!user && !isLoading && (needsFetch || authError)) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
@@ -179,7 +259,7 @@ const Profile = () => {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return (
       <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-6xl mx-auto">
@@ -266,7 +346,7 @@ const Profile = () => {
                 )}
               </div>
               <Button
-                onClick={() => navigate('/profile/edit')}
+                onClick={() => setIsEditModalOpen(true)}
                 className="w-full bg-red-600 text-white hover:bg-red-700"
               >
                 Edit Profile
@@ -443,6 +523,172 @@ const Profile = () => {
             )}
           </div>
         </div>
+
+        {/* Edit Profile Modal */}
+        {isEditModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Edit Profile</h2>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Name */}
+                <div>
+                  <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+                    Full Name
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    id="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    className={`mt-1 block w-full border ${formErrors.name ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                  />
+                  {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    id="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    className={`mt-1 block w-full border ${formErrors.email ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                  />
+                  {formErrors.email && <p className="mt-1 text-sm text-red-600">{formErrors.email}</p>}
+                </div>
+
+                {/* Addresses */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Addresses</label>
+                  {formData.addresses.map((address, index) => (
+                    <div key={index} className="border border-gray-200 rounded-md p-4 mb-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor={`street_${index}`} className="block text-sm font-medium text-gray-700">
+                            Street
+                          </label>
+                          <input
+                            type="text"
+                            id={`street_${index}`}
+                            value={address.street}
+                            onChange={(e) => handleInputChange(e, index, 'street')}
+                            className={`mt-1 block w-full border ${formErrors[`address_${index}_street`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                          />
+                          {formErrors[`address_${index}_street`] && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_street`]}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label htmlFor={`city_${index}`} className="block text-sm font-medium text-gray-700">
+                            City
+                          </label>
+                          <input
+                            type="text"
+                            id={`city_${index}`}
+                            value={address.city}
+                            onChange={(e) => handleInputChange(e, index, 'city')}
+                            className={`mt-1 block w-full border ${formErrors[`address_${index}_city`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                          />
+                          {formErrors[`address_${index}_city`] && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_city`]}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label htmlFor={`state_${index}`} className="block text-sm font-medium text-gray-700">
+                            State
+                          </label>
+                          <input
+                            type="text"
+                            id={`state_${index}`}
+                            value={address.state}
+                            onChange={(e) => handleInputChange(e, index, 'state')}
+                            className={`mt-1 block w-full border ${formErrors[`address_${index}_state`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                          />
+                          {formErrors[`address_${index}_state`] && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_state`]}</p>
+                          )}
+                        </div>
+                        <div>
+                          <label htmlFor={`zip_${index}`} className="block text-sm font-medium text-gray-700">
+                            Zip Code
+                          </label>
+                          <input
+                            type="text"
+                            id={`zip_${index}`}
+                            value={address.zip}
+                            onChange={(e) => handleInputChange(e, index, 'zip')}
+                            className={`mt-1 block w-full border ${formErrors[`address_${index}_zip`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                          />
+                          {formErrors[`address_${index}_zip`] && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_zip`]}</p>
+                          )}
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label htmlFor={`country_${index}`} className="block text-sm font-medium text-gray-700">
+                            Country
+                          </label>
+                          <input
+                            type="text"
+                            id={`country_${index}`}
+                            value={address.country}
+                            onChange={(e) => handleInputChange(e, index, 'country')}
+                            className={`mt-1 block w-full border ${formErrors[`address_${index}_country`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                          />
+                          {formErrors[`address_${index}_country`] && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_country`]}</p>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => removeAddress(index)}
+                        className="mt-4 bg-red-100 text-red-600 hover:bg-red-200"
+                      >
+                        Remove Address
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    onClick={addAddress}
+                    className="w-full border border-red-600 text-red-600 hover:bg-red-50"
+                  >
+                    Add Address
+                  </Button>
+                </div>
+
+                {/* Form Actions */}
+                <div className="flex justify-end gap-4">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setIsEditModalOpen(false);
+                      setFormErrors({});
+                      setFormData({
+                        name: user.name || '',
+                        email: user.email || '',
+                        addresses: user.addresses || [],
+                      });
+                    }}
+                    className="bg-gray-600 text-white hover:bg-gray-700"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="bg-red-600 text-white hover:bg-red-700"
+                    disabled={authLoading}
+                  >
+                    {authLoading ? 'Saving...' : 'Save Changes'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

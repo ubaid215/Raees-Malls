@@ -10,6 +10,11 @@ exports.authenticateJWT = (req, res, next) => {
 
   if (req.isAuthenticated()) {
     console.log('User is session-authenticated for', req.originalUrl, '- User:', req.user);
+    // Normalize req.user to match JWT payload structure
+    req.user = {
+      userId: req.user._id.toString(),
+      role: req.user.role,
+    };
     return next();
   }
 
@@ -22,7 +27,7 @@ exports.authenticateJWT = (req, res, next) => {
   try {
     const decoded = jwtService.verifyAccessToken(token);
     console.log('JWT decoded for', req.originalUrl, ':', decoded);
-    req.user = decoded;
+    req.user = decoded; // Already in { userId, role } format
     next();
   } catch (err) {
     console.error('JWT verification failed for', req.originalUrl, ':', err.message);

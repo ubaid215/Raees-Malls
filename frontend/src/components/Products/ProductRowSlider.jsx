@@ -21,55 +21,54 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const navigate = useNavigate();
 
   // Process and memoize products
- // In ProductRowSlider.jsx - Update the memoizedProducts part:
-const memoizedProducts = useMemo(() => {
-  const productArray = Array.isArray(products) ? products : [];
-  
-  const filteredProducts = isFeatured
-    ? productArray.filter((product) => product.isFeatured === true)
-    : productArray;
-
-  return filteredProducts.map((product) => {
-    // Ensure images is always an array
-    const images = Array.isArray(product.images) ? product.images : [];
+  const memoizedProducts = useMemo(() => {
+    const productArray = Array.isArray(products) ? products : [];
     
-    // Process image URLs
-    const processedImages = images.map(img => {
-      let url = img?.url || '';
-      if (url && !url.startsWith('http')) {
-        url = `${API_BASE_URL}${url}`;
+    const filteredProducts = isFeatured
+      ? productArray.filter((product) => product.isFeatured === true)
+      : productArray;
+
+    return filteredProducts.map((product) => {
+      // Ensure images is always an array
+      const images = Array.isArray(product.images) ? product.images : [];
+      
+      // Process image URLs
+      const processedImages = images.map(img => {
+        let url = img?.url || '';
+        if (url && !url.startsWith('http')) {
+          url = `${API_BASE_URL}${url}`;
+        }
+        return {
+          url: url || '/images/placeholder-product.png',
+          alt: img?.alt || product.title || 'Product image'
+        };
+      });
+
+      // Ensure at least one image exists
+      if (processedImages.length === 0) {
+        processedImages.push({
+          url: '/images/placeholder-product.png',
+          alt: 'Placeholder product image'
+        });
       }
+
       return {
-        url: url || '/images/placeholder-product.png',
-        alt: img?.alt || product.title || 'Product image'
+        _id: product._id,
+        title: product.title || product.name || 'Untitled Product',
+        price: product.discountPrice || product.price || 0,
+        originalPrice: product.originalPrice || product.price || 0,
+        discountPercentage: product.originalPrice && product.originalPrice > product.price
+          ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
+          : 0,
+        images: processedImages,
+        rating: product.rating || product.averageRating || 0,
+        numReviews: product.numReviews || 0,
+        stock: product.stock || 0,
+        sku: product.sku || '',
+        categoryId: product.categoryId || null
       };
     });
-
-    // Ensure at least one image exists
-    if (processedImages.length === 0) {
-      processedImages.push({
-        url: '/images/placeholder-product.png',
-        alt: 'Placeholder product image'
-      });
-    }
-
-    return {
-      _id: product._id,
-      title: product.title || product.name || 'Untitled Product',
-      price: product.discountPrice || product.price || 0,
-      originalPrice: product.originalPrice || product.price || 0,
-      discountPercentage: product.originalPrice && product.originalPrice > product.price
-        ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
-        : 0,
-      images: processedImages,
-      rating: product.rating || product.averageRating || 0,
-      numReviews: product.numReviews || 0,
-      stock: product.stock || 0,
-      sku: product.sku || '',
-      categoryId: product.categoryId || null
-    };
-  });
-}, [products, isFeatured]);
+  }, [products, isFeatured]);
 
   // Clear cache on mount to ensure fresh data
   useEffect(() => {
@@ -150,10 +149,11 @@ const memoizedProducts = useMemo(() => {
   const getVisibleItemsCount = useCallback(() => {
     if (typeof window === 'undefined') return 4;
     const width = window.innerWidth;
-    if (width < 640) return 1;
-    if (width < 768) return 2;
-    if (width < 1024) return 3;
-    return 4;
+    if (width < 480) return 1;  // Smaller mobile screens
+    if (width < 640) return 2;  // Larger mobile screens
+    if (width < 768) return 2;  // Small tablets
+    if (width < 1024) return 3; // Large tablets
+    return 4;                   // Desktops
   }, []);
 
   // Handle window resize to adjust visible items
@@ -295,7 +295,12 @@ const memoizedProducts = useMemo(() => {
               className="flex-shrink-0 px-2"
               style={{ width: `${100 / visibleItems}%` }}
             >
-              <ProductCard product={product} />
+              <div className="p-1"> {/* Added padding for mobile */}
+                <ProductCard 
+                  product={product} 
+                  compact={window.innerWidth < 768} // Make cards compact on mobile
+                />
+              </div>
             </div>
           ))}
         </div>

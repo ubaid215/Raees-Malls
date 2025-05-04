@@ -1,47 +1,130 @@
 import api from './api';
+import * as yup from 'yup';
 
-// Get all banners (public)
+// Validation schema for banner data
+const bannerSchema = yup.object().shape({
+  title: yup
+    .string()
+    .trim()
+    .required('Title is required'),
+  description: yup
+    .string()
+    .trim()
+    .optional(),
+  targetUrl: yup
+    .string()
+    .trim()
+    .optional(),
+  priority: yup
+    .number()
+    .min(0, 'Priority must be a non-negative integer')
+    .optional(),
+  isActive: yup
+    .boolean()
+    .optional(),
+});
+
+// Get active banners (public)
 export const getBanners = async () => {
   try {
-    const response = await api.get('/banners');
-    return response.data.banners;
+    const response = await api.get('/banners/active');
+    console.log('GetBanners response:', response.data);
+    if (!response.data.success || !Array.isArray(response.data.data.banners)) {
+      throw new Error('Invalid response: Missing or invalid banners data');
+    }
+    return response.data.data.banners;
   } catch (error) {
     console.error('GetBanners error:', error.response?.data, error.message);
     if (error.response?.status === 429) {
       const retryAfter = error.response?.headers['retry-after'] || '30';
       throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
     }
-    throw new Error(error.response?.data?.message || error.message || 'Failed to fetch banners');
+    const errorData = error.response?.data;
+    if (errorData?.errors?.length) {
+      const messages = errorData.errors.map((e) => e.msg).join(', ');
+      throw new Error(messages);
+    }
+    throw new Error(errorData?.message || error.message || 'Failed to fetch banners');
   }
 };
 
 // Create banner (admin)
 export const createBanner = async (bannerData, image) => {
   try {
+    const validatedData = await bannerSchema.validate(bannerData, { abortEarly: false });
     const formData = new FormData();
-    Object.entries(bannerData).forEach(([key, value]) => {
+    Object.entries(validatedData).forEach(([key, value]) => {
       formData.append(key, value);
     });
     if (image) formData.append('image', image);
     const response = await api.post('/admin/banners', formData, { isMultipart: true });
-    return response.data.banner;
+    console.log('CreateBanner response:', response.data);
+    if (!response.data.success || !response.data.data.banner) {
+      throw new Error('Invalid response: Missing banner data');
+    }
+    return response.data.data.banner;
   } catch (error) {
-    throw new Error(error.response?.data?.message || error.message || 'Failed to create banner');
+    console.error('CreateBanner error:', error.response?.data, error.message);
+    if (error instanceof yup.ValidationError) {
+      const errors = error.inner.map((err) => err.message).join(', ');
+      throw new Error(errors);
+    }
+    const errorData = error.response?.data;
+    if (errorData?.errors?.length) {
+      const messages = errorData.errors.map((e) => e.msg).join(', ');
+      throw new Error(messages);
+    }
+    if (error.response?.status === 401) {
+      throw new Error('Unauthorized: Please log in again');
+    }
+    if (error.response?.status === 403) {
+      throw new Error('Forbidden: Admin access required');
+    }
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers['retry-after'] || '30';
+      throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
+    }
+    throw new Error(errorData?.message || error.message || 'Failed to create banner');
   }
 };
 
 // Update banner (admin)
 export const updateBanner = async (id, bannerData, image) => {
   try {
+    const validatedData = await bannerSchema.validate(bannerData, { abortEarly: false });
     const formData = new FormData();
-    Object.entries(bannerData).forEach(([key, value]) => {
+    Object.entries(validatedData).forEach(([key, value]) => {
       formData.append(key, value);
     });
     if (image) formData.append('image', image);
     const response = await api.put(`/admin/banners/${id}`, formData, { isMultipart: true });
-    return response.data.banner;
+    console.log('UpdateBanner response:', response.data);
+    if (!response.data.success || !response.data.data.banner) {
+      throw new Error('Invalid response: Missing banner data');
+    }
+    return response.data.data.banner;
   } catch (error) {
-    throw new Error(error.response?.data?.message || error.message || 'Failed to update banner');
+    console.error('UpdateBanner error:', error.response?.data, error.message);
+    if (error instanceof yup.ValidationError) {
+      const errors = error.inner.map((err) => err.message).join(', ');
+      throw new Error(errors);
+    }
+    const errorData = error.response?.data;
+    if (errorData?.errors?.length) {
+      const messages = errorData.errors.map((e) => e.msg).join(', ');
+      throw new Error(messages);
+    }
+    if (error.response?.status === 401) {
+      throw new Error('Unauthorized: Please log in again');
+    }
+    if (error.response?.status === 403) {
+      throw new Error('Forbidden: Admin access required');
+    }
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers['retry-after'] || '30';
+      throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
+    }
+    throw new Error(errorData?.message || error.message || 'Failed to update banner');
   }
 };
 
@@ -49,8 +132,28 @@ export const updateBanner = async (id, bannerData, image) => {
 export const deleteBanner = async (id) => {
   try {
     const response = await api.delete(`/admin/banners/${id}`);
+    console.log('DeleteBanner response:', response.data);
+    if (!response.data.success) {
+      throw new Error('Invalid response: Deletion failed');
+    }
     return response.data;
   } catch (error) {
-    throw new Error(error.response?.data?.message || error.message || 'Failed to delete banner');
+    console.error('DeleteBanner error:', error.response?.data, error.message);
+    const errorData = error.response?.data;
+    if (errorData?.errors?.length) {
+      const messages = errorData.errors.map((e) => e.msg).join(', ');
+      throw new Error(messages);
+    }
+    if (error.response?.status === 401) {
+      throw new Error('Unauthorized: Please log in again');
+    }
+    if (error.response?.status === 403) {
+      throw new Error('Forbidden: Admin access required');
+    }
+    if (error.response?.status === 429) {
+      const retryAfter = error.response?.headers['retry-after'] || '30';
+      throw new Error(`Too many requests. Please try again in ${retryAfter} seconds.`);
+    }
+    throw new Error(errorData?.message || error.message || 'Failed to delete banner');
   }
 };
