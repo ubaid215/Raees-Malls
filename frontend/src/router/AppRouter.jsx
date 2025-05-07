@@ -27,7 +27,6 @@ const OrderManagement = lazy(() => import('../admin/pages/OrderManagment'));
 const AdminLogin = lazy(() => import('../admin/pages/AdminLogin'));
 const AddProductPage = lazy(() => import('../admin/pages/AddProductPage'));
 const EditProductPage = lazy(() => import('../admin/pages/EditProductPage'));
-const OrdersHistory = lazy(() => import('../admin/pages/OrdersHistory'));
 const HeroSliderAdmin = lazy(() => import('../admin/components/HeroSliderAdmin'));
 const CategoryManager = lazy(() => import('../admin/components/CategoryManager'));
 const BannerManager = lazy(() => import('../admin/components/BannerManager'));
@@ -111,7 +110,6 @@ const AppRouter = () => {
             <Route path="edit-product/:id" element={<EditProductPage />} />
             <Route path="orders" element={<OrderManagement />} />
             <Route path="profile" element={<AdminProfile />} />
-            <Route path="orders-history" element={<OrdersHistory />} />
             <Route path="category" element={<CategoryManager />} />
             <Route path="banner-upload" element={<BannerManager />} />
             <Route path="hero-slider" element={<HeroSliderAdmin />} />
