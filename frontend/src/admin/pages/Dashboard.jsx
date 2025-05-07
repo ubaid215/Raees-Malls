@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FiTrendingUp, 
   FiShoppingBag, 
@@ -15,32 +15,11 @@ import { toast } from 'react-toastify';
 
 const Dashboard = () => {
   const { orders, fetchAllOrders, loading, error } = useOrder();
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // Current YYYY-MM
-  const [stats, setStats] = useState({
-    revenue: 0,
-    orders: 0,
-    customers: 0,
-    products: 0
-  });
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
 
-  // Generate month options (last 12 months)
-  const getMonthOptions = () => {
-    const options = [];
-    const today = new Date();
-    for (let i = 0; i < 12; i++) {
-      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      const value = date.toISOString().slice(0, 7); // YYYY-MM
-      const label = date.toLocaleString('default', { month: 'long', year: 'numeric' });
-      options.push({ value, label });
-    }
-    return options;
-  };
-
-  // Fetch and calculate stats for the selected month
-  const calculateStats = useCallback(() => {
+  const stats = useMemo(() => {
     if (!orders || orders.length === 0) {
-      setStats({ revenue: 0, orders: 0, customers: 0, products: 0 });
-      return;
+      return { revenue: 0, orders: 0, customers: 0, products: 0 };
     }
 
     const filteredOrders = orders.filter(order => {
@@ -55,31 +34,38 @@ const Dashboard = () => {
       filteredOrders.flatMap(order => (order.items || []).map(item => item.productId?._id))
     ).size;
 
-    setStats({
+    return {
       revenue,
       orders: orderCount,
       customers: uniqueCustomers,
       products: uniqueProducts
-    });
+    };
   }, [orders, selectedMonth]);
 
-  // Fetch orders when component mounts or month changes
+  const getMonthOptions = () => {
+    const options = [];
+    const today = new Date();
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const value = date.toISOString().slice(0, 7);
+      const label = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+      options.push({ value, label });
+    }
+    return options;
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        console.log('Dashboard: Fetching orders for month:', selectedMonth);
-        await fetchAllOrders(1, 100); // Fetch up to 100 orders for simplicity
-        calculateStats();
+        await fetchAllOrders(1, 100);
       } catch (err) {
-        console.error('Dashboard: Error fetching orders:', err);
         toast.error(err.message || 'Failed to fetch dashboard data');
       }
     };
 
     fetchData();
-  }, [fetchAllOrders, selectedMonth, calculateStats]);
+  }, [fetchAllOrders, selectedMonth]);
 
-  // Format price
   const formatPrice = (price) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -88,7 +74,6 @@ const Dashboard = () => {
     }).format(price || 0);
   };
 
-  // Get recent orders (last 5, sorted by date)
   const recentOrders = (orders || [])
     .filter(order => order && order.orderId && order.createdAt)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
@@ -101,9 +86,7 @@ const Dashboard = () => {
       date: new Date(order.createdAt).toLocaleDateString()
     }));
 
-  // Calculate percentage change (mocked for now)
   const getPercentageChange = (current, type) => {
-    // Mocked percentage changes; replace with actual logic if historical data is available
     const changes = {
       revenue: 12,
       orders: 8,
@@ -138,9 +121,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Bento Grid Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* Revenue Card */}
         <Card className="bg-gradient-to-br from-red-50 to-red-100">
           <div className="flex items-center justify-between">
             <div>
@@ -154,7 +135,6 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        {/* Orders Card */}
         <Card className="bg-gradient-to-br from-gray-50 to-gray-100">
           <div className="flex items-center justify-between">
             <div>
@@ -168,7 +148,6 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        {/* Customers Card */}
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
           <div className="flex items-center justify-between">
             <div>
@@ -182,7 +161,6 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        {/* Products Card */}
         <Card className="bg-gradient-to-br from-amber-50 to-amber-100">
           <div className="flex items-center justify-between">
             <div>
@@ -197,9 +175,7 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      {/* Second Bento Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Sales Chart */}
         <Card className="lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-800">Sales Overview</h2>
@@ -207,11 +183,9 @@ const Dashboard = () => {
           </div>
           <div className="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
             <FiTrendingUp className="h-16 w-16 text-gray-300" />
-            {/* Replace with actual chart component */}
           </div>
         </Card>
 
-        {/* Recent Orders */}
         <Card>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-800">Recent Orders</h2>
@@ -249,9 +223,7 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      {/* Third Bento Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Product Performance */}
         <Card>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-800">Top Products</h2>
@@ -278,7 +250,6 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        {/* Calendar */}
         <Card>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-800">Upcoming Events</h2>
@@ -286,7 +257,6 @@ const Dashboard = () => {
           </div>
           <div className="h-full min-h-[200px] bg-gray-50 rounded-lg flex items-center justify-center">
             <FiCalendar className="h-16 w-16 text-gray-300" />
-            {/* Replace with actual calendar component */}
           </div>
         </Card>
       </div>
