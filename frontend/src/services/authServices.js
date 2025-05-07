@@ -73,13 +73,15 @@ export const login = async (email, password) => {
     console.log('Login response:', response.data);
     const { success, data } = response.data;
 
-    if (!success || !data?.tokens?.accessToken || !data?.user?._id) {
+    // Handle both response formats (tokens object or direct token/refreshToken)
+    const accessToken = data?.tokens?.accessToken || data?.token;
+    const refreshToken = data?.tokens?.refreshToken || data?.refreshToken;
+    const user = data?.user;
+
+    if (!success || !accessToken || !user?._id) {
       console.error('Invalid response data:', response.data);
       throw new Error('Invalid response from server');
     }
-
-    const { accessToken, refreshToken } = data.tokens;
-    const user = data.user;
 
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
@@ -116,18 +118,23 @@ export const register = async (name, email, password) => {
     console.log('Register response:', response.data);
     const { success, data } = response.data;
 
-    if (!success || !data?.tokens?.accessToken || !data?.user) {
+    // Handle both response formats (tokens object or direct token/refreshToken)
+    const accessToken = data?.tokens?.accessToken || data?.token;
+    const refreshToken = data?.tokens?.refreshToken || data?.refreshToken;
+    const user = data?.user;
+
+    if (!success || !accessToken || !user) {
+      console.error('Invalid response data:', response.data);
       throw new Error('Invalid response: Missing token or user data');
     }
 
-    const { accessToken, refreshToken } = data.tokens;
-    const userId = data.user._id || data.user.id;
+    const userId = user._id || user.id;
 
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('userId', userId);
 
-    return data.user;
+    return user;
   } catch (error) {
     if (error instanceof yup.ValidationError) {
       const errors = error.inner.map((err) => err.message).join(', ');
@@ -139,7 +146,8 @@ export const register = async (name, email, password) => {
     const validationErrors = errorData?.errors;
 
     if (Array.isArray(validationErrors) && validationErrors.length > 0) {
-      const messages = validationExperts.map((e) => e.msg).join(', ');
+      // Fixed the typo here: validationExperts -> validationErrors
+      const messages = validationErrors.map((e) => e.msg).join(', ');  
       console.error('Backend Validation Errors:', messages);
       throw new Error(messages);
     }
@@ -167,17 +175,19 @@ export const refreshToken = async () => {
     console.log('Refresh token response:', response.data);
     const { success, data } = response.data;
 
-    if (!success || !data?.tokens?.accessToken) {
+    // Handle both response formats (tokens object or direct token/refreshToken)
+    const accessToken = data?.tokens?.accessToken || data?.token;
+    const newRefreshToken = data?.tokens?.refreshToken || data?.refreshToken;
+
+    if (!success || !accessToken) {
       console.error('Invalid refresh response:', response.data);
       throw new Error('Invalid response: Missing access token');
     }
 
-    const { accessToken, refreshToken: newRefreshToken } = data.tokens;
-
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', newRefreshToken);
 
-    if (data.tokens.expiresIn) {
+    if (data.tokens?.expiresIn) {
       localStorage.setItem('tokenExpiry', Date.now() + data.tokens.expiresIn * 1000);
     }
 

@@ -10,7 +10,7 @@ import socketService from '../../services/socketService';
 
 const Profile = () => {
   const { user, logoutUser, fetchUser, updateUser, needsFetch, error: authError, loading: authLoading } = useAuth();
-  const { orders, pagination, loading: orderLoading, error: orderError, fetchUserOrders } = useOrder();
+  const { orders, pagination, loading: orderLoading, error: orderError, fetchUserOrders, cancelOrder } = useOrder();
   const [isLoading, setIsLoading] = useState(false);
   const [newOrderIds, setNewOrderIds] = useState([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -18,7 +18,6 @@ const Profile = () => {
   const [formErrors, setFormErrors] = useState({});
   const navigate = useNavigate();
 
-  // Initialize form data when user is loaded
   useEffect(() => {
     if (user) {
       setFormData({
@@ -55,13 +54,14 @@ const Profile = () => {
 
   useEffect(() => {
     if (user) {
+      console.log('Profile: Fetching orders for user:', user._id);
       fetchUserOrders(pagination.page);
       
       const setupSocket = () => {
         try {
           if (!socketService.getConnectionState()) {
             socketService.connect(user._id, user.role);
-            console.log("Socket connection established for user:", user._id);
+            console.log("Profile: Socket connection established for user:", user._id);
           }
 
           socketService.off('orderCreated');
@@ -70,9 +70,9 @@ const Profile = () => {
           socketService.off('reconnect');
 
           socketService.on('orderCreated', (newOrder) => {
-            console.log("New order received via socket:", newOrder);
+            console.log("Profile: New order received via socket:", newOrder);
             if (!newOrder || !newOrder.orderId) {
-              console.error("Invalid order data received:", newOrder);
+              console.error("Profile: Invalid order data received:", newOrder);
               return;
             }
             
@@ -89,9 +89,9 @@ const Profile = () => {
           });
 
           socketService.on('orderStatusUpdated', (updatedOrder) => {
-            console.log("Order status updated via socket:", updatedOrder);
+            console.log("Profile: Order status updated via socket:", updatedOrder);
             if (!updatedOrder || !updatedOrder.orderId) {
-              console.error("Invalid order data received:", updatedOrder);
+              console.error("Profile: Invalid order data received:", updatedOrder);
               return;
             }
             toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
@@ -99,17 +99,17 @@ const Profile = () => {
           });
 
           socketService.on('disconnect', () => {
-            console.log("Socket disconnected");
+            console.log("Profile: Socket disconnected");
             toast.warning("Lost connection to server. Reconnecting...");
           });
 
           socketService.on('reconnect', () => {
-            console.log("Socket reconnected");
+            console.log("Profile: Socket reconnected");
             toast.success("Reconnected to server");
             fetchUserOrders(pagination.page);
           });
         } catch (err) {
-          console.error("Socket setup error:", err);
+          console.error("Profile: Socket setup error:", err);
           toast.error("Failed to setup socket connection");
         }
       };
@@ -117,7 +117,7 @@ const Profile = () => {
       setupSocket();
 
       return () => {
-        console.log("Cleaning up socket listeners");
+        console.log("Profile: Cleaning up socket listeners");
         socketService.off('orderCreated');
         socketService.off('orderStatusUpdated');
         socketService.off('disconnect');
@@ -138,7 +138,19 @@ const Profile = () => {
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.totalPages) {
+      console.log('Profile: Changing page to:', newPage);
       fetchUserOrders(newPage);
+    }
+  };
+
+  const handleCancelOrder = async (orderId) => {
+    try {
+      console.log('Profile: Cancelling order:', orderId);
+      await cancelOrder(orderId);
+      toast.success(`Order ${orderId} has been cancelled`);
+    } catch (error) {
+      console.error('Profile: Error cancelling order:', error);
+      toast.error(error.message || 'Failed to cancel order');
     }
   };
 
@@ -147,7 +159,7 @@ const Profile = () => {
       style: 'currency',
       currency: 'PKR',
       minimumFractionDigits: 0,
-    }).format(price);
+    }).format(price || 0);
   };
 
   const getOrderStatusBadge = (status) => {
@@ -165,12 +177,11 @@ const Profile = () => {
         {status === "processing" && <FiClock className="mr-1" />}
         {status === "shipped" && <FiTruck className="mr-1" />}
         {status === "delivered" && <FiCheckCircle className="mr-1" />}
-        <span className="capitalize">{status}</span>
+        <span className="capitalize">{status || 'Unknown'}</span>
       </span>
     );
   };
 
-  // Form validation
   const validateForm = () => {
     const errors = {};
     if (!formData.name.trim()) errors.name = 'Name is required';
@@ -188,21 +199,17 @@ const Profile = () => {
     return Object.keys(errors).length === 0;
   };
 
-  // Handle form input changes
   const handleInputChange = (e, index = null, field = null) => {
     if (index !== null && field) {
-      // Update address field
       const updatedAddresses = [...formData.addresses];
       updatedAddresses[index] = { ...updatedAddresses[index], [field]: e.target.value };
       setFormData({ ...formData, addresses: updatedAddresses });
     } else {
-      // Update name or email
       setFormData({ ...formData, [e.target.name]: e.target.value });
     }
-    setFormErrors({}); // Clear errors on input change
+    setFormErrors({});
   };
 
-  // Add new address
   const addAddress = () => {
     setFormData({
       ...formData,
@@ -213,7 +220,6 @@ const Profile = () => {
     });
   };
 
-  // Remove address
   const removeAddress = (index) => {
     setFormData({
       ...formData,
@@ -222,7 +228,6 @@ const Profile = () => {
     setFormErrors({});
   };
 
-  // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -232,7 +237,7 @@ const Profile = () => {
       setIsEditModalOpen(false);
       setFormErrors({});
     } catch (err) {
-      console.error('Update profile error:', err);
+      console.error('Profile: Update profile error:', err);
     }
   };
 
@@ -287,9 +292,7 @@ const Profile = () => {
     );
   }
 
-  // Debug user and orders
-  console.log('User object:', user);
-  console.log('Orders:', orders);
+  console.log('Profile: Orders state:', orders);
 
   return (
     <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
@@ -310,9 +313,7 @@ const Profile = () => {
           {socketService.getConnectionState() ? 'Connected to server' : 'Disconnected - Reconnecting...'}
         </div>
 
-        {/* Bento Grid Layout */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* User Info Card */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center gap-4 mb-4">
               <div className="bg-red-100 p-3 rounded-full">
@@ -354,7 +355,6 @@ const Profile = () => {
             </div>
           </div>
 
-          {/* Order Summary Card */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 md:col-span-2">
             <div className="flex items-center gap-4 mb-4">
               <div className="bg-red-100 p-3 rounded-full">
@@ -384,19 +384,23 @@ const Profile = () => {
                   <p className="text-center">Date</p>
                   <p className="text-right">Total</p>
                 </div>
-                {(orders || []).length === 0 ? (
-                  <p className="text-gray-600">No orders found</p>
-                ) : (
-                  orders.map((order) => (
-                    <div key={order.orderId} className="grid grid-cols-3 border-b py-2 text-sm sm:text-base">
-                      <p className="font-medium text-red-600 hover:underline cursor-pointer" onClick={() => navigate(`/order/${order.orderId}`)}>
-                        {order.orderId}
-                      </p>
-                      <p className="text-center text-gray-600">{new Date(order.createdAt).toLocaleDateString()}</p>
-                      <p className="text-right font-semibold text-gray-900">{formatPrice(order.totalPrice)}</p>
-                    </div>
-                  ))
-                )}
+                {(() => {
+                  const validOrders = (orders || []).filter(order => order && order.orderId);
+                  console.log('Profile: Valid orders for summary:', validOrders);
+                  return validOrders.length === 0 ? (
+                    <p className="text-gray-600">No orders found</p>
+                  ) : (
+                    validOrders.map((order) => (
+                      <div key={order.orderId} className="grid grid-cols-3 border-b py-2 text-sm sm:text-base">
+                        <p className="font-medium text-red-600 hover:underline cursor-pointer" onClick={() => navigate(`/orders/${order.orderId}`)}>
+                          {order.orderId || 'Unknown Order'}
+                        </p>
+                        <p className="text-center text-gray-600">{new Date(order.createdAt || Date.now()).toLocaleDateString()}</p>
+                        <p className="text-right font-semibold text-gray-900">{formatPrice(order.totalPrice)}</p>
+                      </div>
+                    ))
+                  );
+                })()}
                 <Button
                   onClick={() => navigate('/orders')}
                   className="w-full border border-red-600 text-red-600 hover:bg-red-50"
@@ -408,7 +412,6 @@ const Profile = () => {
             )}
           </div>
 
-          {/* Current Orders Card */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 md:col-span-3">
             <div className="flex items-center gap-4 mb-6">
               <div className="bg-red-100 p-3 rounded-full">
@@ -433,12 +436,13 @@ const Profile = () => {
               </div>
             ) : (
               <div className="space-y-6">
-                {(orders || []).length === 0 ? (
-                  <p className="text-gray-600 text-sm sm:text-base">No current orders</p>
-                ) : (
-                  orders
-                    .filter((order) => order.status !== 'delivered' && order.status !== 'cancelled')
-                    .map((order) => {
+                {(() => {
+                  const validOrders = (orders || []).filter(order => order && order.orderId && order.status !== 'delivered' && order.status !== 'cancelled');
+                  console.log('Profile: Valid current orders:', validOrders);
+                  return validOrders.length === 0 ? (
+                    <p className="text-gray-600 text-sm sm:text-base">No current orders</p>
+                  ) : (
+                    validOrders.map((order) => {
                       const isNewOrder = newOrderIds.includes(order.orderId);
                       return (
                         <div key={order.orderId} className={`border rounded-lg p-4 ${isNewOrder ? 'border-yellow-400 ring-2 ring-yellow-200 animate-pulse' : 'border-gray-200'}`}>
@@ -450,21 +454,21 @@ const Profile = () => {
                           )}
                           <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
                             <div>
-                              <p className="font-medium text-gray-900">Order {order.orderId}</p>
-                              <p className="text-sm text-gray-600">Placed on {new Date(order.createdAt).toLocaleDateString()}</p>
+                              <p className="font-medium text-gray-900">Order {order.orderId || 'Unknown'}</p>
+                              <p className="text-sm text-gray-600">Placed on {new Date(order.createdAt || Date.now()).toLocaleDateString()}</p>
                             </div>
                             {getOrderStatusBadge(order.status)}
                           </div>
                           <div className="mb-4">
                             <p className="text-sm text-gray-600 font-medium mb-2">Items:</p>
                             <ul className="space-y-2 text-sm sm:text-base">
-                              {order.items.map((item, index) => (
+                              {(order.items || []).map((item, index) => (
                                 <li key={index} className="flex justify-between">
                                   <span className="text-gray-700">
-                                    {item.quantity} × {item.productId?.title || 'Untitled Product'}
+                                    {item.quantity || 1} × {(item.productId?.title || 'Untitled Product')}
                                     {item.variantId && (
                                       <span className="ml-1 text-xs text-gray-500">
-                                        (Variant: {item.variantValue || item.variantId})
+                                        (Variant: {item.variantValue || item.variantId || 'Unknown'})
                                       </span>
                                     )}
                                   </span>
@@ -486,8 +490,16 @@ const Profile = () => {
                               >
                                 Track Order
                               </Button>
+                              {order.status === 'pending' && (
+                                <Button
+                                  onClick={() => handleCancelOrder(order.orderId)}
+                                  className="w-full sm:w-auto bg-gray-600 text-white hover:bg-gray-700"
+                                >
+                                  Cancel Order
+                                </Button>
+                              )}
                               <Button
-                                onClick={() => navigate(`/order/${order.orderId}`)}
+                                onClick={() => navigate(`/orders/${order.orderId}`)}
                                 className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
                               >
                                 View Details
@@ -497,7 +509,8 @@ const Profile = () => {
                         </div>
                       );
                     })
-                )}
+                  );
+                })()}
               </div>
             )}
             {!orderError && (orders || []).length > 0 && (
@@ -524,13 +537,11 @@ const Profile = () => {
           </div>
         </div>
 
-        {/* Edit Profile Modal */}
         {isEditModalOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Edit Profile</h2>
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Name */}
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700">
                     Full Name
@@ -545,8 +556,6 @@ const Profile = () => {
                   />
                   {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
                 </div>
-
-                {/* Email */}
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium text-gray-700">
                     Email Address
@@ -561,8 +570,6 @@ const Profile = () => {
                   />
                   {formErrors.email && <p className="mt-1 text-sm text-red-600">{formErrors.email}</p>}
                 </div>
-
-                {/* Addresses */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Addresses</label>
                   {formData.addresses.map((address, index) => (
@@ -659,8 +666,6 @@ const Profile = () => {
                     Add Address
                   </Button>
                 </div>
-
-                {/* Form Actions */}
                 <div className="flex justify-end gap-4">
                   <Button
                     type="button"

@@ -13,6 +13,7 @@ import SocketService from '../services/socketService';
 
 function AllProducts() {
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 12,
@@ -28,37 +29,40 @@ function AllProducts() {
     ? [{ _id: 'all', name: 'All Categories', slug: 'all' }, ...categories]
     : [{ _id: 'all', name: 'All Categories', slug: 'all' }];
 
-    const debouncedFetchProducts = useCallback(
-      debounce(async (page, limit, categoryId) => {
-        try {
-          const result = await fetchProducts(
-            { page, limit, categoryId: categoryId !== 'all' ? categoryId : null, sort: '-createdAt' },
-            { isPublic: true } // Remove skipCache: true to leverage caching
-          );
-    
-          if (!result || typeof result !== 'object') {
-            throw new Error('Invalid response from fetchProducts');
-          }
-    
-          setPagination((prev) => ({
-            ...prev,
-            pages: result.totalPages || 1,
-            total: result.totalItems || 0,
-          }));
-          setNeedsFetch(false);
-        } catch (err) {
-          console.error('Product fetch error:', err);
-          toast.error(err.message || 'Failed to load products');
-          // Set default pagination values to prevent further errors
-          setPagination((prev) => ({
-            ...prev,
-            pages: 1,
-            total: 0,
-          }));
+  const selectedCategoryName = useMemo(() => {
+    return safeCategories.find(c => c._id === selectedCategory)?.name || 'All Categories';
+  }, [selectedCategory, safeCategories]);
+
+  const debouncedFetchProducts = useCallback(
+    debounce(async (page, limit, categoryId) => {
+      try {
+        const result = await fetchProducts(
+          { page, limit, categoryId: categoryId !== 'all' ? categoryId : null, sort: '-createdAt' },
+          { isPublic: true }
+        );
+  
+        if (!result || typeof result !== 'object') {
+          throw new Error('Invalid response from fetchProducts');
         }
-      }, 500),
-      [fetchProducts]
-    );
+  
+        setPagination((prev) => ({
+          ...prev,
+          pages: result.totalPages || 1,
+          total: result.totalItems || 0,
+        }));
+        setNeedsFetch(false);
+      } catch (err) {
+        console.error('Product fetch error:', err);
+        toast.error(err.message || 'Failed to load products');
+        setPagination((prev) => ({
+          ...prev,
+          pages: 1,
+          total: 0,
+        }));
+      }
+    }, 500),
+    [fetchProducts]
+  );
 
   // Clear cache on mount to ensure fresh data
   useEffect(() => {
@@ -145,9 +149,31 @@ function AllProducts() {
       setSelectedCategory(categoryId);
       setPagination((prev) => ({ ...prev, page: 1 }));
       setNeedsFetch(true);
+      setIsCategoryDropdownOpen(false); // Close dropdown after selection
     }, 300),
     []
   );
+
+  const toggleCategoryDropdown = () => {
+    setIsCategoryDropdownOpen(prev => !prev);
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      const dropdown = document.getElementById('category-dropdown');
+      if (dropdown && !dropdown.contains(event.target)) {
+        setIsCategoryDropdownOpen(false);
+      }
+    };
+
+    if (isCategoryDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isCategoryDropdownOpen]);
 
   const memoizedProducts = useMemo(() => {
     const productArray = Array.isArray(products) ? products : [];
@@ -236,7 +262,66 @@ function AllProducts() {
         )}
 
         <div className="flex flex-col lg:flex-row gap-6">
-          <nav className="w-full lg:w-64 bg-white rounded-lg shadow-sm border border-gray-200 p-6 lg:sticky lg:top-4 h-fit">
+          {/* Mobile Category Dropdown */}
+          <div className="lg:hidden w-full mb-6">
+            <div className="relative" id="category-dropdown">
+              <button
+                onClick={toggleCategoryDropdown}
+                className="flex justify-between items-center w-full bg-white border border-gray-200 rounded-lg shadow-sm px-4 py-3 text-left"
+              >
+                <span className="font-medium text-gray-900">{selectedCategoryName}</span>
+                <svg
+                  className={`h-5 w-5 text-gray-500 transition-transform ${isCategoryDropdownOpen ? 'transform rotate-180' : ''}`}
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+              
+              {isCategoryDropdownOpen && (
+                <div className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 py-1 max-h-60 overflow-auto">
+                  {categories.length === 0 ? (
+                    <div className="text-center py-4">
+                      <p className="text-sm text-gray-500 mb-2">No categories loaded.</p>
+                      <Button
+                        onClick={() => fetchCategories({ isPublic: true })}
+                        className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                      >
+                        Load Categories
+                      </Button>
+                    </div>
+                  ) : (
+                    <ul>
+                      {safeCategories.map((category) => (
+                        <li key={category._id}>
+                          <button
+                            onClick={() => handleCategoryChange(category._id)}
+                            className={`w-full text-left px-4 py-2 text-sm ${
+                              selectedCategory === category._id
+                                ? 'bg-red-600 text-white'
+                                : 'text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {category.name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Desktop Category Sidebar */}
+          <nav className="hidden lg:block w-64 bg-white rounded-lg shadow-sm border border-gray-200 p-6 lg:sticky lg:top-4 h-fit">
             <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Categories</h2>
             {categories.length === 0 ? (
               <div className="text-center">

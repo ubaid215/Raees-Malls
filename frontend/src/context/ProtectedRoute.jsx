@@ -6,12 +6,12 @@ const ProtectedRoute = ({ children, roles = ['user'] }) => {
   const { user, isAuthenticated, loading } = useAuth();
   const location = useLocation();
 
-  console.log('ProtectedRoute: Checking customer auth', {
-    isAuthenticated,
-    user,
-    role: user?.role,
-    location: location.pathname,
-  });
+  // console.log('ProtectedRoute: Checking customer auth', {
+  //   isAuthenticated,
+  //   user,
+  //   role: user?.role,
+  //   location: location.pathname,
+  // });
 
   if (loading) {
     console.log('ProtectedRoute: Loading customer auth state');
@@ -26,7 +26,7 @@ const ProtectedRoute = ({ children, roles = ['user'] }) => {
   // Check if user has any of the required roles
   if (!roles.includes(user?.role)) {
     const redirectPath = ['admin'].includes(user?.role) ? '/' : '/login';
-    console.log(`ProtectedRoute: Role ${user?.role} not allowed, redirecting to ${redirectPath}`);
+    // console.log(`ProtectedRoute: Role ${user?.role} not allowed, redirecting to ${redirectPath}`);
     return <Navigate to={redirectPath} replace />;
   }
 

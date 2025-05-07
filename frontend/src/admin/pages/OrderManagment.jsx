@@ -24,17 +24,21 @@ const OrderManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [newOrderIds, setNewOrderIds] = useState([]);
   
-  const pendingOrdersCount = (orders || []).filter(order => order.status === 'pending').length;
+  const pendingOrdersCount = (orders || []).filter(order => order && order.status === 'pending').length;
 
   const fetchOrders = useCallback(async (page = 1, limit = pagination?.limit || 10, status = filterStatus, search = '') => {
     try {
+      console.log('OrderManagement: Fetching orders for page:', page, 'limit:', limit, 'status:', status, 'search:', search);
       await fetchAllOrders(page, limit, status, search);
     } catch (err) {
+      console.error('OrderManagement: fetchOrders error:', err);
       if (err.message?.includes('Invalid or expired token')) {
         try {
+          console.log('OrderManagement: Refreshing admin token');
           await refreshAdminToken();
           await fetchAllOrders(page, limit, status, search);
         } catch (refreshErr) {
+          console.error('OrderManagement: Token refresh failed:', refreshErr);
           toast.error('Session expired. Please log in again.');
           await logoutAdmin();
         }
@@ -49,7 +53,7 @@ const OrderManagement = () => {
       try {
         if (!socketService.getConnectionState()) {
           socketService.connect(admin?._id, admin?.role);
-          console.log("Socket connection established for admin:", admin?._id);
+          console.log("OrderManagement: Socket connection established for admin:", admin?._id);
         }
         
         socketService.off('orderCreated');
@@ -58,9 +62,9 @@ const OrderManagement = () => {
         socketService.off('disconnect');
 
         socketService.on('orderCreated', (newOrder) => {
-          console.log("New order received via socket:", newOrder);
+          console.log("OrderManagement: New order received via socket:", newOrder);
           if (!newOrder || !newOrder.orderId) {
-            console.error("Invalid order data received:", newOrder);
+            console.error("OrderManagement: Invalid order data received:", newOrder);
             return;
           }
           
@@ -80,9 +84,9 @@ const OrderManagement = () => {
         });
 
         socketService.on('orderStatusUpdated', (updatedOrder) => {
-          console.log("Order status updated via socket:", updatedOrder);
+          console.log("OrderManagement: Order status updated via socket:", updatedOrder);
           if (!updatedOrder || !updatedOrder.orderId) {
-            console.error("Invalid order data received:", updatedOrder);
+            console.error("OrderManagement: Invalid order data received:", updatedOrder);
             return;
           }
           toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
@@ -90,17 +94,17 @@ const OrderManagement = () => {
         });
 
         socketService.on('reconnect', () => {
-          console.log("Socket reconnected");
+          console.log("OrderManagement: Socket reconnected");
           toast.success("Reconnected to server");
           fetchOrders(pagination.page, pagination?.limit || 10, filterStatus);
         });
 
         socketService.on('disconnect', () => {
-          console.log("Socket disconnected");
+          console.log("OrderManagement: Socket disconnected");
           toast.warning("Lost connection to server. Reconnecting...");
         });
       } catch (err) {
-        console.error("Socket setup error:", err);
+        console.error("OrderManagement: Socket setup error:", err);
         toast.error("Failed to setup socket connection");
       }
     };
@@ -110,7 +114,7 @@ const OrderManagement = () => {
     }
     
     return () => {
-      console.log("Cleaning up socket listeners");
+      console.log("OrderManagement: Cleaning up socket listeners");
       socketService.off('orderCreated');
       socketService.off('orderStatusUpdated');
       socketService.off('reconnect');
@@ -120,10 +124,12 @@ const OrderManagement = () => {
 
   useEffect(() => {
     if (!isAdminAuthenticated || !admin) {
+      console.log('OrderManagement: Not authenticated or no admin');
       toast.error('You must be logged in as an admin to access this page.');
       return;
     }
 
+    console.log('OrderManagement: Fetching orders on mount for admin:', admin._id);
     fetchOrders(1, pagination?.limit || 10, filterStatus);
     
     const pingInterval = setInterval(() => {
@@ -131,11 +137,11 @@ const OrderManagement = () => {
         if (socketService.getConnectionState()) {
           socketService.emit('ping');
         } else {
-          console.log("Socket not connected, attempting to reconnect");
+          console.log("OrderManagement: Socket not connected, attempting to reconnect");
           socketService.connect(admin?._id, admin?.role);
         }
       } catch (err) {
-        console.error("Socket ping error:", err);
+        console.error("OrderManagement: Socket ping error:", err);
       }
     }, 30000);
     
@@ -145,20 +151,30 @@ const OrderManagement = () => {
   }, [fetchOrders, isAdminAuthenticated, admin, filterStatus, pagination?.limit]);
 
   const handleStatusFilter = (status) => {
+    console.log('OrderManagement: Setting filter status:', status);
     setFilterStatus(status);
     fetchOrders(1, pagination?.limit || 10, status);
   };
 
-  const handleSearch = (e) => {
+  const handleSearch = async (e) => {
     e.preventDefault();
+    console.log('OrderManagement: Handling search with term:', searchTerm);
     if (searchTerm) {
       if (searchTerm.includes('@')) {
-        fetchOrders(1, pagination?.limit || 10, filterStatus, searchTerm);
+        try {
+          await fetchOrders(1, pagination?.limit || 10, filterStatus, searchTerm);
+        } catch (err) {
+          toast.error('No orders found for this email');
+          fetchOrders(1, pagination?.limit || 10, filterStatus);
+        }
       } else if (/^ORD-[A-F0-9]{8}$/i.test(searchTerm)) {
         const filteredOrders = (orders || []).filter(order => 
-          order.orderId.toLowerCase() === searchTerm.toLowerCase()
+          order && order.orderId && order.orderId.toLowerCase() === searchTerm.toLowerCase()
         );
-        if (filteredOrders.length === 0) {
+        if (filteredOrders.length > 0) {
+          console.log('OrderManagement: Found orders by ID:', filteredOrders);
+          setOrders(filteredOrders);
+        } else {
           toast.info("No orders found with that ID. Showing all orders.");
           fetchOrders(1, pagination?.limit || 10, filterStatus);
         }
@@ -171,58 +187,70 @@ const OrderManagement = () => {
   };
 
   const handleRefreshOrders = () => {
+    console.log('OrderManagement: Refreshing orders');
     toast.info("Refreshing orders...");
     fetchOrders(1, pagination?.limit || 10, filterStatus);
   };
 
   const handleMarkProcessing = async (orderId) => {
     try {
+      console.log('OrderManagement: Marking order as processing:', orderId);
       await updateStatus(orderId, "processing");
       toast.success(`Order ${orderId} marked as processing`);
       setNewOrderIds(prev => prev.filter(id => id !== orderId));
     } catch (error) {
+      console.error('OrderManagement: Error marking processing:', error);
       toast.error(error.message || "Failed to update order status");
     }
   };
 
   const handleMarkShipped = async (orderId) => {
     try {
+      console.log('OrderManagement: Marking order as shipped:', orderId);
       await updateStatus(orderId, "shipped");
       toast.success(`Order ${orderId} marked as shipped`);
     } catch (error) {
+      console.error('OrderManagement: Error marking shipped:', error);
       toast.error(error.message || "Failed to update order status");
     }
   };
 
   const handleMarkDelivered = async (orderId) => {
     try {
+      console.log('OrderManagement: Marking order as delivered:', orderId);
       await updateStatus(orderId, "delivered");
       toast.success(`Order ${orderId} marked as delivered`);
     } catch (error) {
+      console.error('OrderManagement: Error marking delivered:', error);
       toast.error(error.message || "Failed to update order status");
     }
   };
 
   const handleCancelOrder = async (orderId) => {
     try {
+      console.log('OrderManagement: Cancelling order:', orderId);
       await updateStatus(orderId, "cancelled");
       toast.success(`Order ${orderId} has been cancelled`);
     } catch (error) {
+      console.error('OrderManagement: Error cancelling order:', error);
       toast.error(error.message || "Failed to cancel order");
     }
   };
 
   const handleDownloadInvoice = async (orderId) => {
     try {
+      console.log('OrderManagement: Downloading invoice for order:', orderId);
       await downloadOrderInvoice(orderId);
       toast.success(`Invoice for order ${orderId} downloaded`);
     } catch (error) {
+      console.error('OrderManagement: Error downloading invoice:', error);
       toast.error(error.message || "Failed to download invoice");
     }
   };
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.totalPages) {
+      console.log('OrderManagement: Changing page to:', newPage);
       fetchOrders(newPage, pagination?.limit || 10, filterStatus);
     }
   };
@@ -232,7 +260,7 @@ const OrderManagement = () => {
       style: 'currency',
       currency: 'PKR',
       minimumFractionDigits: 0,
-    }).format(price);
+    }).format(price || 0);
   };
 
   const getOrderStatusBadge = (status) => {
@@ -250,7 +278,7 @@ const OrderManagement = () => {
         {status === "processing" && <FiClock className="mr-1" />}
         {status === "shipped" && <FiTruck className="mr-1" />}
         {status === "delivered" && <FiCheckCircle className="mr-1" />}
-        <span className="capitalize">{status}</span>
+        <span className="capitalize">{status || 'Unknown'}</span>
       </span>
     );
   };
@@ -382,215 +410,176 @@ const OrderManagement = () => {
             <div className="flex-1">
               <form onSubmit={handleSearch} className="flex items-center">
                 <div className="relative flex-1">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <FiSearch className="text-gray-400" />
-                  </div>
+                  <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" />
                   <input
                     type="text"
-                    className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-red-500 focus:border-red-500"
-                    placeholder="Search by order ID or email"
+                    placeholder="Search by order ID or customer email"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:ring-red-500 focus:border-red-500"
                   />
                 </div>
                 <Button
                   type="submit"
                   className="ml-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm"
+                  disabled={loading}
                 >
                   Search
                 </Button>
               </form>
             </div>
-            
-            <div className="flex items-center space-x-1">
-              <div className="flex items-center">
-                <FiFilter className="mr-2 text-gray-400" />
-                <span className="text-sm text-gray-500 mr-2">Filter:</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                <Button
-                  onClick={() => handleStatusFilter('')}
-                  className={`text-xs px-2 py-1 rounded ${filterStatus === '' ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                >
-                  All
-                </Button>
-                <Button
-                  onClick={() => handleStatusFilter('pending')}
-                  className={`text-xs px-2 py-1 rounded ${filterStatus === 'pending' ? 'bg-yellow-200 text-yellow-800' : 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100'}`}
-                >
-                  Pending
-                </Button>
-                <Button
-                  onClick={() => handleStatusFilter('processing')}
-                  className={`text-xs px-2 py-1 rounded ${filterStatus === 'processing' ? 'bg-blue-200 text-blue-800' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-                >
-                  Processing
-                </Button>
-                <Button
-                  onClick={() => handleStatusFilter('shipped')}
-                  className={`text-xs px-2 py-1 rounded ${filterStatus === 'shipped' ? 'bg-purple-200 text-purple-800' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}
-                >
-                  Shipped
-                </Button>
-                <Button
-                  onClick={() => handleStatusFilter('delivered')}
-                  className={`text-xs px-2 py-1 rounded ${filterStatus === 'delivered' ? 'bg-green-200 text-green-800' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
-                >
-                  Delivered
-                </Button>
-                <Button
-                  onClick={() => handleStatusFilter('cancelled')}
-                  className={`text-xs px-2 py-1 rounded ${filterStatus === 'cancelled' ? 'bg-red-200 text-red-800' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
-                >
-                  Cancelled
-                </Button>
-              </div>
+            <div className="flex items-center space-x-2">
+              <FiFilter className="text-gray-600 text-sm" />
+              <select
+                value={filterStatus}
+                onChange={(e) => handleStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-red-500 focus:border-red-500"
+              >
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="processing">Processing</option>
+                <option value="shipped">Shipped</option>
+                <option value="delivered">Delivered</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
             </div>
           </div>
         </div>
-
+        
         {(orders || []).length === 0 ? (
-          <div className="bg-white shadow-sm rounded-lg p-6 text-center">
-            <p className="text-sm text-gray-500">
-              {searchTerm ? 
-                `No orders found for "${searchTerm}"` : 
-                filterStatus ? 
-                  `No orders with status "${filterStatus}"` : 
-                  "No orders found."}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
+            <p className="text-gray-600 text-sm">
+              {filterStatus ? `No ${filterStatus} orders found.` : "No orders found."}
             </p>
+            {(filterStatus || searchTerm) && (
+              <Button
+                onClick={() => {
+                  setFilterStatus('');
+                  setSearchTerm('');
+                  fetchOrders(1, pagination?.limit || 10, '');
+                }}
+                className="mt-3 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm"
+              >
+                Clear Filters
+              </Button>
+            )}
           </div>
         ) : (
-          <div className="space-y-4">
+          <>
             {(orders || []).map((order) => {
+              if (!order || !order.orderId) {
+                console.warn("OrderManagement: Invalid order data skipped:", order);
+                return null;
+              }
+              
               const isNewOrder = newOrderIds.includes(order.orderId);
               
               return (
                 <div
                   key={order.orderId}
-                  className={`bg-white rounded-lg shadow-sm border ${
-                    isNewOrder ? 'border-yellow-400 ring-2 ring-yellow-200' : 'border-gray-200'
-                  } p-4 transition-all ${isNewOrder ? 'animate-pulse' : ''}`}
+                  className={`mb-4 bg-white rounded-lg shadow-sm border ${isNewOrder ? 'border-yellow-400 ring-2 ring-yellow-200 animate-pulse' : 'border-gray-200'} p-4`}
                 >
                   {isNewOrder && (
-                    <div className="mb-2 bg-yellow-50 text-yellow-800 px-3 py-1 rounded text-sm flex items-center">
+                    <div className="mb-2 bg-yellow-50 text-yellow-800 px-3 py-1 rounded text-xs flex items-center">
                       <FiAlertCircle className="mr-2" />
-                      New order received! Requires your attention.
+                      New order received!
                     </div>
                   )}
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
                     <div>
                       <p className="text-xs text-gray-600">Order ID</p>
-                      <p className="text-sm font-medium text-gray-900">{order.orderId}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Date</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {new Date(order.createdAt).toLocaleDateString()} {new Date(order.createdAt).toLocaleTimeString()}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Total Amount</p>
-                      <p className="text-sm font-medium text-gray-900">{formatPrice(order.totalPrice)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Customer</p>
-                      <p className="text-sm font-medium text-gray-900">{order.userId?.name || 'N/A'}</p>
-                      <p className="text-xs text-gray-500">{order.userId?.email || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600">Shipping Address</p>
-                      <p className="text-sm font-medium text-gray-900 line-clamp-2">
-                        {order.shippingAddress
-                          ? `${order.shippingAddress.fullName}, ${order.shippingAddress.addressLine1}, ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode}, ${order.shippingAddress.country}`
-                          : 'N/A'}
-                      </p>
+                      <p className="font-medium text-gray-900 text-sm">{order.orderId}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-600">Status</p>
-                      <div className="mt-1">
-                        {getOrderStatusBadge(order.status)}
-                      </div>
+                      {getOrderStatusBadge(order.status)}
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Order Date</p>
+                      <p className="font-medium text-gray-900 text-sm">
+                        {new Date(order.createdAt || Date.now()).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Customer</p>
+                      <p className="font-medium text-gray-900 text-sm">{order.userId?.name || 'N/A'} ({order.userId?.email || 'N/A'})</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Total Amount</p>
+                      <p className="font-medium text-gray-900 text-sm">{formatPrice(order.totalPrice)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Tracking Number</p>
+                      <p className="font-medium text-gray-900 text-sm">{order.trackingNumber || 'N/A'}</p>
                     </div>
                   </div>
-
-                  <div className="space-y-3 mb-4">
-                    <p className="text-xs text-gray-600 mb-2">Order Items ({order.items?.length || 0})</p>
-                    {(order.items || []).map((item) => (
-                      <div key={item._id} className="flex items-start">
+                  
+                  <div className="mb-4">
+                    <p className="text-xs text-gray-600 font-medium mb-2">Items</p>
+                    {(order.items || []).map((item, index) => (
+                      <div key={index} className="flex items-start mb-2 last:mb-0">
                         <img
-                          src={item.productId?.image?.url || "/placeholder-product.png"}
+                          src={item.productId?.image || '/placeholder.png'}
                           alt={item.productId?.title || 'Product'}
-                          className="w-12 h-12 object-cover rounded-md mr-3 border border-gray-200"
-                          onError={(e) => (e.currentTarget.src = "/placeholder-product.png")}
+                          className="w-10 h-10 sm:w-12 sm:h-12 object-cover rounded mr-3"
+                          onError={(e) => {
+                            e.target.src = '/placeholder.png';
+                          }}
                         />
                         <div className="flex-1">
-                          <h3 className="text-sm font-medium text-gray-900">
-                            {item.productId?.title || 'Untitled Product'}
+                          <p className="font-medium text-gray-900 text-sm">
+                            {(item.productId?.title || 'Untitled Product')}
                             {item.variantId && (
                               <span className="ml-1 text-xs text-gray-500">
                                 (Variant: {item.variantValue || item.variantId})
                               </span>
                             )}
-                          </h3>
-                          <p className="text-xs text-gray-600">SKU: {item.sku}</p>
-                          <p className="text-xs font-medium text-gray-900 mt-1">
-                            {item.quantity} x {formatPrice(item.price)}
                           </p>
+                          <p className="text-xs text-gray-600">Quantity: {item.quantity || 1}</p>
+                          <p className="text-xs text-gray-600">Price: {formatPrice(item.price)}</p>
                         </div>
                       </div>
                     ))}
                   </div>
-
-                  <div className="flex flex-wrap justify-end gap-2">
-                    {order.status === 'pending' && (
-                      <Button
-                        variant="primary"
-                        onClick={() => handleMarkProcessing(order.orderId)}
-                        icon={FiClock}
-                        className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white text-sm py-2"
-                      >
-                        Start Processing
-                      </Button>
+                  
+                  <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-2">
+                    {order.status === "pending" && (
+                      <>
+                        <Button
+                          onClick={() => handleMarkProcessing(order.orderId)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md text-xs"
+                        >
+                          Start Processing
+                        </Button>
+                        <Button
+                          onClick={() => handleCancelOrder(order.orderId)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-xs"
+                        >
+                          Cancel Order
+                        </Button>
+                      </>
                     )}
-                    
-                    {(order.status === 'pending' || order.status === 'processing') && (
+                    {order.status === "processing" && (
                       <Button
-                        variant="primary"
                         onClick={() => handleMarkShipped(order.orderId)}
-                        icon={FiTruck}
-                        className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white text-sm py-2"
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded-md text-xs"
                       >
                         Mark as Shipped
                       </Button>
                     )}
-                    
-                    {(order.status === 'pending' || order.status === 'processing' || order.status === 'shipped') && (
+                    {order.status === "shipped" && (
                       <Button
-                        variant="primary"
                         onClick={() => handleMarkDelivered(order.orderId)}
-                        icon={FiCheckCircle}
-                        className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white text-sm py-2"
+                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-md text-xs"
                       >
                         Mark as Delivered
                       </Button>
                     )}
-                    
-                    {order.status !== 'cancelled' && order.status !== 'delivered' && (
-                      <Button
-                        variant="outline"
-                        onClick={() => handleCancelOrder(order.orderId)}
-                        className="w-full sm:w-auto border-gray-300 text-gray-600 hover:bg-gray-50 text-sm py-2"
-                      >
-                        Cancel Order
-                      </Button>
-                    )}
-                    
                     <Button
-                      variant="primary"
                       onClick={() => handleDownloadInvoice(order.orderId)}
                       icon={FiDownload}
-                      className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white text-sm py-2"
+                      className="border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-1 rounded-md text-xs"
                     >
                       Download Invoice
                     </Button>
@@ -598,30 +587,27 @@ const OrderManagement = () => {
                 </div>
               );
             })}
-          </div>
-        )}
-
-        {(orders || []).length > 0 && (
-          <div className="flex flex-col sm:flex-row justify-between items-center mt-4 gap-3">
-            <Button
-              onClick={() => handlePageChange(pagination.page - 1)}
-              disabled={pagination.page === 1}
-              className="w-full sm:w-auto border border-gray-300 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm"
-            >
-              Previous Page
-            </Button>
-            <p className="text-sm text-gray-600">
-              Page {pagination.page} of {pagination.totalPages} 
-              ({pagination.total} total orders)
-            </p>
-            <Button
-              onClick={() => handlePageChange(pagination.page + 1)}
-              disabled={pagination.page === pagination.totalPages}
-              className="w-full sm:w-auto border border-gray-300 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm"
-            >
-              Next Page
-            </Button>
-          </div>
+            
+            <div className="flex flex-col sm:flex-row justify-between items-center mt-4">
+              <Button
+                onClick={() => handlePageChange(pagination.page - 1)}
+                disabled={pagination.page === 1}
+                className="w-full sm:w-auto border border-gray-300 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm mb-2 sm:mb-0"
+              >
+                Previous
+              </Button>
+              <p className="text-sm text-gray-600">
+                Page {pagination.page} of {pagination.totalPages} (Total Orders: {pagination.total})
+              </p>
+              <Button
+                onClick={() => handlePageChange(pagination.page + 1)}
+                disabled={pagination.page === pagination.totalPages}
+                className="w-full sm:w-auto border border-gray-300 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-md text-sm"
+              >
+                Next
+              </Button>
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -9,9 +9,34 @@ import { toast } from 'react-toastify';
 
 function CartProductCard({ item, onUpdateQuantity, onRemove }) {
   if (!item || !item.productId) {
-    // console.warn('Invalid cart item:', item);
+    console.warn('CartProductCard: Invalid cart item:', item);
     return null;
   }
+
+  // Normalize image URL
+  const imageUrl = item.image
+    ? typeof item.image === 'string'
+      ? item.image.startsWith('http')
+        ? item.image
+        : `${process.env.VITE_API_BASE_PROD_URL || 'http://localhost:5000'}${item.image}`
+      : item.image.url
+      ? item.image.url.startsWith('http')
+        ? item.image.url
+        : `${process.env.VITE_API_BASE_PROD_URL || 'http://localhost:5000'}${item.image.url}`
+      : '/images/placeholder-product.png'
+    : item.productId?.images?.[0]?.url
+    ? item.productId.images[0].url.startsWith('http')
+      ? item.productId.images[0].url
+      : `${process.env.VITE_API_BASE_PROD_URL || 'http://localhost:5000'}${item.productId.images[0].url}`
+    : '/images/placeholder-product.png';
+
+  console.log('CartProductCard: Item image data:', {
+    itemId: item.productId._id,
+    title: item.title,
+    image: item.image,
+    productIdImages: item.productId?.images,
+    computedImageUrl: imageUrl,
+  });
 
   const formattedPrice = new Intl.NumberFormat('en-PK', {
     style: 'currency',
@@ -33,10 +58,14 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
       <div className="flex items-center gap-3">
         <div className="w-16 h-16 flex-shrink-0">
           <img
-            src={item.image || '/placeholder-product.png'}
+            src={imageUrl}
             alt={item.title || 'Product'}
             className="w-full h-full object-cover rounded-md"
-            onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
+            onError={(e) => {
+              console.warn(`CartProductCard: Image failed to load for ${item.title || 'unknown'}:`, e.target.src);
+              e.currentTarget.src = '/images/placeholder-product.png';
+              e.currentTarget.onerror = null;
+            }}
           />
         </div>
         <div className="flex-1">
@@ -108,16 +137,16 @@ function Cart() {
   const [redirectCount, setRedirectCount] = useState(0);
 
   useEffect(() => {
-    // console.log('Cart: cartItems:', cartItems);
-    // console.log('Cart: isLoading:', isLoading, 'error:', error);
+    console.log('Cart: cartItems:', cartItems);
+    console.log('Cart: isLoading:', isLoading, 'error:', error);
   }, [cartItems, isLoading, error]);
 
   useEffect(() => {
     if (!user && redirectCount < 2) {
-      setRedirectCount(prev => prev + 1);
+      setRedirectCount((prev) => prev + 1);
       navigate('/login', { state: { from: '/cart' } });
     } else if (user) {
-      fetchCart().catch(err => {
+      fetchCart().catch((err) => {
         toast.error('Failed to load cart: ' + (err.message || 'Unknown error'));
       });
     }
@@ -128,7 +157,7 @@ function Cart() {
       toast.error('Your cart is empty');
       return;
     }
-    if (cartItems.some(item => item.isUnavailable || item.isVariantUnavailable)) {
+    if (cartItems.some((item) => item.isUnavailable || item.isVariantUnavailable)) {
       toast.error('Please remove unavailable items before proceeding to checkout');
       return;
     }
@@ -196,7 +225,7 @@ function Cart() {
   if (isLoading && !cartItems.length) {
     return (
       <div className="min-h-screen bg-gray-100 py-6 px-4">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-3-half mx-auto">
           <LoadingSkeleton type="text" width="40" height="6" className="mb-6 mx-auto" />
           <div className="space-y-4">
             {[...Array(3)].map((_, i) => (
@@ -225,9 +254,7 @@ function Cart() {
           </div>
           <h3 className="text-base font-medium text-gray-700 mb-2">Unable to load your cart</h3>
           <p className="text-sm text-gray-500 mb-4">
-            {error.status === 403
-              ? 'Please login to view your cart'
-              : error.message || 'An error occurred'}
+            {error.status === 403 ? 'Please login to view your cart' : error.message || 'An error occurred'}
           </p>
           <div className="space-y-2">
             {error.status === 403 ? (
@@ -296,66 +323,107 @@ function Cart() {
                   </tr>
                 </thead>
                 <tbody>
-                  {cartItems.map((item) => (
-                    <tr key={`${item.productId._id}-${item.variantId || 'no-variant'}`} className={`border-b border-gray-200 last:border-b-0 ${item.isUnavailable || item.isVariantUnavailable ? 'opacity-60' : ''}`}>
-                      <td className="p-4 flex items-center gap-4">
-                        <img
-                          src={item.image || '/placeholder-product.png'}
-                          alt={item.title}
-                          className="w-16 h-16 object-cover rounded-lg"
-                          onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
-                        />
-                        <div>
-                          <h3 className="text-base font-semibold text-gray-900 hover:text-red-600 cursor-pointer">
-                            {item.title}
-                          </h3>
-                          <p className="text-sm text-gray-600">SKU: {item.sku || 'N/A'}</p>
-                          <p className="text-sm text-gray-600 truncate">
-                            Category: {item.category?.name || 'No category'}
-                          </p>
-                          {(item.isUnavailable || item.isVariantUnavailable) && (
-                            <p className="text-sm text-yellow-600">
-                              This {item.isVariantUnavailable ? 'variant' : 'product'} is unavailable
+                  {cartItems.map((item) => {
+                    if (!item || !item.productId) {
+                      console.warn('Cart: Invalid cart item in table:', item);
+                      return null;
+                    }
+
+                    // Normalize image URL
+                    const imageUrl = item.image
+                      ? typeof item.image === 'string'
+                        ? item.image.startsWith('http')
+                          ? item.image
+                          : `${process.env.VITE_API_BASE_PROD_URL || 'http://localhost:5000'}${item.image}`
+                        : item.image.url
+                        ? item.image.url.startsWith('http')
+                          ? item.image.url
+                          : `${process.env.VITE_API_BASE_PROD_URL || 'http://localhost:5000'}${item.image.url}`
+                        : '/images/placeholder-product.png'
+                      : item.productId?.images?.[0]?.url
+                      ? item.productId.images[0].url.startsWith('http')
+                        ? item.productId.images[0].url
+                        : `${process.env.VITE_API_BASE_PROD_URL || 'http://localhost:5000'}${item.productId.images[0].url}`
+                      : '/images/placeholder-product.png';
+
+                    console.log('Cart: Item image data:', {
+                      itemId: item.productId._id,
+                      title: item.title,
+                      image: item.image,
+                      productIdImages: item.productId?.images,
+                      computedImageUrl: imageUrl,
+                    });
+
+                    return (
+                      <tr
+                        key={`${item.productId._id}-${item.variantId || 'no-variant'}`}
+                        className={`border-b border-gray-200 last:border-b-0 ${
+                          item.isUnavailable || item.isVariantUnavailable ? 'opacity-60' : ''
+                        }`}
+                      >
+                        <td className="p-4 flex items-center gap-4">
+                          <img
+                            src={imageUrl}
+                            alt={item.title}
+                            className="w-16 h-16 object-cover rounded-lg"
+                            onError={(e) => {
+                              console.warn(`Cart: Image failed to load for ${item.title || 'unknown'}:`, e.target.src);
+                              e.currentTarget.src = '/images/placeholder-product.png';
+                              e.currentTarget.onerror = null;
+                            }}
+                          />
+                          <div>
+                            <h3 className="text-base font-semibold text-gray-900 hover:text-red-600 cursor-pointer">
+                              {item.title}
+                            </h3>
+                            <p className="text-sm text-gray-600">SKU: {item.sku || 'N/A'}</p>
+                            <p className="text-sm text-gray-600 truncate">
+                              Category: {item.category?.name || 'No category'}
                             </p>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2">
+                            {(item.isUnavailable || item.isVariantUnavailable) && (
+                              <p className="text-sm text-yellow-600">
+                                This {item.isVariantUnavailable ? 'variant' : 'product'} is unavailable
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={() => handleUpdateQuantity(item.productId._id, item.quantity - 1, item.variantId)}
+                              className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
+                              disabled={item.isUnavailable || item.isVariantUnavailable || item.quantity <= 1}
+                            >
+                              <CiCircleMinus size={20} />
+                            </Button>
+                            <span className="w-12 text-center text-sm">{item.quantity}</span>
+                            <Button
+                              onClick={() => handleUpdateQuantity(item.productId._id, item.quantity + 1, item.variantId)}
+                              className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
+                              disabled={item.isUnavailable || item.isVariantUnavailable || item.quantity >= (item.stock || 0)}
+                            >
+                              <CiCirclePlus size={20} />
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="p-4 text-gray-900">
+                          {new Intl.NumberFormat('en-PK', {
+                            style: 'currency',
+                            currency: 'PKR',
+                            minimumFractionDigits: 0,
+                          }).format((item.price || 0) * item.quantity)}
+                        </td>
+                        <td className="p-4">
                           <Button
-                            onClick={() => handleUpdateQuantity(item.productId._id, item.quantity - 1, item.variantId)}
-                            className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
-                            disabled={item.isUnavailable || item.isVariantUnavailable || item.quantity <= 1}
+                            onClick={() => handleRemoveItem(item.productId._id, item.variantId)}
+                            className="bg-red-600 text-white hover:bg-red-700 p-2 rounded-full"
                           >
-                            <CiCircleMinus size={20} />
+                            <CiTrash size={20} />
                           </Button>
-                          <span className="w-12 text-center text-sm">{item.quantity}</span>
-                          <Button
-                            onClick={() => handleUpdateQuantity(item.productId._id, item.quantity + 1, item.variantId)}
-                            className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
-                            disabled={item.isUnavailable || item.isVariantUnavailable || item.quantity >= (item.stock || 0)}
-                          >
-                            <CiCirclePlus size={20} />
-                          </Button>
-                        </div>
-                      </td>
-                      <td className="p-4 text-gray-900">
-                        {new Intl.NumberFormat('en-PK', {
-                          style: 'currency',
-                          currency: 'PKR',
-                          minimumFractionDigits: 0,
-                        }).format((item.price || 0) * item.quantity)}
-                      </td>
-                      <td className="p-4">
-                        <Button
-                          onClick={() => handleRemoveItem(item.productId._id, item.variantId)}
-                          className="bg-red-600 text-white hover:bg-red-700 p-2 rounded-full"
-                        >
-                          <CiTrash size={20} />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -371,9 +439,7 @@ function Cart() {
             </div>
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex flex-col gap-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm md:text-base font-semibold text-gray-900">
-                  Total: {formattedTotalPrice}
-                </h3>
+                <h3 className="text-sm md:text-base font-semibold text-gray-900">Total: {formattedTotalPrice}</h3>
                 <Button
                   onClick={handleClearCart}
                   className="bg-gray-600 text-white hover:bg-gray-700 px-4 py-2 rounded-md text-sm"
