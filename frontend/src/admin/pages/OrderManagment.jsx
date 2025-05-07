@@ -523,9 +523,7 @@ const OrderManagement = () => {
                           src={item.productId?.image || '/placeholder.png'}
                           alt={item.productId?.title || 'Product'}
                           className="w-10 h-10 sm:w-12 sm:h-12 object-cover rounded mr-3"
-                          onError={(e) => {
-                            e.target.src = '/placeholder.png';
-                          }}
+                          
                         />
                         <div className="flex-1">
                           <p className="font-medium text-gray-900 text-sm">
