@@ -8,37 +8,41 @@ class SocketService {
   constructor() {
     this.socket = null;
     this.isConnected = false;
+    this.isConnecting = false;
   }
 
   connect(userId = null, role = null) {
-    if (this.isConnected) return this.socket;
+    if (this.isConnected || this.isConnecting) return this.socket;
 
-    this.socket = io(import.meta.env.VITE_API_BASE_PROD_URL || 'http://localhost:5000', {
+    this.isConnecting = true;
+    const apiUrl = import.meta.env.VITE_API_BASE_PROD_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+    
+    this.socket = io(apiUrl, {
       query: { userId, role },
       withCredentials: true,
+      transports: ['websocket', 'polling'],
+      reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
     });
 
-    // Forward Socket.IO connection events
     this.socket.on('connect', () => {
       this.isConnected = true;
-      console.log('Socket.IO connected');
+      this.isConnecting = false;
       emitter.emit('connect');
     });
 
-    this.socket.on('disconnect', () => {
+    this.socket.on('disconnect', (reason) => {
       this.isConnected = false;
-      console.log('Socket.IO disconnected');
-      emitter.emit('disconnect');
+      this.isConnecting = false;
+      emitter.emit('disconnect', reason);
     });
 
     this.socket.on('connect_error', (error) => {
-      console.error('Socket.IO connection error:', error);
+      this.isConnecting = false;
       emitter.emit('connect_error', error);
     });
 
-    // Forward relevant Socket.IO events to the mitt emitter
     this.socket.on('discountCreated', (data) => emitter.emit('discountCreated', data));
     this.socket.on('discountApplied', (data) => emitter.emit('discountApplied', data));
     this.socket.on('orderCreated', (data) => emitter.emit('orderCreated', data));
@@ -54,7 +58,8 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.isConnected = false;
-      console.log('Socket.IO manually disconnected');
+      this.isConnecting = false;
+      emitter.emit('disconnect', 'manual');
     }
   }
 
@@ -66,7 +71,6 @@ class SocketService {
     return this.isConnected;
   }
 
-  // Expose mitt's event handling methods
   on(event, handler) {
     emitter.on(event, handler);
   }
