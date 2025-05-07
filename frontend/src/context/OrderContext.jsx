@@ -122,10 +122,50 @@ export const OrderProvider = ({ children }) => {
     const fetchData = isAdmin ? fetchAllOrders : fetchUserOrders;
     fetchData();
 
+    let pollingInterval = null;
+
     if (isAdmin) {
-      socketService.on('orderCreated', () => debouncedFetchAllOrders(1, 10));
-      socketService.on('orderStatusUpdated', () => debouncedFetchAllOrders(1, 10));
+      socketService.connect(admin?._id, 'admin');
+
+      const handleSocketError = (error) => {
+        setError('Failed to connect to real-time updates. Using fallback polling.');
+        if (!pollingInterval) {
+          pollingInterval = setInterval(() => {
+            if (!socketService.getConnectionState()) {
+              fetchAllOrders(1, 10);
+            }
+          }, 30000);
+        }
+      };
+
+      socketService.on('connect_error', handleSocketError);
+
+      if (socketService.getConnectionState()) {
+        socketService.on('orderCreated', () => debouncedFetchAllOrders(1, 10));
+        socketService.on('orderStatusUpdated', () => debouncedFetchAllOrders(1, 10));
+      }
+
+      socketService.on('connect', () => {
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+          setError('');
+        }
+        socketService.on('orderCreated', () => debouncedFetchAllOrders(1, 10));
+        socketService.on('orderStatusUpdated', () => debouncedFetchAllOrders(1, 10));
+      });
+
+      socketService.on('disconnect', () => {
+        if (!pollingInterval) {
+          pollingInterval = setInterval(() => {
+            if (!socketService.getConnectionState()) {
+              fetchAllOrders(1, 10);
+            }
+          }, 30000);
+        }
+      });
     } else if (isRegularUser) {
+      socketService.connect(user?._id, 'user');
       socketService.on('orderCreated', fetchUserOrders);
       socketService.on('orderStatusUpdated', fetchUserOrders);
     }
@@ -133,8 +173,15 @@ export const OrderProvider = ({ children }) => {
     return () => {
       socketService.off('orderCreated');
       socketService.off('orderStatusUpdated');
+      socketService.off('connect');
+      socketService.off('connect_error');
+      socketService.off('disconnect');
+      socketService.disconnect();
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
     };
-  }, [isAdmin, isRegularUser, userRole, debouncedFetchAllOrders, fetchAllOrders, fetchUserOrders]);
+  }, [isAdmin, isRegularUser, userRole, debouncedFetchAllOrders, fetchAllOrders, fetchUserOrders, admin?._id, user?._id]);
 
   const handleOrderError = async (err, isUser, retryFn) => {
     if (err.response && err.response.status === 401) {
