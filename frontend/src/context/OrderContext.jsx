@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
+import { debounce } from 'lodash';
 import { useAdminAuth } from './AdminAuthContext';
-import { useAuth } from './AuthContext'; 
+import { useAuth } from './AuthContext';
 import { placeOrder, getUserOrders, getAllOrders, updateOrderStatus, downloadInvoice, cancelOrder as apiCancelOrder } from '../services/orderService';
 import socketService from '../services/socketService';
 
@@ -17,8 +18,6 @@ export const OrderProvider = ({ children }) => {
   const isAdmin = isAdminAuthenticated && admin && (admin.role === 'admin' || admin.role === 'administrator');
   const isRegularUser = isAuthenticated && user && user.role === 'user';
   const userRole = isAdmin ? admin.role : (isRegularUser ? user.role : null);
-
-  console.log('OrderContext: isAdmin:', isAdmin, 'isRegularUser:', isRegularUser, 'userRole:', userRole);
 
   const validateOrderData = (orderData) => {
     const errors = [];
@@ -62,30 +61,8 @@ export const OrderProvider = ({ children }) => {
     return errors;
   };
 
-  useEffect(() => {
-    if (!userRole) return;
-
-    const fetchData = isAdmin ? fetchAllOrders : fetchUserOrders;
-    console.log('OrderContext: Initial fetch for role:', userRole);
-    fetchData();
-
-    if (isAdmin) {
-      socketService.on('orderCreated', fetchAllOrders);
-      socketService.on('orderStatusUpdated', fetchAllOrders);
-    } else if (isRegularUser) {
-      socketService.on('orderCreated', fetchUserOrders);
-      socketService.on('orderStatusUpdated', fetchUserOrders);
-    }
-
-    return () => {
-      socketService.off('orderCreated');
-      socketService.off('orderStatusUpdated');
-    };
-  }, [isAdmin, isRegularUser, userRole]);
-
   const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '') => {
     if (!isRegularUser && !isAdmin) {
-      console.log('fetchUserOrders: Aborted - Not authorized');
       return;
     }
     
@@ -95,7 +72,6 @@ export const OrderProvider = ({ children }) => {
       const response = await getUserOrders(page, limit, status);
       const { orders, total, page: currentPage, limit: currentLimit, totalPages } = response.data;
       if (!Array.isArray(orders)) {
-        console.error('fetchUserOrders: Orders is not an array:', orders);
         setError('Invalid orders data received');
         setOrders([]);
         return;
@@ -103,7 +79,6 @@ export const OrderProvider = ({ children }) => {
       setOrders(orders.filter(order => order && order.orderId));
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
     } catch (err) {
-      console.error('fetchUserOrders: Error:', err);
       await handleOrderError(err, isRegularUser, () => fetchUserOrders(page, limit, status));
     } finally {
       setLoading(false);
@@ -112,18 +87,15 @@ export const OrderProvider = ({ children }) => {
 
   const fetchAllOrders = useCallback(async (page = 1, limit = 10, status = '', userId = '') => {
     if (!isAdmin) {
-      console.log('fetchAllOrders: Aborted - Not admin');
       return;
     }
     
     setLoading(true);
     setError('');
     try {
-      console.log('fetchAllOrders: Fetching orders for page:', page, 'limit:', limit, 'status:', status, 'userId:', userId);
       const response = await getAllOrders(page, limit, status, userId);
       const { orders, total, page: currentPage, limit: currentLimit, totalPages } = response.data;
       if (!Array.isArray(orders)) {
-        console.error('fetchAllOrders: Orders is not an array:', orders);
         setError('Invalid orders data received');
         setOrders([]);
         return;
@@ -131,22 +103,45 @@ export const OrderProvider = ({ children }) => {
       setOrders(orders.filter(order => order && order.orderId));
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
     } catch (err) {
-      console.error('fetchAllOrders: Error:', err);
       await handleOrderError(err, isAdmin, () => fetchAllOrders(page, limit, status, userId));
     } finally {
       setLoading(false);
     }
   }, [isAdmin, refreshAdminToken]);
 
+  const debouncedFetchAllOrders = useCallback(
+    debounce((page, limit, status, userId) => {
+      fetchAllOrders(page, limit, status, userId);
+    }, 1000),
+    [fetchAllOrders]
+  );
+
+  useEffect(() => {
+    if (!userRole) return;
+
+    const fetchData = isAdmin ? fetchAllOrders : fetchUserOrders;
+    fetchData();
+
+    if (isAdmin) {
+      socketService.on('orderCreated', () => debouncedFetchAllOrders(1, 10));
+      socketService.on('orderStatusUpdated', () => debouncedFetchAllOrders(1, 10));
+    } else if (isRegularUser) {
+      socketService.on('orderCreated', fetchUserOrders);
+      socketService.on('orderStatusUpdated', fetchUserOrders);
+    }
+
+    return () => {
+      socketService.off('orderCreated');
+      socketService.off('orderStatusUpdated');
+    };
+  }, [isAdmin, isRegularUser, userRole, debouncedFetchAllOrders, fetchAllOrders, fetchUserOrders]);
+
   const handleOrderError = async (err, isUser, retryFn) => {
-    console.log('handleOrderError: Error status:', err.response?.status, 'Message:', err.message);
     if (err.response && err.response.status === 401) {
-      console.log('handleOrderError: Attempting token refresh');
       try {
         await (isUser ? refreshToken() : refreshAdminToken());
         await retryFn();
       } catch (refreshErr) {
-        console.error('handleOrderError: Token refresh failed:', refreshErr);
         setError(isUser ? 'Session expired. Please log in again.' : 'Admin session expired. Please log in again.');
         throw new Error('Token refresh failed: ' + refreshErr.message);
       }
@@ -162,14 +157,12 @@ export const OrderProvider = ({ children }) => {
     
     const validationErrors = validateOrderData(orderData);
     if (validationErrors.length > 0) {
-      console.error('placeNewOrder: Validation errors:', validationErrors);
       setError(validationErrors.join(', '));
       setLoading(false);
       throw new Error(validationErrors.join(', '));
     }
 
     try {
-      console.log('placeNewOrder: Placing order:', orderData);
       const order = await placeOrder({
         ...orderData,
         items: orderData.items.map(item => ({
@@ -177,7 +170,6 @@ export const OrderProvider = ({ children }) => {
           productId: String(item.productId),
         }))
       });
-      console.log('placeNewOrder: Order placed:', order);
 
       if (isAdmin) {
         await fetchAllOrders();
@@ -187,7 +179,6 @@ export const OrderProvider = ({ children }) => {
       
       return order;
     } catch (err) {
-      console.error('placeNewOrder: Error:', err);
       await handleOrderError(err, isRegularUser || isAdmin, () => placeNewOrder(orderData));
       throw err;
     } finally {
@@ -197,7 +188,6 @@ export const OrderProvider = ({ children }) => {
 
   const updateStatus = async (orderId, status) => {
     if (!isAdmin) {
-      console.error('updateStatus: Unauthorized - Not admin');
       setError('Unauthorized: Only admins can update order status');
       throw new Error('Unauthorized: Only admins can update order status');
     }
@@ -206,27 +196,22 @@ export const OrderProvider = ({ children }) => {
     setError('');
     
     if (!['pending', 'processing', 'shipped', 'delivered', 'cancelled'].includes(status)) {
-      console.error('updateStatus: Invalid status:', status);
       setError('Invalid status value');
       setLoading(false);
       throw new Error('Invalid status value');
     }
     
     if (!/^ORD-[A-F0-9]{8}$/i.test(orderId)) {
-      console.error('updateStatus: Invalid order ID:', orderId);
       setError('Invalid order ID format');
       setLoading(false);
       throw new Error('Invalid order ID format');
     }
 
     try {
-      console.log('updateStatus: Updating order:', orderId, 'to status:', status);
       const order = await updateOrderStatus(orderId, status);
-      console.log('updateStatus: Order updated:', order);
       await fetchAllOrders();
       return order;
     } catch (err) {
-      console.error('updateStatus: Error:', err);
       await handleOrderError(err, isAdmin, () => updateStatus(orderId, status));
       throw err;
     } finally {
@@ -236,7 +221,6 @@ export const OrderProvider = ({ children }) => {
 
   const cancelUserOrder = async (orderId) => {
     if (!isRegularUser) {
-      console.error('cancelUserOrder: Unauthorized - Not a regular user');
       setError('Unauthorized: Only users can cancel their own orders');
       throw new Error('Unauthorized: Only users can cancel their own orders');
     }
@@ -245,20 +229,16 @@ export const OrderProvider = ({ children }) => {
     setError('');
     
     if (!/^ORD-[A-F0-9]{8}$/i.test(orderId)) {
-      console.error('cancelUserOrder: Invalid order ID:', orderId);
       setError('Invalid order ID format');
       setLoading(false);
       throw new Error('Invalid order ID format');
     }
 
     try {
-      console.log('cancelUserOrder: Cancelling order:', orderId);
       const order = await apiCancelOrder(orderId);
-      console.log('cancelUserOrder: Order cancelled:', order);
       await fetchUserOrders();
       return order;
     } catch (err) {
-      console.error('cancelUserOrder: Error:', err);
       await handleOrderError(err, isRegularUser, () => cancelUserOrder(orderId));
       throw err;
     } finally {
@@ -268,7 +248,6 @@ export const OrderProvider = ({ children }) => {
 
   const downloadOrderInvoice = async (orderId) => {
     if (!isAdmin && !isRegularUser) {
-      console.error('downloadOrderInvoice: Unauthorized - Not logged in');
       setError('Unauthorized: Please log in to download invoices');
       throw new Error('Unauthorized: Please log in to download invoices');
     }
@@ -277,16 +256,13 @@ export const OrderProvider = ({ children }) => {
     setError('');
     
     if (!/^ORD-[A-F0-9]{8}$/i.test(orderId)) {
-      console.error('downloadOrderInvoice: Invalid order ID:', orderId);
       setError('Invalid order ID format');
       setLoading(false);
       throw new Error('Invalid order ID format');
     }
 
     try {
-      console.log('downloadOrderInvoice: Downloading invoice for order:', orderId);
       const response = await downloadInvoice(orderId);
-      console.log('downloadOrderInvoice: Invoice downloaded:', response);
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -297,7 +273,6 @@ export const OrderProvider = ({ children }) => {
       window.URL.revokeObjectURL(url);
       return response;
     } catch (err) {
-      console.error('downloadOrderInvoice: Error:', err);
       await handleOrderError(err, isRegularUser || isAdmin, () => downloadOrderInvoice(orderId));
       throw err;
     } finally {

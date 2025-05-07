@@ -8,8 +8,8 @@ const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 
 exports.register = async (req, res, next) => {
-  console.log('Request headers:', req.headers);
-  console.log('Request body:', req.body);
+  // console.log('Request headers:', req.headers);
+  // console.log('Request body:', req.body);
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
