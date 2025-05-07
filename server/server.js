@@ -5,6 +5,7 @@ const passport = require('passport');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const cookieParser = require('cookie-parser');
+// CORS middleware commented out - being handled by Nginx instead
 const cors = require('cors');
 const path = require('path');
 const helmet = require('helmet');
@@ -32,7 +33,7 @@ app.use((req, res, next) => {
 // Connect to MongoDB
 connectDB();
 
-// CORS Configuration
+// CORS Configuration - commented out as Nginx is handling CORS
 const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = [
@@ -55,7 +56,9 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 
-app.use(cors(corsOptions));
+// Comment out CORS middleware as Nginx handles it now
+// app.use(cors(corsOptions));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -192,7 +195,7 @@ server.listen(PORT, () => {
   console.log(`
   Server running in ${process.env.NODE_ENV} mode
   Port: ${PORT}
-  CORS Origins: ${process.env.FRONTEND_PROD_URL}, ${process.env.FRONTEND_DEV_URL}
+  CORS handling moved to Nginx
   `);
 });
 
