@@ -32,7 +32,7 @@ exports.registerValidator = [
 exports.validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    console.log(errors.array());
+    console.log('Validation errors:', JSON.stringify(errors.array(), null, 2));
     return next(new ApiError(400, 'Validation failed', errors.array()));
   }
   next();
