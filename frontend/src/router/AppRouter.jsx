@@ -20,6 +20,7 @@ const Register = lazy(() => import('../pages/Register'));
 const Profile = lazy(() => import('../components/shared/Profile'));
 const Wishlist = lazy(() => import('../components/Products/Wishlist'));
 const Cart = lazy(() => import('../components/features/Cart'));
+const Order = lazy(() => import('../pages/Order')); // New import
 const Dashboard = lazy(() => import('../admin/pages/Dashboard'));
 const ProductInventory = lazy(() => import('../admin/pages/ProductInventory'));
 const OrderManagement = lazy(() => import('../admin/pages/OrderManagment'));
@@ -79,6 +80,22 @@ const AppRouter = () => {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="orders"
+            element={
+              <ProtectedRoute>
+                <Order />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="orders/:orderId"
+            element={
+              <ProtectedRoute>
+                <Order />
+              </ProtectedRoute>
+            }
+          />
         </Route>
 
         {/* Admin Routes */}
@@ -93,7 +110,7 @@ const AppRouter = () => {
             <Route path="add-products" element={<AddProductPage />} />
             <Route path="edit-product/:id" element={<EditProductPage />} />
             <Route path="orders" element={<OrderManagement />} />
-            <Route path="profile" element={<AdminProfile/>} />
+            <Route path="profile" element={<AdminProfile />} />
             <Route path="orders-history" element={<OrdersHistory />} />
             <Route path="category" element={<CategoryManager />} />
             <Route path="banner-upload" element={<BannerManager />} />

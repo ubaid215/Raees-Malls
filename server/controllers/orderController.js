@@ -124,7 +124,7 @@ exports.placeOrder = async (req, res, next) => {
     // Emit Socket.IO event for admin and user notification
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
-      .populate('userId', 'email')
+      .populate('userId', 'name email')
       .populate('items.productId', 'title brand sku')
       .populate('discountId', 'code value type');
     
@@ -142,31 +142,30 @@ exports.getUserOrders = async (req, res, next) => {
   try {
     const { page = 1, limit = 10, status } = req.query;
     const userId = req.user._id;
-
-    const query = { userId };
-    if (status) {
-      query.status = status;
-    }
-
+    const query = { userId: userId.toString() };
+    if (status) query.status = status;
     const skip = (page - 1) * limit;
-
     const orders = await Order.find(query)
-      .populate('items.productId', 'title brand sku')
+      .populate({
+        path: 'items.productId',
+        select: 'title brand sku',
+        match: { _id: { $exists: true } }
+      })
       .populate('discountId', 'code value type')
+      .populate('userId', 'name email')
       .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
-
     const total = await Order.countDocuments(query);
-
     ApiResponse.success(res, 200, 'Orders retrieved successfully', {
-      orders,
+      orders: orders.filter(order => order.items.every(item => item.productId)),
       total,
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(total / limit)
     });
   } catch (error) {
+    console.error('Error in getUserOrders:', error);
     next(error);
   }
 };
@@ -183,7 +182,7 @@ exports.getAllOrders = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     const orders = await Order.find(query)
-      .populate('userId', 'email')
+      .populate('userId', 'name email')
       .populate('items.productId', 'title brand sku')
       .populate('discountId', 'code value type')
       .sort('-createdAt')
@@ -221,7 +220,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     // Emit Socket.IO event for user and admin
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
-      .populate('userId', 'email')
+      .populate('userId', 'name email')
       .populate('items.productId', 'title brand sku')
       .populate('discountId', 'code value type');
     
@@ -234,13 +233,67 @@ exports.updateOrderStatus = async (req, res, next) => {
   }
 };
 
+// Cancel order (User only, before processing)
+exports.cancelOrder = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user._id;
+
+    const order = await Order.findOne({ orderId, userId });
+    if (!order) {
+      throw new ApiError(404, 'Order not found or you do not have permission to cancel this order');
+    }
+
+    if (order.status !== 'pending') {
+      throw new ApiError(400, 'Order can only be canceled while in pending status');
+    }
+
+    // Restock products
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        throw new ApiError(404, `Product not found: ${item.productId}`);
+      }
+      if (item.variantId) {
+        const variant = product.variants.idadásul
+
+        if (!variant) {
+          throw new ApiError(404, `Variant not found for product: ${product.title}`);
+        }
+        variant.stock += item.quantity;
+      } else {
+        product.stock += item.quantity;
+      }
+      await product.save();
+    }
+
+    // Update order status to cancelled
+    order.status = 'cancelled';
+    await order.save();
+
+    // Emit Socket.IO event for user and admin
+    const io = req.app.get('socketio');
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'name email')
+      .populate('items.productId', 'title brand sku')
+      .populate('discountId', 'code value type');
+    
+    io.to(`user_${userId}`).emit('orderStatusUpdated', populatedOrder);
+    io.to('adminRoom').emit('orderStatusUpdated', populatedOrder);
+
+    ApiResponse.success(res, 200, 'Order cancelled successfully', { order: populatedOrder });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Generate and download invoice (Admin only)
 exports.downloadInvoice = async (req, res, next) => {
   try {
     const { orderId } = req.params;
 
     const order = await Order.findOne({ orderId })
-      .populate('userId', 'email')
+      .populate('userId', 'name email')
       .populate('items.productId', 'title brand sku')
       .populate('discountId', 'code value type');
 
@@ -262,11 +315,11 @@ exports.downloadInvoice = async (req, res, next) => {
     doc.pipe(res);
 
     // PDF Header
-    doc.fontSize(20).text('Raees Mobiles - Invoice', { align: 'center' });
+    doc.fontSize(20).text('Raees Malls - Invoice', { align: 'center' });
     doc.moveDown();
     doc.fontSize(12).text(`Order ID: ${order.orderId}`);
     doc.text(`Date: ${new Date(order.createdAt).toLocaleDateString()}`);
-    doc.text(`Customer: ${order.userId.email}`);
+    doc.text(`Customer: ${order.userId.name} (${order.userId.email})`);
     doc.moveDown();
 
     // Shipping Address
@@ -309,7 +362,7 @@ exports.downloadInvoice = async (req, res, next) => {
       doc.text(`${item.productId.title}${variantDetails ? ` (${variantDetails})` : ''}`, 50, y, { width: itemWidth });
       doc.text(item.sku, 200, y, { width: skuWidth });
       doc.text(item.quantity.toString(), 300, y, { width: qtyWidth, align: 'right' });
-      doc.text(`$${item.price.toFixed(2)}`, 350, y, { width: priceWidth, align: 'right' });
+      doc.text(`PKR ${item.price.toFixed(2)}`, 350, y, { width: priceWidth, align: 'right' });
       y += 15;
     });
 
@@ -321,7 +374,7 @@ exports.downloadInvoice = async (req, res, next) => {
 
     // Total
     doc.moveDown();
-    doc.font('Helvetica-Bold').text(`Total: $${order.totalPrice.toFixed(2)}`, { align: 'right' });
+    doc.font('Helvetica-Bold').text(`Total: PKR ${order.totalPrice.toFixed(2)}`, { align: 'right' });
 
     // Footer
     doc.moveDown(2);

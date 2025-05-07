@@ -10,7 +10,6 @@ const isValidObjectIdOrEmpty = (value) => {
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    // Log detailed error information for debugging
     console.log('Validation errors:', JSON.stringify(errors.array(), null, 2));
     console.log('Request body:', JSON.stringify(req.body, null, 2));
     console.log('Request params:', JSON.stringify(req.params, null, 2));
@@ -93,6 +92,7 @@ const updateOrderStatusValidator = [
     .matches(/^ORD-[A-F0-9]{8}$/i)
     .withMessage('Invalid order ID format. Must be like ORD-XXXXXXXX'),
   body('status')
+    .optional()
     .isIn(['pending', 'processing', 'shipped', 'delivered', 'cancelled'])
     .withMessage('Invalid status value'),
   validate

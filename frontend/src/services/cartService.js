@@ -10,7 +10,7 @@ export const addToCart = async (productId, variantId = null, quantity = 1) => {
       body.variantId = typeof variantId === 'object' ? variantId._id.toString() : variantId.toString();
     }
     
-    console.log('addToCart request body:', body); // Debug log
+    // console.log('addToCart request body:', body);
     const response = await api.post('/cart', body);
     return {
       success: response.data.success,
@@ -32,8 +32,8 @@ export const addToCart = async (productId, variantId = null, quantity = 1) => {
 export const getCart = async () => {
   try {
     const response = await api.get('/cart');
-    console.log('cartService.getCart: Full Response:', response);
-    console.log('cartService.getCart: Response Data:', response.data);
+    // console.log('cartService.getCart: Full Response:', response);
+    // console.log('cartService.getCart: Response Data:', response.data);
     if (!response.data.data.cart) {
       console.warn('cartService.getCart: response.data.data.cart is null');
       return {

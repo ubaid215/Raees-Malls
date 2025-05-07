@@ -3,7 +3,6 @@ import { BrowserRouter } from 'react-router-dom';
 import AppRouter from './router/AppRouter';
 import { AuthProvider } from './context/AuthContext';
 import { AdminAuthProvider } from './context/AdminAuthContext';
-import { WishlistProvider } from './context/WishlistContext';
 import { DiscountProvider } from './context/DiscountContext';
 import { ProductProvider } from './context/ProductContext';
 import { OrderProvider } from './context/OrderContext';
@@ -24,14 +23,12 @@ function App() {
                 {/* User-specific providers */}
                 <CartProvider>
                   <OrderProvider>
-                    <WishlistProvider>
                       <ReviewProvider>
                         {/* Admin-specific provider */}
                         <DiscountProvider>
                           <AppRouter />
                         </DiscountProvider>
                       </ReviewProvider>
-                    </WishlistProvider>
                   </OrderProvider>
                 </CartProvider>
               </ProductProvider>

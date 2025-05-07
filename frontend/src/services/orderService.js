@@ -24,6 +24,11 @@ export const updateOrderStatus = async (orderId, status) => {
   return response.data;
 };
 
+export const cancelOrder = async (orderId) => {
+  const response = await api.put(`/orders/${orderId}/cancel`);
+  return response.data;
+};
+
 export const downloadInvoice = async (orderId) => {
   const response = await api.get(`/orders/${orderId}/invoice`, {
     responseType: 'blob',

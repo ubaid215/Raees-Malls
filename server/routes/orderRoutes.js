@@ -17,12 +17,18 @@ router.post('/',
   orderController.placeOrder
 );
 
-// Updated to match frontend call to /api/orders/user
 router.get('/user',
   ensureAuthenticated,
   authorizeRoles('user'),
   getOrdersValidator,
   orderController.getUserOrders
+);
+
+router.put('/:orderId/cancel',
+  ensureAuthenticated,
+  authorizeRoles('user'),
+  updateOrderStatusValidator,
+  orderController.cancelOrder
 );
 
 // Admin routes
@@ -33,7 +39,6 @@ router.get('/',
   orderController.getAllOrders
 );
 
-// Updated to match frontend call to /api/orders/:orderId/status
 router.put('/:orderId/status',
   ensureAuthenticated,
   authorizeRoles('admin'),
@@ -41,7 +46,6 @@ router.put('/:orderId/status',
   orderController.updateOrderStatus
 );
 
-// Updated to match frontend call to /api/orders/:orderId/invoice
 router.get('/:orderId/invoice',
   ensureAuthenticated,
   authorizeRoles('admin'),
