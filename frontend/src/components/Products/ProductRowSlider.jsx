@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import { Helmet } from 'react-helmet';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ProductContext } from '../../context/ProductContext';
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
@@ -16,19 +16,17 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
   const [visibleItems, setVisibleItems] = useState(4);
   const [needsFetch, setNeedsFetch] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
   const carouselRef = useRef(null);
   const intervalRef = useRef(null);
   const navigate = useNavigate();
-  const [isMobile, setIsMobile] = useState(false); // ✅ Moved to top with other hooks
+  const location = useLocation();
 
   const memoizedProducts = useMemo(() => {
+    console.log('Raw products for ProductRowSlider:', products);
     const productArray = Array.isArray(products) ? products : [];
 
-    const filteredProducts = isFeatured
-      ? productArray.filter((product) => product.isFeatured === true)
-      : productArray;
-
-    return filteredProducts.map((product) => {
+    const mappedProducts = productArray.map((product) => {
       const images = Array.isArray(product.images) ? product.images : [];
 
       const processedImages = images.map(img => {
@@ -62,15 +60,21 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         numReviews: product.numReviews || 0,
         stock: product.stock || 0,
         sku: product.sku || '',
-        categoryId: product.categoryId || null
+        categoryId: product.categoryId || null,
+        isFeatured: product.isFeatured || false
       };
     });
-  }, [products, isFeatured]);
+
+    console.log('Mapped products for ProductRowSlider:', mappedProducts);
+    return mappedProducts;
+  }, [products]);
 
   useEffect(() => {
+    console.log('ProductRowSlider mounted, location:', location.pathname);
+    console.log('Current products:', products);
     const clearProductCaches = () => {
       Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('products_') || key.startsWith('product_')) {
+        if (key.startsWith('products_') || key.startsWith('product_') || key.startsWith('featured_products_')) {
           localStorage.removeItem(key);
         }
       });
@@ -78,7 +82,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
 
     clearProductCaches();
     setNeedsFetch(true);
-  }, []);
+  }, [location.pathname]);
 
   useEffect(() => {
     if (needsFetch) {
@@ -88,10 +92,14 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
 
   const handleFetchProducts = useCallback(async () => {
     try {
-      await fetchProducts(
-        { page: 1, limit: 12, categoryId: categoryId || null, isFeatured, sort: '-createdAt' },
-        { isPublic: true, skipCache: true }
-      );
+      const params = {
+        page: 1,
+        limit: 12,
+        sort: '-createdAt',
+        ...(categoryId ? { category: categoryId } : {}),
+        ...(isFeatured ? { isFeatured: true } : {})
+      };
+      await fetchProducts(params, { isPublic: true, skipCache: true });
       setNeedsFetch(false);
     } catch (err) {
       console.error('Fetch error:', err);
@@ -163,6 +171,16 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     };
   }, [getVisibleItemsCount, memoizedProducts.length, currentIndex]);
 
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const handlePrev = useCallback(() => {
     const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
 
@@ -208,17 +226,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       }
     };
   }, [isAutoPlaying, memoizedProducts.length, visibleItems]);
-
-  // ✅ Mobile check also inside a top-level hook
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   if (loading && memoizedProducts.length === 0) {
     return (

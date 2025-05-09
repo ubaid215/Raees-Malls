@@ -5,24 +5,20 @@ const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const cloudinary = require('../config/cloudinary');
 
-// Create a new product (Admin only)
 exports.createProduct = async (req, res, next) => {
   try {
-    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo } = req.body;
+    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo, isFeatured } = req.body;
 
-    // Validate discount price
     if (discountPrice !== undefined && discountPrice >= price) {
       throw new ApiError(400, 'Discount price must be less than the base price');
     }
 
-    // Process uploaded base images from Cloudinary
     const images = req.files?.baseImages?.map(file => ({
       url: file.path,
       public_id: file.filename,
       alt: file.originalname
     })) || [];
 
-    // Process variant images
     const variantImages = {};
     if (req.files?.variantImages) {
       Object.keys(req.files.variantImages).forEach(variantIndex => {
@@ -34,7 +30,6 @@ exports.createProduct = async (req, res, next) => {
       });
     }
 
-    // Parse variants if they are a JSON string
     let parsedVariants = variants;
     if (typeof variants === 'string') {
       try {
@@ -44,7 +39,6 @@ exports.createProduct = async (req, res, next) => {
       }
     }
 
-    // Attach images to variants and validate variant discount prices
     const processedVariants = parsedVariants?.map((variant, index) => {
       if (variant.discountPrice !== undefined && variant.discountPrice >= variant.price) {
         throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
@@ -55,7 +49,6 @@ exports.createProduct = async (req, res, next) => {
       };
     }) || [];
 
-    // Parse seo if it is a JSON string
     let parsedSeo = seo;
     if (typeof seo === 'string') {
       try {
@@ -65,7 +58,6 @@ exports.createProduct = async (req, res, next) => {
       }
     }
 
-    // Parse specifications if it is a JSON string
     let parsedSpecifications = specifications;
     if (typeof specifications === 'string') {
       try {
@@ -75,7 +67,6 @@ exports.createProduct = async (req, res, next) => {
       }
     }
 
-    // Create new product
     const product = new Product({
       title,
       description,
@@ -87,12 +78,12 @@ exports.createProduct = async (req, res, next) => {
       stock,
       specifications: parsedSpecifications,
       variants: processedVariants,
-      seo: parsedSeo
+      seo: parsedSeo,
+      isFeatured: isFeatured || false
     });
 
     await product.save();
 
-    // Log the action
     await AuditLog.create({
       userId: req.user._id,
       action: 'PRODUCT_CREATE',
@@ -101,7 +92,6 @@ exports.createProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
-    // Emit Socket.IO event for product creation if io is available
     if (req.io) {
       req.io.emit('productCreated', {
         product: product.toObject(),
@@ -128,12 +118,10 @@ exports.createProduct = async (req, res, next) => {
   }
 };
 
-// Get all products for admin with pagination, sorting, and filtering (Admin only)
 exports.getAllProducts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search, isFeatured } = req.query;
 
-    // Build query
     const query = {};
     if (categoryId) query.categoryId = categoryId;
     if (minPrice || maxPrice) {
@@ -152,11 +140,13 @@ exports.getAllProducts = async (req, res, next) => {
         { sku: { $regex: search, $options: 'i' } }
       ];
     }
+    if (isFeatured !== undefined) {
+      query.isFeatured = isFeatured === 'true';
+    }
 
     const sortOption = sort || '-createdAt';
     const skip = (page - 1) * limit;
 
-    // Fetch products
     const products = await Product.find(query)
       .populate('categoryId', 'name slug')
       .sort(sortOption)
@@ -177,7 +167,6 @@ exports.getAllProducts = async (req, res, next) => {
   }
 };
 
-// Get a single product by ID (Admin only)
 exports.getProductById = async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -197,7 +186,6 @@ exports.getProductById = async (req, res, next) => {
   }
 };
 
-// Update a product (Admin only)
 exports.updateProduct = async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -209,9 +197,8 @@ exports.updateProduct = async (req, res, next) => {
       throw new ApiError(404, 'Product not found');
     }
 
-    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo } = req.body;
+    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo, isFeatured } = req.body;
 
-    // Validate discount price
     if (discountPrice !== undefined) {
       const basePrice = price || product.price;
       if (discountPrice >= basePrice) {
@@ -219,7 +206,6 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
-    // Delete old base images from Cloudinary if new images are uploaded
     if (req.files?.baseImages?.length > 0) {
       for (const image of product.images) {
         await cloudinary.uploader.destroy(image.public_id);
@@ -231,7 +217,6 @@ exports.updateProduct = async (req, res, next) => {
       }));
     }
 
-    // Process variant images
     const variantImages = {};
     if (req.files?.variantImages) {
       Object.keys(req.files.variantImages).forEach(variantIndex => {
@@ -243,7 +228,6 @@ exports.updateProduct = async (req, res, next) => {
       });
     }
 
-    // Parse variants if they are a JSON string
     let parsedVariants = variants;
     if (typeof variants === 'string') {
       try {
@@ -253,9 +237,7 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
-    // Update variants and validate variant discount prices
     if (parsedVariants) {
-      // Delete old variant images
       for (const variant of product.variants) {
         for (const image of variant.images) {
           await cloudinary.uploader.destroy(image.public_id);
@@ -273,7 +255,6 @@ exports.updateProduct = async (req, res, next) => {
       });
     }
 
-    // Parse seo if it is a JSON string
     let parsedSeo = seo;
     if (typeof seo === 'string') {
       try {
@@ -283,7 +264,6 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
-    // Parse specifications if it is a JSON string
     let parsedSpecifications = specifications;
     if (typeof specifications === 'string') {
       try {
@@ -293,7 +273,6 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
-    // Update product fields
     product.title = title || product.title;
     product.description = description || product.description;
     product.price = price || product.price;
@@ -303,10 +282,10 @@ exports.updateProduct = async (req, res, next) => {
     product.stock = stock !== undefined ? stock : product.stock;
     product.specifications = parsedSpecifications || product.specifications;
     product.seo = parsedSeo || product.seo;
+    product.isFeatured = isFeatured !== undefined ? isFeatured : product.isFeatured;
 
     await product.save();
 
-    // Log the action
     await AuditLog.create({
       userId: req.user._id,
       action: 'PRODUCT_UPDATE',
@@ -315,7 +294,6 @@ exports.updateProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
-    // Emit Socket.IO event for product update if io is available
     if (req.io) {
       req.io.emit('productUpdated', {
         product: product.toObject(),
@@ -342,7 +320,6 @@ exports.updateProduct = async (req, res, next) => {
   }
 };
 
-// Delete a product (Admin only)
 exports.deleteProduct = async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -354,12 +331,10 @@ exports.deleteProduct = async (req, res, next) => {
       throw new ApiError(404, 'Product not found');
     }
 
-    // Delete base images from Cloudinary
     for (const image of product.images) {
       await cloudinary.uploader.destroy(image.public_id);
     }
 
-    // Delete variant images from Cloudinary
     for (const variant of product.variants) {
       for (const image of variant.images) {
         await cloudinary.uploader.destroy(image.public_id);
@@ -368,7 +343,6 @@ exports.deleteProduct = async (req, res, next) => {
 
     await product.deleteOne();
 
-    // Log the action
     await AuditLog.create({
       userId: req.user._id,
       action: 'PRODUCT_DELETE',
@@ -377,7 +351,6 @@ exports.deleteProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
-    // Emit Socket.IO event for product deletion if io is available
     if (req.io) {
       req.io.emit('productDeleted', { productId: product._id });
     }
@@ -388,13 +361,11 @@ exports.deleteProduct = async (req, res, next) => {
   }
 };
 
-// Get all products for customers (Public)
 exports.getAllProductsForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, attributeKey, attributeValue } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, attributeKey, attributeValue, isFeatured } = req.query;
 
-    // Build query
-    const query = { stock: { $gt: 0 } }; // Only show products in stock
+    const query = { stock: { $gt: 0 } };
     if (categoryId) query.categoryId = categoryId;
     if (minPrice || maxPrice) {
       query.$or = [
@@ -423,11 +394,13 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
     if (attributeKey && attributeValue) {
       query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
     }
+    if (isFeatured !== undefined) {
+      query.isFeatured = isFeatured === 'true';
+    }
 
     const sortOption = sort || '-createdAt';
     const skip = (page - 1) * limit;
 
-    // Fetch products
     const products = await Product.find(query)
       .select('-__v')
       .populate('categoryId', 'name slug')
@@ -435,7 +408,6 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    // Map products to include display price
     const productsWithDisplayPrice = products.map(product => ({
       ...product.toObject(),
       displayPrice: product.discountPrice || product.price
@@ -455,7 +427,6 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
   }
 };
 
-// Get product details for customers (Public)
 exports.getProductDetailsForCustomers = async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -474,7 +445,6 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       throw new ApiError(404, 'Product is out of stock');
     }
 
-    // Add display price to product
     const productWithDisplayPrice = {
       ...product.toObject(),
       displayPrice: product.discountPrice || product.price,
@@ -486,6 +456,40 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
 
     ApiResponse.success(res, 200, 'Product details retrieved successfully', { 
       product: productWithDisplayPrice 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getFeaturedProducts = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 10, sort } = req.query;
+
+    const query = { isFeatured: true, stock: { $gt: 0 } };
+    const sortOption = sort || '-createdAt';
+    const skip = (page - 1) * limit;
+
+    const products = await Product.find(query)
+      .select('-__v')
+      .populate('categoryId', 'name slug')
+      .sort(sortOption)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const productsWithDisplayPrice = products.map(product => ({
+      ...product.toObject(),
+      displayPrice: product.discountPrice || product.price
+    }));
+
+    const total = await Product.countDocuments(query);
+
+    ApiResponse.success(res, 200, 'Featured products retrieved successfully', {
+      products: productsWithDisplayPrice,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / limit)
     });
   } catch (error) {
     next(error);

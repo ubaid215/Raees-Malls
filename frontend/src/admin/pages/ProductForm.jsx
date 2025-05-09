@@ -34,7 +34,8 @@ const ProductForm = ({
         description: product?.seo?.description || ''
       },
       specifications: product?.specifications || [],
-      variants: product?.variants || []
+      variants: product?.variants || [],
+      isFeatured: product?.isFeatured || false
     }
   });
 
@@ -334,7 +335,7 @@ const ProductForm = ({
         attributes: v.attributes
           .filter(a => a.key.trim() && a.value.trim())
           .map(a => ({
-            key: a.key.trim().toLowerCase(), // Normalize to lowercase
+            key: a.key.trim().toLowerCase(),
             value: a.value.trim()
           })),
         sku: v.sku?.trim() || undefined
@@ -424,6 +425,17 @@ const ProductForm = ({
             })}
             error={errors.stock?.message}
           />
+          <div className="flex items-center mt-6">
+            <input
+              type="checkbox"
+              id="isFeatured"
+              {...register("isFeatured")}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <label htmlFor="isFeatured" className="ml-2 block text-sm text-gray-900">
+              Featured Product
+            </label>
+          </div>
         </div>
         <div className="mt-6">
           <Textarea
