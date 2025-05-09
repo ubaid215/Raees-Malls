@@ -239,15 +239,14 @@ const About = () => {
               </p>
               <p className="text-gray-600 text-lg mb-6">
                 <strong>Store Hours:</strong><br />
-                Monday - Saturday: 9:00 AM - 8:00 PM<br />
-                Sunday: Closed
+                Monday - Sunday: 9:00 AM -9:00 PM<br />
               </p>
               <Button
                 variant="outline"
                 size="medium"
                 className="mt-4"
                 as="a"
-                href="https://maps.google.com/?q=Masjid+Bazar+Opposite+Jamia+Masjid+Jaranwala"
+                href="https://maps.app.goo.gl/VEqNrovGVVdPE2Lr9"
                 target="_blank"
               >
                 Get Directions

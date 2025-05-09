@@ -1,18 +1,24 @@
-import React, { useState, useCallback, useEffect, useMemo, useContext } from 'react';
-import { Helmet } from 'react-helmet';
-import { useNavigate } from 'react-router-dom';
-import Button from '../components/core/Button';
-import LoadingSkeleton from '../components/shared/LoadingSkelaton';
-import { toast } from 'react-toastify';
-import { CategoryContext } from '../context/CategoryContext';
-import { ProductContext } from '../context/ProductContext';
-import ProductCard from '../components/Products/ProductCard';
-import { API_BASE_URL } from '../components/shared/config';
-import { debounce } from 'lodash';
-import SocketService from '../services/socketService';
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useContext,
+} from "react";
+import { Helmet } from "react-helmet";
+import { useNavigate } from "react-router-dom";
+import Button from "../components/core/Button";
+import LoadingSkeleton from "../components/shared/LoadingSkelaton";
+import { toast } from "react-toastify";
+import { CategoryContext } from "../context/CategoryContext";
+import { ProductContext } from "../context/ProductContext";
+import ProductCard from "../components/Products/ProductCard";
+import { API_BASE_URL } from "../components/shared/config";
+import { debounce } from "lodash";
+import SocketService from "../services/socketService";
 
 function AllProducts() {
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState("all");
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -23,28 +29,38 @@ function AllProducts() {
   const [needsFetch, setNeedsFetch] = useState(true);
   const navigate = useNavigate();
   const { categories, fetchCategories } = useContext(CategoryContext);
-  const { products, loading, error, fetchProducts } = useContext(ProductContext);
+  const { products, loading, error, fetchProducts } =
+    useContext(ProductContext);
 
-  const safeCategories = categories.length > 0
-    ? [{ _id: 'all', name: 'All Categories', slug: 'all' }, ...categories]
-    : [{ _id: 'all', name: 'All Categories', slug: 'all' }];
+  const safeCategories =
+    categories.length > 0
+      ? [{ _id: "all", name: "All Categories", slug: "all" }, ...categories]
+      : [{ _id: "all", name: "All Categories", slug: "all" }];
 
   const selectedCategoryName = useMemo(() => {
-    return safeCategories.find(c => c._id === selectedCategory)?.name || 'All Categories';
+    return (
+      safeCategories.find((c) => c._id === selectedCategory)?.name ||
+      "All Categories"
+    );
   }, [selectedCategory, safeCategories]);
 
   const debouncedFetchProducts = useCallback(
     debounce(async (page, limit, categoryId) => {
       try {
         const result = await fetchProducts(
-          { page, limit, categoryId: categoryId !== 'all' ? categoryId : null, sort: '-createdAt' },
+          {
+            page,
+            limit,
+            categoryId: categoryId !== "all" ? categoryId : null,
+            sort: "-createdAt",
+          },
           { isPublic: true }
         );
-  
-        if (!result || typeof result !== 'object') {
-          throw new Error('Invalid response from fetchProducts');
+
+        if (!result || typeof result !== "object") {
+          throw new Error("Invalid response from fetchProducts");
         }
-  
+
         setPagination((prev) => ({
           ...prev,
           pages: result.totalPages || 1,
@@ -52,8 +68,8 @@ function AllProducts() {
         }));
         setNeedsFetch(false);
       } catch (err) {
-        console.error('Product fetch error:', err);
-        toast.error(err.message || 'Failed to load products');
+        console.error("Product fetch error:", err);
+        toast.error(err.message || "Failed to load products");
         setPagination((prev) => ({
           ...prev,
           pages: 1,
@@ -67,8 +83,8 @@ function AllProducts() {
   // Clear cache on mount to ensure fresh data
   useEffect(() => {
     const clearProductCaches = () => {
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('products_') || key.startsWith('product_')) {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith("products_") || key.startsWith("product_")) {
           localStorage.removeItem(key);
         }
       });
@@ -84,8 +100,8 @@ function AllProducts() {
       try {
         await fetchCategories({ isPublic: true });
       } catch (err) {
-        console.error('Category fetch error:', err);
-        toast.error(err.message || 'Failed to fetch categories');
+        console.error("Category fetch error:", err);
+        toast.error(err.message || "Failed to fetch categories");
       }
     };
     fetchInitialData();
@@ -97,8 +113,11 @@ function AllProducts() {
 
     const handleProductCreated = (data) => {
       // Only trigger fetch if product matches current category and is in stock
-      if (data.product.stock > 0 && 
-          (selectedCategory === 'all' || data.product.categoryId === selectedCategory)) {
+      if (
+        data.product.stock > 0 &&
+        (selectedCategory === "all" ||
+          data.product.categoryId === selectedCategory)
+      ) {
         setNeedsFetch(true); // Trigger a fetch to refresh the product list
         toast.success(`New product added: ${data.product.title}`);
       }
@@ -106,7 +125,10 @@ function AllProducts() {
 
     const handleProductUpdated = (data) => {
       // Trigger fetch if product is in the current category or was previously displayed
-      if (selectedCategory === 'all' || data.product.categoryId === selectedCategory) {
+      if (
+        selectedCategory === "all" ||
+        data.product.categoryId === selectedCategory
+      ) {
         setNeedsFetch(true); // Trigger a fetch to refresh the product list
         toast.info(`Product updated: ${data.product.title}`);
       }
@@ -115,17 +137,17 @@ function AllProducts() {
     const handleProductDeleted = (data) => {
       // Trigger fetch to remove the deleted product
       setNeedsFetch(true);
-      toast.warn('Product removed');
+      toast.warn("Product removed");
     };
 
-    SocketService.on('productCreated', handleProductCreated);
-    SocketService.on('productUpdated', handleProductUpdated);
-    SocketService.on('productDeleted', handleProductDeleted);
+    SocketService.on("productCreated", handleProductCreated);
+    SocketService.on("productUpdated", handleProductUpdated);
+    SocketService.on("productDeleted", handleProductDeleted);
 
     return () => {
-      SocketService.off('productCreated', handleProductCreated);
-      SocketService.off('productUpdated', handleProductUpdated);
-      SocketService.off('productDeleted', handleProductDeleted);
+      SocketService.off("productCreated", handleProductCreated);
+      SocketService.off("productUpdated", handleProductUpdated);
+      SocketService.off("productDeleted", handleProductDeleted);
       SocketService.disconnect();
     };
   }, [selectedCategory]);
@@ -133,7 +155,11 @@ function AllProducts() {
   // Fetch products when needed
   useEffect(() => {
     if (needsFetch) {
-      debouncedFetchProducts(pagination.page, pagination.limit, selectedCategory);
+      debouncedFetchProducts(
+        pagination.page,
+        pagination.limit,
+        selectedCategory
+      );
     }
   }, [pagination.page, selectedCategory, needsFetch, debouncedFetchProducts]);
 
@@ -155,23 +181,23 @@ function AllProducts() {
   );
 
   const toggleCategoryDropdown = () => {
-    setIsCategoryDropdownOpen(prev => !prev);
+    setIsCategoryDropdownOpen((prev) => !prev);
   };
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      const dropdown = document.getElementById('category-dropdown');
+      const dropdown = document.getElementById("category-dropdown");
       if (dropdown && !dropdown.contains(event.target)) {
         setIsCategoryDropdownOpen(false);
       }
     };
 
     if (isCategoryDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener("mousedown", handleClickOutside);
     }
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isCategoryDropdownOpen]);
 
@@ -179,13 +205,15 @@ function AllProducts() {
     const productArray = Array.isArray(products) ? products : [];
     return productArray.map((product) => ({
       _id: product._id,
-      title: product.name || product.title || 'Untitled Product',
+      title: product.name || product.title || "Untitled Product",
       price: product.price || 0,
       discountPrice: product.discountPrice || 0,
       images: product.images?.map((img) => ({
-        url: img.url?.startsWith('http') ? img.url : `${API_BASE_URL}${img.url}`,
-      })) || [{ url: '/placeholder-product.png' }],
-      sku: product.sku || 'N/A',
+        url: img.url?.startsWith("http")
+          ? img.url
+          : `${API_BASE_URL}${img.url}`,
+      })) || [{ url: "/placeholder-product.png" }],
+      sku: product.sku || "N/A",
       rating: product.averageRating || product.rating || 0,
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
@@ -198,13 +226,33 @@ function AllProducts() {
     return (
       <section className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
-          <LoadingSkeleton type="text" width="64" height="8" className="mb-8 mx-auto" />
+          <LoadingSkeleton
+            type="text"
+            width="64"
+            height="8"
+            className="mb-8 mx-auto"
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="bg-white rounded-lg shadow-sm p-4">
-                <LoadingSkeleton type="image" width="full" height="48" className="mb-4" />
-                <LoadingSkeleton type="text" width="80" height="5" className="mb-2" />
-                <LoadingSkeleton type="text" width="60" height="4" className="mb-2" />
+                <LoadingSkeleton
+                  type="image"
+                  width="full"
+                  height="48"
+                  className="mb-4"
+                />
+                <LoadingSkeleton
+                  type="text"
+                  width="80"
+                  height="5"
+                  className="mb-2"
+                />
+                <LoadingSkeleton
+                  type="text"
+                  width="60"
+                  height="4"
+                  className="mb-2"
+                />
                 <LoadingSkeleton type="text" width="40" height="4" />
               </div>
             ))}
@@ -218,15 +266,19 @@ function AllProducts() {
     <section className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <Helmet>
         <title>All Products | Your Store</title>
-        <meta name="description" content="Browse our full collection of products" />
+        <meta
+          name="description"
+          content="Browse our full collection of products"
+        />
       </Helmet>
 
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">
           Our Products
-          {selectedCategory !== 'all' && categories.length > 0 && (
+          {selectedCategory !== "all" && categories.length > 0 && (
             <span className="text-lg font-normal block mt-2 text-gray-600">
-              Category: {categories.find((c) => c._id === selectedCategory)?.name}
+              Category:{" "}
+              {categories.find((c) => c._id === selectedCategory)?.name}
             </span>
           )}
         </h1>
@@ -235,7 +287,11 @@ function AllProducts() {
           <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
+                <svg
+                  className="h-5 w-5 text-red-500"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
                   <path
                     fillRule="evenodd"
                     d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
@@ -245,7 +301,7 @@ function AllProducts() {
               </div>
               <div className="ml-3">
                 <p className="text-sm text-red-700">
-                  {error}.{' '}
+                  {error}.{" "}
                   <button
                     onClick={() => {
                       setNeedsFetch(true);
@@ -269,9 +325,11 @@ function AllProducts() {
                 onClick={toggleCategoryDropdown}
                 className="flex justify-between items-center w-full bg-white border border-gray-200 rounded-lg shadow-sm px-4 py-3 text-left"
               >
-                <span className="font-medium text-gray-900">{selectedCategoryName}</span>
+                <span className="font-medium text-gray-900">
+                  {selectedCategoryName}
+                </span>
                 <svg
-                  className={`h-5 w-5 text-gray-500 transition-transform ${isCategoryDropdownOpen ? 'transform rotate-180' : ''}`}
+                  className={`h-5 w-5 text-gray-500 transition-transform ${isCategoryDropdownOpen ? "transform rotate-180" : ""}`}
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 20 20"
                   fill="currentColor"
@@ -284,12 +342,14 @@ function AllProducts() {
                   />
                 </svg>
               </button>
-              
+
               {isCategoryDropdownOpen && (
                 <div className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 py-1 max-h-60 overflow-auto">
                   {categories.length === 0 ? (
                     <div className="text-center py-4">
-                      <p className="text-sm text-gray-500 mb-2">No categories loaded.</p>
+                      <p className="text-sm text-gray-500 mb-2">
+                        No categories loaded.
+                      </p>
                       <Button
                         onClick={() => fetchCategories({ isPublic: true })}
                         className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
@@ -305,8 +365,8 @@ function AllProducts() {
                             onClick={() => handleCategoryChange(category._id)}
                             className={`w-full text-left px-4 py-2 text-sm ${
                               selectedCategory === category._id
-                                ? 'bg-red-600 text-white'
-                                : 'text-gray-600 hover:bg-gray-50'
+                                ? "bg-red-600 text-white"
+                                : "text-gray-600 hover:bg-gray-50"
                             }`}
                           >
                             {category.name}
@@ -322,10 +382,14 @@ function AllProducts() {
 
           {/* Desktop Category Sidebar */}
           <nav className="hidden lg:block w-64 bg-white rounded-lg shadow-sm border border-gray-200 p-6 lg:sticky lg:top-4 h-fit">
-            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">Categories</h2>
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">
+              Categories
+            </h2>
             {categories.length === 0 ? (
               <div className="text-center">
-                <p className="text-sm text-gray-500 mb-4">No categories loaded.</p>
+                <p className="text-sm text-gray-500 mb-4">
+                  No categories loaded.
+                </p>
                 <Button
                   onClick={() => fetchCategories({ isPublic: true })}
                   className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
@@ -341,8 +405,8 @@ function AllProducts() {
                       onClick={() => handleCategoryChange(category._id)}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm sm:text-base transition-colors ${
                         selectedCategory === category._id
-                          ? 'bg-red-600 text-white'
-                          : 'text-gray-600 hover:bg-gray-50'
+                          ? "bg-red-600 text-white"
+                          : "text-gray-600 hover:bg-gray-50"
                       }`}
                     >
                       {category.name}
@@ -356,13 +420,13 @@ function AllProducts() {
           <div className="flex-1">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
               <p className="text-sm text-gray-600">
-                Showing{' '}
+                Showing{" "}
                 {memoizedProducts.length > 0
                   ? `${(pagination.page - 1) * pagination.limit + 1}-${Math.min(
                       pagination.page * pagination.limit,
                       pagination.total
                     )} of ${pagination.total}`
-                  : '0'}{' '}
+                  : "0"}{" "}
                 products
               </p>
             </div>
@@ -383,11 +447,13 @@ function AllProducts() {
                     d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                <h3 className="mt-2 text-lg font-medium text-gray-900">No products found</h3>
+                <h3 className="mt-2 text-lg font-medium text-gray-900">
+                  No products found
+                </h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  {selectedCategory === 'all'
-                    ? 'Click below to load products or try a different category.'
-                    : 'No products found in this category. Try another category or view all products.'}
+                  {selectedCategory === "all"
+                    ? "Click below to load products or try a different category."
+                    : "No products found in this category. Try another category or view all products."}
                 </p>
                 <div className="mt-6 flex flex-col gap-4">
                   <Button
@@ -398,9 +464,9 @@ function AllProducts() {
                   >
                     Refresh Products
                   </Button>
-                  {selectedCategory !== 'all' && (
+                  {selectedCategory !== "all" && (
                     <Button
-                      onClick={() => handleCategoryChange('all')}
+                      onClick={() => handleCategoryChange("all")}
                       className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
                     >
                       View All Products
@@ -410,7 +476,7 @@ function AllProducts() {
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
                   {memoizedProducts.map((product) => (
                     <ProductCard key={product._id} product={product} />
                   ))}
@@ -427,28 +493,31 @@ function AllProducts() {
                     </Button>
 
                     <div className="flex items-center gap-2">
-                      {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
-                        const pageNum =
-                          pagination.page <= 3
-                            ? i + 1
-                            : pagination.page >= pagination.pages - 2
-                            ? pagination.pages - 4 + i
-                            : pagination.page - 2 + i;
+                      {Array.from(
+                        { length: Math.min(5, pagination.pages) },
+                        (_, i) => {
+                          const pageNum =
+                            pagination.page <= 3
+                              ? i + 1
+                              : pagination.page >= pagination.pages - 2
+                                ? pagination.pages - 4 + i
+                                : pagination.page - 2 + i;
 
-                        return (
-                          <button
-                            key={pageNum}
-                            onClick={() => handlePageChange(pageNum)}
-                            className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                              pagination.page === pageNum
-                                ? 'bg-red-600 text-white'
-                                : 'text-gray-600 hover:bg-gray-100'
-                            }`}
-                          >
-                            {pageNum}
-                          </button>
-                        );
-                      })}
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => handlePageChange(pageNum)}
+                              className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                pagination.page === pageNum
+                                  ? "bg-red-600 text-white"
+                                  : "text-gray-600 hover:bg-gray-100"
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        }
+                      )}
                     </div>
 
                     <Button

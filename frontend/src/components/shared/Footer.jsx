@@ -22,7 +22,7 @@ const Footer = () => {
     {
       title: 'Support',
       links: [
-        { name: 'Help Center', path: '/support' },
+        { name: 'WhatsApp: 03007246696', path: 'https://wa.me/923007246696' },
         { name: 'Shipping Info', path: '/shipping' },
         { name: 'Returns', path: '/returns' },
       ],
@@ -30,7 +30,7 @@ const Footer = () => {
   ];
 
   return (
-    <footer className="bg-white border-t shadow-md">
+    <footer className="bg-white border-t shadow-md px-4">
       <div className="container mx-auto px-4 py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Logo and description */}
@@ -52,12 +52,23 @@ const Footer = () => {
               <ul className="mt-4 space-y-2">
                 {section.links.map((link) => (
                   <li key={link.name}>
-                    <Link
-                      to={link.path}
-                      className="text-sm text-gray-600 hover:text-red-600 transition-colors"
-                    >
-                      {link.name}
-                    </Link>
+                    {link.path.startsWith('http') ? (
+                      <a
+                        href={link.path}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-gray-600 hover:text-red-600 transition-colors"
+                      >
+                        {link.name}
+                      </a>
+                    ) : (
+                      <Link
+                        to={link.path}
+                        className="text-sm text-gray-600 hover:text-red-600 transition-colors"
+                      >
+                        {link.name}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>

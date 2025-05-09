@@ -62,7 +62,7 @@ const Button = ({
 const Card = ({ children, className = '' }) => (
   <div
     className={`
-      bg-white rounded-lg shadow-lg p-6 transition-transform duration-300 hover:shadow-xl hover:-translate-y-1
+      bg-white rounded-lg shadow-md p-6 transition-transform duration-300 hover:shadow-lg hover:-translate-y-1
       ${className}
     `}
   >
@@ -291,7 +291,7 @@ const Contact = () => {
                     </a>
                   </p>
                   <p className="text-gray-600">
-                    Mian Abdul Wahees:{' '}
+                    Mian Abdul Waheed:{' '}
                     <a href="tel:03006530063" className="hover:text-red-600">
                       0300-6530063
                     </a>
@@ -311,12 +311,12 @@ const Contact = () => {
                   <p className="text-gray-600">
                     Reach us on WhatsApp:{' '}
                     <a
-                      href="https://wa.me/923007246696"
+                      href="https://wa.me/923006530063"
                       className="hover:text-red-600"
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      0300-7246696
+                      0300-6530063
                     </a>
                   </p>
                 </div>
@@ -332,8 +332,8 @@ const Contact = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">Email</h3>
                   <p className="text-gray-600">
-                    <a href="mailto:support@raeesmalls.com" className="hover:text-red-600">
-                      support@raeesmalls.com
+                    <a href="mailto:raeesmalls1@gmail.com" className="hover:text-red-600">
+                      raeesmalls1@gmail.com
                     </a>
                   </p>
                 </div>
@@ -349,7 +349,7 @@ const Contact = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">Business Hours</h3>
                   <p className="text-gray-600 mb-1">Monday - Saturday: 9:00 AM - 9:00 PM</p>
-                  <p className="text-gray-600">Sunday: 11:00 AM - 8:00 PM</p>
+                  <p className="text-gray-600">Sunday: 9:00 AM - 10:00 PM</p>
                 </div>
               </motion.div>
             </Card>
@@ -387,7 +387,7 @@ const Contact = () => {
                   </svg>
                 </motion.a>
                 <motion.a
-                  href="https://wa.me/923007246696"
+                  href="https://wa.me/923006530063"
                   className="text-gray-600 hover:text-red-600"
                   whileHover={{ scale: 1.2 }}
                   whileTap={{ scale: 0.9 }}
