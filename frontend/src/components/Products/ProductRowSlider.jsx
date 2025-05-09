@@ -19,20 +19,18 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const carouselRef = useRef(null);
   const intervalRef = useRef(null);
   const navigate = useNavigate();
+  const [isMobile, setIsMobile] = useState(false); // ✅ Moved to top with other hooks
 
-  // Process and memoize products
   const memoizedProducts = useMemo(() => {
     const productArray = Array.isArray(products) ? products : [];
-    
+
     const filteredProducts = isFeatured
       ? productArray.filter((product) => product.isFeatured === true)
       : productArray;
 
     return filteredProducts.map((product) => {
-      // Ensure images is always an array
       const images = Array.isArray(product.images) ? product.images : [];
-      
-      // Process image URLs
+
       const processedImages = images.map(img => {
         let url = img?.url || '';
         if (url && !url.startsWith('http')) {
@@ -44,7 +42,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         };
       });
 
-      // Ensure at least one image exists
       if (processedImages.length === 0) {
         processedImages.push({
           url: '/images/placeholder-product.png',
@@ -70,7 +67,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     });
   }, [products, isFeatured]);
 
-  // Clear cache on mount to ensure fresh data
   useEffect(() => {
     const clearProductCaches = () => {
       Object.keys(localStorage).forEach(key => {
@@ -81,10 +77,9 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     };
 
     clearProductCaches();
-    setNeedsFetch(true); // Trigger fresh fetch
+    setNeedsFetch(true);
   }, []);
 
-  // Fetch products
   useEffect(() => {
     if (needsFetch) {
       handleFetchProducts();
@@ -95,7 +90,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     try {
       await fetchProducts(
         { page: 1, limit: 12, categoryId: categoryId || null, isFeatured, sort: '-createdAt' },
-        { isPublic: true, skipCache: true } // Skip cache to avoid stale data
+        { isPublic: true, skipCache: true }
       );
       setNeedsFetch(false);
     } catch (err) {
@@ -104,12 +99,10 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     }
   }, [fetchProducts, categoryId, isFeatured]);
 
-  // Socket.IO integration for real-time updates
   useEffect(() => {
     SocketService.connect();
 
     const handleProductCreated = (data) => {
-      // Trigger fetch if the new product matches the category/isFeatured and is in stock
       if (data.product.stock > 0 &&
           (isFeatured ? data.product.isFeatured : true) &&
           (categoryId ? data.product.categoryId === categoryId : true)) {
@@ -119,7 +112,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     };
 
     const handleProductUpdated = (data) => {
-      // Trigger fetch if the product matches the category/isFeatured
       if ((isFeatured ? data.product.isFeatured : true) &&
           (categoryId ? data.product.categoryId === categoryId : true)) {
         setNeedsFetch(true);
@@ -128,7 +120,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     };
 
     const handleProductDeleted = (data) => {
-      // Trigger fetch to refresh the list
       setNeedsFetch(true);
       toast.warn('Product removed');
     };
@@ -145,44 +136,53 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     };
   }, [isFeatured, categoryId]);
 
-  // Calculate number of visible items based on screen width
   const getVisibleItemsCount = useCallback(() => {
     if (typeof window === 'undefined') return 4;
     const width = window.innerWidth;
-    if (width < 480) return 1;  // Smaller mobile screens
-    if (width < 640) return 2;  // Larger mobile screens
-    if (width < 768) return 2;  // Small tablets
-    if (width < 1024) return 3; // Large tablets
-    return 4;                   // Desktops
+    if (width < 640) return 2;
+    if (width < 768) return 2;
+    if (width < 1024) return 3;
+    return 4;
   }, []);
 
-  // Handle window resize to adjust visible items
   useEffect(() => {
+    setVisibleItems(getVisibleItemsCount());
+
     const handleResize = () => {
       setVisibleItems(getVisibleItemsCount());
+      const maxIndex = Math.ceil(memoizedProducts.length / getVisibleItemsCount()) - 1;
+      if (currentIndex > maxIndex && maxIndex >= 0) {
+        setCurrentIndex(maxIndex);
+      }
     };
-    
+
     window.addEventListener('resize', handleResize);
-    setVisibleItems(getVisibleItemsCount());
-    
+
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, [getVisibleItemsCount]);
+  }, [getVisibleItemsCount, memoizedProducts.length, currentIndex]);
 
-  // Navigation handlers
   const handlePrev = useCallback(() => {
-    setCurrentIndex((prev) =>
-      prev === 0 ? Math.ceil(memoizedProducts.length / visibleItems) - 1 : prev - 1
-    );
+    const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
+
+    setCurrentIndex((prev) => {
+      if (prev === 0) return maxIndex;
+      return Math.max(0, prev - 1);
+    });
+
     setIsAutoPlaying(false);
     setTimeout(() => setIsAutoPlaying(true), 10000);
   }, [memoizedProducts.length, visibleItems]);
 
   const handleNext = useCallback(() => {
-    setCurrentIndex((prev) =>
-      prev === Math.ceil(memoizedProducts.length / visibleItems) - 1 ? 0 : prev + 1
-    );
+    const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
+
+    setCurrentIndex((prev) => {
+      if (prev >= maxIndex) return 0;
+      return Math.min(maxIndex, prev + 1);
+    });
+
     setIsAutoPlaying(false);
     setTimeout(() => setIsAutoPlaying(true), 10000);
   }, [memoizedProducts.length, visibleItems]);
@@ -193,7 +193,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     setTimeout(() => setIsAutoPlaying(true), 10000);
   }, []);
 
-  // Auto-play slider
   useEffect(() => {
     if (!isAutoPlaying || memoizedProducts.length === 0) return;
 
@@ -210,10 +209,20 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     };
   }, [isAutoPlaying, memoizedProducts.length, visibleItems]);
 
-  // Loading state
+  // ✅ Mobile check also inside a top-level hook
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   if (loading && memoizedProducts.length === 0) {
     return (
-      <section aria-label={`${title} Slider Loading`} className="relative w-full px-4 py-8 rounded-lg shadow-sm">
+      <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
           {title && <h2 className="text-2xl font-bold text-gray-800">{title}</h2>}
         </div>
@@ -224,10 +233,9 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     );
   }
 
-  // Error or empty state
   if (error || memoizedProducts.length === 0) {
     return (
-      <section aria-label={`${title} Slider Empty or Error`} className="relative w-full px-4 py-8 rounded-lg shadow-sm">
+      <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
           {title && <h2 className="text-2xl font-bold text-gray-800">{title}</h2>}
           <nav>
@@ -258,9 +266,8 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     );
   }
 
-  // Main render
   return (
-    <section aria-label={`${title} Slider`} className="relative w-full px-4 py-8 rounded-lg shadow-sm" aria-live="polite">
+    <section className="relative w-full px-4 py-8 rounded-lg shadow-sm" aria-live="polite">
       <Helmet>
         <title>{title || 'Products'} | Your Store</title>
         <meta name="description" content={`Explore our ${title?.toLowerCase() || 'selected products'} with exclusive deals and limited stock.`} />
@@ -295,10 +302,10 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
               className="flex-shrink-0 px-2"
               style={{ width: `${100 / visibleItems}%` }}
             >
-              <div className="p-1"> {/* Added padding for mobile */}
+              <div className="p-1">
                 <ProductCard 
                   product={product} 
-                  compact={window.innerWidth < 768} // Make cards compact on mobile
+                  compact={isMobile} 
                 />
               </div>
             </div>
@@ -307,14 +314,14 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
 
         <button
           onClick={handlePrev}
-          className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-white/80 hover:bg-white rounded-full p-2 shadow-lg transition-all duration-200 opacity-0 group-hover:opacity-100"
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg"
           aria-label="Previous products"
         >
           <ChevronLeft size={24} className="text-gray-700" />
         </button>
         <button
           onClick={handleNext}
-          className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-white/80 hover:bg-white rounded-full p-2 shadow-lg transition-all duration-200 opacity-0 group-hover:opacity-100"
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg"
           aria-label="Next products"
         >
           <ChevronRight size={24} className="text-gray-700" />

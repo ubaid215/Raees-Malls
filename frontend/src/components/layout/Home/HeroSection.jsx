@@ -50,9 +50,10 @@ function HeroSection() {
   }, [activeSliderBanners.length]);
 
   return (
-    <section className="px-4 sm:px-6 mb-3 pb-5 pt-7 w-full flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-5">
+    <section className="lg:px-4 md:px-2 sm:px-0 mb-3 pb-5 pt-7 w-full flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-5">
       {/* Main Slider Section - Always visible */}
-      <div className="w-full md:w-[65%] h-[30vh] sm:h-[50vh] md:h-[80vh] relative rounded-xl overflow-hidden">
+      <div className="w-full md:w-[65%] h-[30vh] sm:h-[50vh] md:h-[80vh] relative rounded-none md:rounded-md lg:rounded-xl overflow-hidden">
+
         <div className="relative w-full h-full">
           {bannersLoading ? (
             <div className="w-full h-full flex items-center justify-center bg-gray-200">
