@@ -6,7 +6,7 @@ const attributeSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Attribute key is required'],
     trim: true,
-    enum: ['size', 'color', 'material', 'style', 'ram'], // Added 'ram'
+    enum: ['size', 'color', 'material', 'style', 'ram'],
   },
   value: {
     type: String,
@@ -15,7 +15,6 @@ const attributeSchema = new mongoose.Schema({
   }
 });
 
-// Normalize 'key' to lowercase before validation
 attributeSchema.pre('validate', function(next) {
   if (this.key) {
     this.key = this.key.toLowerCase();
@@ -170,6 +169,10 @@ const productSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  isFeatured: {
+    type: Boolean,
+    default: false
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -180,7 +183,6 @@ const productSchema = new mongoose.Schema({
   }
 });
 
-// Helper function to generate SKU
 const generateSKU = (brand, title, attributes = []) => {
   const cleanBrand = (brand || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 3);
   const cleanTitle = title.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 3);
@@ -200,7 +202,6 @@ const generateSKU = (brand, title, attributes = []) => {
   return sku;
 };
 
-// Pre-save hook to auto-generate SKUs and slug
 productSchema.pre('save', async function (next) {
   this.updatedAt = Date.now();
 

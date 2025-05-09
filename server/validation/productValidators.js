@@ -5,7 +5,6 @@ const Product = require('../models/Product');
 
 console.log('Initializing product validators...');
 
-// Helper function to parse specifications or variants if string
 const parseJsonField = (value) => {
   if (typeof value === 'string') {
     try {
@@ -17,7 +16,6 @@ const parseJsonField = (value) => {
   return value;
 };
 
-// Validator for creating a product
 const createProductValidator = [
   body('title')
     .trim()
@@ -87,6 +85,11 @@ const createProductValidator = [
     .isLength({ max: 160 })
     .withMessage('SEO description must not exceed 160 characters'),
 
+  body('isFeatured')
+    .optional()
+    .isBoolean()
+    .withMessage('isFeatured must be a boolean'),
+
   body('specifications')
     .optional()
     .customSanitizer(parseJsonField)
@@ -103,7 +106,7 @@ const createProductValidator = [
     .optional()
     .customSanitizer(parseJsonField)
     .isArray()
-    .withMessage('Variants must be an array')
+    .withMessage('Variants CEA must be an array')
     .custom(variants => {
       for (let i = 0; i < variants.length; i++) {
         const variant = variants[i];
@@ -132,7 +135,6 @@ const createProductValidator = [
     })
 ];
 
-// Validator for updating a product
 const updateProductValidator = [
   body('title')
     .optional()
@@ -195,6 +197,11 @@ const updateProductValidator = [
       return true;
     }),
 
+  body('isFeatured')
+    .optional()
+    .isBoolean()
+    .withMessage('isFeatured must be a boolean'),
+
   body('variants')
     .optional()
     .customSanitizer(parseJsonField)
@@ -252,7 +259,6 @@ const productIdValidator = [
   }
 ];
 
-// Shared query validators
 const commonQueryValidators = [
   query('page')
     .optional()
@@ -284,7 +290,11 @@ const commonQueryValidators = [
 
   query('attributeValue')
     .optional()
-    .isString().withMessage('Attribute value must be a string')
+    .isString().withMessage('Attribute value must be a string'),
+
+  query('isFeatured')
+    .optional()
+    .isBoolean().withMessage('isFeatured must be a boolean')
 ];
 
 const getProductsValidator = [

@@ -187,6 +187,11 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             {Math.round((1 - product.discountPrice / product.price) * 100)}% OFF
           </span>
         )}
+        {product.isFeatured && (
+          <span className="absolute top-10 left-2 px-2 py-0.5 rounded bg-yellow-500 text-white text-xs font-medium">
+            Featured
+          </span>
+        )}
       </div>
 
       <div className="p-2 sm:p-4 flex flex-col gap-1 sm:gap-2 flex-grow">
@@ -272,6 +277,7 @@ ProductCard.propTypes = {
         name: PropTypes.string,
       }),
     ]),
+    isFeatured: PropTypes.bool
   }),
 };
 

@@ -13,14 +13,14 @@ import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
 
 function FeaturedProducts() {
-  const { products, loading: productsLoading, error: productsError, fetchProducts } = useContext(ProductContext);
+  const { products, loading: productsLoading, error: productsError, fetchFeaturedProducts } = useContext(ProductContext);
   const { banners, loading: bannersLoading, error: bannersError } = useBanners();
   const [needsFetch, setNeedsFetch] = useState(true);
 
   useEffect(() => {
     const clearProductCaches = () => {
       Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('products_') || key.startsWith('product_')) {
+        if (key.startsWith('products_') || key.startsWith('product_') || key.startsWith('featured_products_')) {
           localStorage.removeItem(key);
         }
       });
@@ -38,16 +38,16 @@ function FeaturedProducts() {
 
   const handleFetchFeaturedProducts = useCallback(async () => {
     try {
-      await fetchProducts(
-        { page: 1, limit: 6, isFeatured: true, sort: '-createdAt' },
-        { isPublic: true, skipCache: true }
+      await fetchFeaturedProducts(
+        { page: 1, limit: 6, sort: '-createdAt' },
+        { skipCache: true }
       );
       setNeedsFetch(false);
     } catch (err) {
-      console.error('Fetch products error:', err);
+      console.error('Fetch featured products error:', err);
       toast.error(err.message || 'Failed to load featured products');
     }
-  }, [fetchProducts]);
+  }, [fetchFeaturedProducts]);
 
   useEffect(() => {
     SocketService.connect();
@@ -114,8 +114,9 @@ function FeaturedProducts() {
         categoryId: product.categoryId,
         sku: product.sku,
         displayPrice: product.displayPrice,
+        isFeatured: product.isFeatured || false
       };
-    });
+    }).filter(product => product.isFeatured);
   }, [products]);
 
   if (productsLoading && memoizedProducts.length === 0) {

@@ -1,6 +1,7 @@
 import React, { createContext, useState, useCallback, useMemo, useEffect, useContext } from 'react';
 import {
   getProducts,
+  getFeaturedProducts,
   getProductById,
   createProduct,
   updateProduct,
@@ -22,7 +23,6 @@ export const ProductProvider = ({ children }) => {
     totalItems: 0
   });
 
-  // Cache management
   const getCache = useCallback((key) => {
     try {
       const cached = localStorage.getItem(key);
@@ -82,7 +82,6 @@ export const ProductProvider = ({ children }) => {
     return () => clearInterval(intervalId);
   }, [getCache, clearCache]);
 
-  // Socket.IO integration
   useEffect(() => {
     SocketService.connect();
 
@@ -142,11 +141,12 @@ export const ProductProvider = ({ children }) => {
         minPrice = null,
         maxPrice = null,
         sort = '-createdAt',
+        isFeatured = null
       } = params;
   
       const { isPublic = true, skipCache = false } = options;
   
-      const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}`;
+      const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}_${isFeatured || ''}`;
   
       if (!skipCache) {
         const cached = getCache(cacheKey);
@@ -171,6 +171,7 @@ export const ProductProvider = ({ children }) => {
         if (search) filters.search = search;
         if (minPrice) filters.minPrice = minPrice;
         if (maxPrice) filters.maxPrice = maxPrice;
+        if (isFeatured !== null) filters.isFeatured = isFeatured;
   
         const result = await withRetry(() =>
           getProducts(page, limit, sort, filters, { isPublic })
@@ -203,7 +204,68 @@ export const ProductProvider = ({ children }) => {
       } finally {
         setLoading(false);
       }
-    }, 500), // 500ms debounce delay
+    }, 500),
+    [getCache, setCache, withRetry]
+  );
+
+  const fetchFeaturedProducts = useCallback(
+    debounce(async (params = {}) => {
+      const {
+        page = 1,
+        limit = 10,
+        sort = '-createdAt',
+      } = params;
+  
+      const cacheKey = `featured_products_${page}_${limit}_${sort}`;
+  
+      const cached = getCache(cacheKey);
+      if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
+        setProducts(cached.data.products || []);
+        setPagination({
+          page,
+          limit,
+          totalPages: cached.data.totalPages || 1,
+          totalItems: cached.data.totalItems || 0,
+        });
+        return cached.data;
+      }
+  
+      setLoading(true);
+      setError(null);
+  
+      try {
+        const result = await withRetry(() =>
+          getFeaturedProducts(page, limit, sort)
+        );
+  
+        const responseData = {
+          products: result.products || [],
+          totalPages: result.totalPages || 1,
+          totalItems: result.totalItems || 0,
+        };
+  
+        setProducts(responseData.products);
+        setPagination({
+          page,
+          limit,
+          totalPages: responseData.totalPages,
+          totalItems: responseData.totalItems,
+        });
+        setCache(cacheKey, responseData);
+  
+        return responseData;
+      } catch (err) {
+        setError(err.message || 'Failed to fetch featured products');
+        const cached = getCache(cacheKey);
+        if (cached?.data) {
+          setProducts(cached.data.products || []);
+          return cached.data;
+        }
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    }, 500),
     [getCache, setCache, withRetry]
   );
 
@@ -293,6 +355,7 @@ export const ProductProvider = ({ children }) => {
     error,
     pagination,
     fetchProducts,
+    fetchFeaturedProducts,
     getProduct,
     createNewProduct,
     updateExistingProduct,
@@ -304,6 +367,7 @@ export const ProductProvider = ({ children }) => {
     error,
     pagination,
     fetchProducts,
+    fetchFeaturedProducts,
     getProduct,
     createNewProduct,
     updateExistingProduct,

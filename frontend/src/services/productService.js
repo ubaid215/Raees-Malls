@@ -2,7 +2,7 @@ import api from './api';
 
 export const getProducts = async (page = 1, limit = 10, sort = null, filters = {}, options = {}) => {
   const { isPublic = false } = options;
-  let endpoint; // Define endpoint at the function scope level so it's available in the catch block
+  let endpoint;
   
   try {
     const query = new URLSearchParams({
@@ -15,7 +15,6 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
     endpoint = isPublic ? `/products/public?${query}` : `/admin/products?${query}`;
     const response = await api.get(endpoint, { skipAuth: isPublic });
     
-    // Rest of the function remains the same
     if (!response.data || typeof response.data !== 'object') {
       throw new Error('Invalid response: No data received');
     }
@@ -44,7 +43,58 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
     };
   } catch (error) {
     console.error('Get products error:', {
-      endpoint, // Now this is defined
+      endpoint,
+      status: error.response?.status,
+      message: error.message,
+      responseData: error.response?.data
+    });
+    throw handleProductError(error);
+  }
+};
+
+export const getFeaturedProducts = async (page = 1, limit = 10, sort = null) => {
+  let endpoint;
+  
+  try {
+    const query = new URLSearchParams({
+      page,
+      limit,
+      isFeatured: true,
+      ...(sort && { sort }),
+    }).toString();
+
+    endpoint = `/products/public?${query}`;
+    const response = await api.get(endpoint, { skipAuth: true });
+    
+    if (!response.data || typeof response.data !== 'object') {
+      throw new Error('Invalid response: No data received');
+    }
+
+    const responseData = response.data.data || response.data;
+    const products = responseData.products || [];
+    const totalPages = responseData.totalPages || 1;
+
+    if (!Array.isArray(products)) {
+      throw new Error('Invalid response: Products is not an array');
+    }
+
+    const validProducts = products.map(product => ({
+      ...product,
+      displayPrice: product.discountPrice || product.price,
+      variants: product.variants?.map(variant => ({
+        ...variant,
+        displayPrice: variant.discountPrice || variant.price
+      })) || []
+    }));
+
+    return { 
+      products: validProducts, 
+      totalPages,
+      totalItems: responseData.total || 0
+    };
+  } catch (error) {
+    console.error('Get featured products error:', {
+      endpoint,
       status: error.response?.status,
       message: error.message,
       responseData: error.response?.data
@@ -62,14 +112,12 @@ export const getProductById = async (id, options = {}) => {
     const endpoint = isPublic ? `/products/public/${id}` : `/admin/products/${id}`;
     const response = await api.get(endpoint, { skipAuth: isPublic });
     
-    // Handle different response structures
     let product;
     if (response.data?.product) {
       product = response.data.product;
     } else if (response.data?.data?.product) {
       product = response.data.data.product;
     } else if (response.data) {
-      // Assume the response data itself is the product
       product = response.data;
     }
 
@@ -269,7 +317,6 @@ const handleProductError = (error) => {
   const status = error.response?.status;
   let message = error.response?.data?.message || error.message || 'Request failed with status unknown';
 
-  // Handle Mongoose validation errors
   if (error.response?.data?.errors) {
     const validationErrors = error.response.data.errors;
     message = Object.values(validationErrors)
