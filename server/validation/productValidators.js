@@ -28,7 +28,7 @@ const createProductValidator = [
     .trim()
     .notEmpty()
     .withMessage('Product description is required')
-    .isLength({ min: 10, max: 1000 })
+    .isLength({ min: 10, max: 3000 })
     .withMessage('Product description must be between 10 and 1000 characters'),
 
   body('price')
@@ -144,7 +144,7 @@ const updateProductValidator = [
   body('description')
     .optional()
     .trim()
-    .isLength({ min: 10, max: 1000 }).withMessage('Description must be between 10 and 1000 characters'),
+    .isLength({ min: 10, max: 3000 }).withMessage('Description must be between 10 and 1000 characters'),
 
   body('price')
     .optional()
