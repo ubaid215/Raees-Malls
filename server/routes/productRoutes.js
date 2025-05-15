@@ -11,14 +11,16 @@ const {
   getProductsForCustomersValidator,
 } = require('../validation/productValidators');
 
-// Dynamic upload configuration for variant images (supports up to 10 variants)
+// Dynamic upload configuration for images and videos (supports up to 10 variants)
 const createUploadFields = (variantCount = 10) => {
   const fields = [
-    { name: 'baseImages', maxCount: 5 }
+    { name: 'baseImages', maxCount: 5 },
+    { name: 'baseVideos', maxCount: 3 }
   ];
   
   for (let i = 0; i < variantCount; i++) {
     fields.push({ name: `variantImages[${i}]`, maxCount: 5 });
+    fields.push({ name: `variantVideos[${i}]`, maxCount: 3 });
   }
   
   return upload.fields(fields);

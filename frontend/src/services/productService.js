@@ -145,12 +145,14 @@ export const getProductById = async (id, options = {}) => {
   }
 };
 
-export const createProduct = async (productData, images = {}) => {
+export const createProduct = async (productData, media = {}) => {
   try {
     console.log('Preparing to create product:', {
       productData: JSON.stringify(productData, null, 2),
-      baseImagesCount: images.baseImages?.length || 0,
-      variantImagesCount: images.variantImages?.map(v => v?.length || 0) || []
+      baseImagesCount: media.baseImages?.length || 0,
+      baseVideosCount: media.baseVideos?.length || 0,
+      variantImagesCount: media.variantImages?.map(v => v?.length || 0) || [],
+      variantVideosCount: media.variantVideos?.map(v => v?.length || 0) || []
     });
 
     const formData = new FormData();
@@ -174,8 +176,8 @@ export const createProduct = async (productData, images = {}) => {
       }
     });
 
-    if (images.baseImages?.length) {
-      images.baseImages.forEach((image, index) => {
+    if (media.baseImages?.length) {
+      media.baseImages.forEach((image, index) => {
         formData.append('baseImages', image);
         console.log(`Appended baseImages[${index}]:`, image.name);
       });
@@ -183,12 +185,30 @@ export const createProduct = async (productData, images = {}) => {
       console.warn('No base images provided');
     }
 
-    if (images.variantImages?.length) {
-      images.variantImages.forEach((variantImages, index) => {
+    if (media.baseVideos?.length) {
+      media.baseVideos.forEach((video, index) => {
+        formData.append('baseVideos', video);
+        console.log(`Appended baseVideos[${index}]:`, video.name);
+      });
+    }
+
+    if (media.variantImages?.length) {
+      media.variantImages.forEach((variantImages, index) => {
         if (variantImages?.length) {
           variantImages.forEach((image, imgIndex) => {
             formData.append(`variantImages[${index}]`, image);
             console.log(`Appended variantImages[${index}][${imgIndex}]:`, image.name);
+          });
+        }
+      });
+    }
+
+    if (media.variantVideos?.length) {
+      media.variantVideos.forEach((variantVideos, index) => {
+        if (variantVideos?.length) {
+          variantVideos.forEach((video, vidIndex) => {
+            formData.append(`variantVideos[${index}]`, video);
+            console.log(`Appended variantVideos[${index}][${vidIndex}]:`, video.name);
           });
         }
       });
@@ -237,7 +257,7 @@ export const createProduct = async (productData, images = {}) => {
   }
 };
 
-export const updateProduct = async (id, productData, images = {}) => {
+export const updateProduct = async (id, productData, media = {}) => {
   try {
     if (!id) throw new Error('Product ID is required');
 
@@ -259,17 +279,33 @@ export const updateProduct = async (id, productData, images = {}) => {
       }
     });
 
-    if (images.baseImages?.length) {
-      images.baseImages.forEach((image) => {
+    if (media.baseImages?.length) {
+      media.baseImages.forEach((image) => {
         formData.append('baseImages', image);
       });
     }
 
-    if (images.variantImages?.length) {
-      images.variantImages.forEach((variantImages, index) => {
+    if (media.baseVideos?.length) {
+      media.baseVideos.forEach((video) => {
+        formData.append('baseVideos', video);
+      });
+    }
+
+    if (media.variantImages?.length) {
+      media.variantImages.forEach((variantImages, index) => {
         if (variantImages?.length) {
           variantImages.forEach((image) => {
             formData.append(`variantImages[${index}]`, image);
+          });
+        }
+      });
+    }
+
+    if (media.variantVideos?.length) {
+      media.variantVideos.forEach((variantVideos, index) => {
+        if (variantVideos?.length) {
+          variantVideos.forEach((video) => {
+            formData.append(`variantVideos[${index}]`, video);
           });
         }
       });

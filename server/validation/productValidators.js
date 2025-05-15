@@ -29,7 +29,7 @@ const createProductValidator = [
     .notEmpty()
     .withMessage('Product description is required')
     .isLength({ min: 10, max: 3000 })
-    .withMessage('Product description must be between 10 and 1000 characters'),
+    .withMessage('Product description must be between 10 and 3000 characters'),
 
   body('price')
     .isFloat({ min: 0 })
@@ -82,8 +82,8 @@ const createProductValidator = [
   body('seo.description')
     .optional()
     .trim()
-    .isLength({ max: 160 })
-    .withMessage('SEO description must not exceed 160 characters'),
+    .isLength({ max: 3000 })
+    .withMessage('SEO description must not exceed 3000 characters'),
 
   body('isFeatured')
     .optional()
@@ -102,11 +102,23 @@ const createProductValidator = [
       return true;
     }),
 
+  body('features')
+    .optional()
+    .customSanitizer(parseJsonField)
+    .isArray()
+    .withMessage('Features must be an array')
+    .custom(features => {
+      if (!features.every(f => typeof f === 'string' && f.trim().length >= 1 && f.trim().length <= 200)) {
+        throw new Error('Each feature must be a string between 1 and 200 characters');
+      }
+      return true;
+    }),
+
   body('variants')
     .optional()
     .customSanitizer(parseJsonField)
     .isArray()
-    .withMessage('Variants CEA must be an array')
+    .withMessage('Variants must be an array')
     .custom(variants => {
       for (let i = 0; i < variants.length; i++) {
         const variant = variants[i];
@@ -144,7 +156,7 @@ const updateProductValidator = [
   body('description')
     .optional()
     .trim()
-    .isLength({ min: 10, max: 3000 }).withMessage('Description must be between 10 and 1000 characters'),
+    .isLength({ min: 10, max: 3000 }).withMessage('Description must be between 10 and 3000 characters'),
 
   body('price')
     .optional()
@@ -233,6 +245,18 @@ const updateProductValidator = [
       );
       if (!isValid) {
         throw new Error('Each specification must have a key and value as strings');
+      }
+      return true;
+    }),
+
+  body('features')
+    .optional()
+    .customSanitizer(parseJsonField)
+    .isArray()
+    .withMessage('Features must be an array')
+    .custom(features => {
+      if (!features.every(f => typeof f === 'string' && f.trim().length >= 1 && f.trim().length <= 200)) {
+        throw new Error('Each feature must be a string between 1 and 200 characters');
       }
       return true;
     }),
