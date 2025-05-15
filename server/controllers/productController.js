@@ -7,26 +7,49 @@ const cloudinary = require('../config/cloudinary');
 
 exports.createProduct = async (req, res, next) => {
   try {
-    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo, isFeatured } = req.body;
+    console.log('Request body:', req.body);
+    console.log('Request files:', req.files);
+    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
 
     if (discountPrice !== undefined && discountPrice >= price) {
       throw new ApiError(400, 'Discount price must be less than the base price');
     }
 
-    const images = req.files?.baseImages?.map(file => ({
+    if (!req.files?.baseImages?.length) {
+      throw new ApiError(400, 'At least one base image is required');
+    }
+
+    const images = req.files.baseImages.map(file => ({
+      url: file.path,
+      public_id: file.filename,
+      alt: file.originalname
+    }));
+
+    const videos = req.files?.baseVideos?.map(file => ({
       url: file.path,
       public_id: file.filename,
       alt: file.originalname
     })) || [];
 
     const variantImages = {};
-    if (req.files?.variantImages) {
-      Object.keys(req.files.variantImages).forEach(variantIndex => {
-        variantImages[variantIndex] = req.files.variantImages[variantIndex].map(file => ({
-          url: file.path,
-          public_id: file.filename,
-          alt: file.originalname
-        }));
+    const variantVideos = {};
+    if (req.files) {
+      Object.keys(req.files).forEach(key => {
+        if (key.startsWith('variantImages[')) {
+          const index = key.match(/\[(\d+)\]/)[1];
+          variantImages[index] = req.files[key].map(file => ({
+            url: file.path,
+            public_id: file.filename,
+            alt: file.originalname
+          }));
+        } else if (key.startsWith('variantVideos[')) {
+          const index = key.match(/\[(\d+)\]/)[1];
+          variantVideos[index] = req.files[key].map(file => ({
+            url: file.path,
+            public_id: file.filename,
+            alt: file.originalname
+          }));
+        }
       });
     }
 
@@ -45,7 +68,8 @@ exports.createProduct = async (req, res, next) => {
       }
       return {
         ...variant,
-        images: variantImages[index] || []
+        images: variantImages[index] || [],
+        videos: variantVideos[index] || []
       };
     }) || [];
 
@@ -67,16 +91,27 @@ exports.createProduct = async (req, res, next) => {
       }
     }
 
+    let parsedFeatures = features;
+    if (typeof features === 'string') {
+      try {
+        parsedFeatures = JSON.parse(features);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid features format');
+      }
+    }
+
     const product = new Product({
       title,
       description,
       price,
       discountPrice,
       images,
+      videos,
       categoryId,
       brand,
       stock,
       specifications: parsedSpecifications,
+      features: parsedFeatures || [],
       variants: processedVariants,
       seo: parsedSeo,
       isFeatured: isFeatured || false
@@ -101,6 +136,7 @@ exports.createProduct = async (req, res, next) => {
 
     ApiResponse.success(res, 201, 'Product created successfully', { product });
   } catch (error) {
+    console.error('Create product error:', error);
     if (error.name === 'ValidationError') {
       const errors = {};
       Object.keys(error.errors).forEach(key => {
@@ -197,7 +233,7 @@ exports.updateProduct = async (req, res, next) => {
       throw new ApiError(404, 'Product not found');
     }
 
-    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, variants, seo, isFeatured } = req.body;
+    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
 
     if (discountPrice !== undefined) {
       const basePrice = price || product.price;
@@ -217,14 +253,38 @@ exports.updateProduct = async (req, res, next) => {
       }));
     }
 
+    if (req.files?.baseVideos?.length > 0) {
+      for (const video of product.videos) {
+        await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+      }
+      product.videos = req.files.baseVideos.map(file => ({
+        url: file.path,
+        public_id: file.filename,
+        alt: file.originalname
+      }));
+    } else {
+      product.videos = product.videos || [];
+    }
+
     const variantImages = {};
-    if (req.files?.variantImages) {
-      Object.keys(req.files.variantImages).forEach(variantIndex => {
-        variantImages[variantIndex] = req.files.variantImages[variantIndex].map(file => ({
-          url: file.path,
-          public_id: file.filename,
-          alt: file.originalname
-        }));
+    const variantVideos = {};
+    if (req.files) {
+      Object.keys(req.files).forEach(key => {
+        if (key.startsWith('variantImages[')) {
+          const index = key.match(/\[(\d+)\]/)[1];
+          variantImages[index] = req.files[key].map(file => ({
+            url: file.path,
+            public_id: file.filename,
+            alt: file.originalname
+          }));
+        } else if (key.startsWith('variantVideos[')) {
+          const index = key.match(/\[(\d+)\]/)[1];
+          variantVideos[index] = req.files[key].map(file => ({
+            url: file.path,
+            public_id: file.filename,
+            alt: file.originalname
+          }));
+        }
       });
     }
 
@@ -242,6 +302,9 @@ exports.updateProduct = async (req, res, next) => {
         for (const image of variant.images) {
           await cloudinary.uploader.destroy(image.public_id);
         }
+        for (const video of variant.videos) {
+          await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+        }
       }
 
       product.variants = parsedVariants.map((variant, index) => {
@@ -250,7 +313,8 @@ exports.updateProduct = async (req, res, next) => {
         }
         return {
           ...variant,
-          images: variantImages[index] || variant.images || []
+          images: variantImages[index] || variant.images || [],
+          videos: variantVideos[index] || variant.videos || []
         };
       });
     }
@@ -273,6 +337,15 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
+    let parsedFeatures = features;
+    if (typeof features === 'string') {
+      try {
+        parsedFeatures = JSON.parse(features);
+      } catch (error) {
+        throw new ApiError(400, 'Invalid features format');
+      }
+    }
+
     product.title = title || product.title;
     product.description = description || product.description;
     product.price = price || product.price;
@@ -281,6 +354,7 @@ exports.updateProduct = async (req, res, next) => {
     product.brand = brand || product.brand;
     product.stock = stock !== undefined ? stock : product.stock;
     product.specifications = parsedSpecifications || product.specifications;
+    product.features = parsedFeatures || product.features || [];
     product.seo = parsedSeo || product.seo;
     product.isFeatured = isFeatured !== undefined ? isFeatured : product.isFeatured;
 
@@ -334,10 +408,16 @@ exports.deleteProduct = async (req, res, next) => {
     for (const image of product.images) {
       await cloudinary.uploader.destroy(image.public_id);
     }
+    for (const video of product.videos) {
+      await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+    }
 
     for (const variant of product.variants) {
       for (const image of variant.images) {
         await cloudinary.uploader.destroy(image.public_id);
+      }
+      for (const video of variant.videos) {
+        await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
       }
     }
 

@@ -9,9 +9,17 @@ const AddProductPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (productData, images) => {
+  const handleSubmit = async (productData, media) => {
     setLoading(true);
     try {
+      console.log('Submitting product:', {
+        productData,
+        baseImagesCount: media.baseImages?.length || 0,
+        baseVideosCount: media.baseVideos?.length || 0,
+        variantImagesCount: media.variantImages?.map(v => v?.length || 0) || [],
+        variantVideosCount: media.variantVideos?.map(v => v?.length || 0) || []
+      });
+
       if (!productData.sku || productData.sku.trim() === '') {
         delete productData.sku;
       }
@@ -26,7 +34,7 @@ const AddProductPage = () => {
         });
       }
 
-      const product = await createProduct(productData, images);
+      const product = await createProduct(productData, media);
 
       if (!product || !product._id) {
         throw new Error('Failed to create product: Invalid product data returned');

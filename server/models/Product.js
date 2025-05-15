@@ -62,6 +62,19 @@ const variantSchema = new mongoose.Schema({
     alt: {
       type: String
     }
+  }],
+  videos: [{
+    url: {
+      type: String,
+      required: true
+    },
+    public_id: {
+      type: String,
+      required: true
+    },
+    alt: {
+      type: String
+    }
   }]
 });
 
@@ -78,7 +91,7 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Product description is required'],
     trim: true,
     minlength: [10, 'Description must be at least 10 characters'],
-    maxlength: [3000, 'Description cannot exceed 1000 characters']
+    maxlength: [3000, 'Description cannot exceed 3000 characters']
   },
   price: {
     type: Number,
@@ -96,6 +109,19 @@ const productSchema = new mongoose.Schema({
     }
   },
   images: [{
+    url: {
+      type: String,
+      required: true
+    },
+    public_id: {
+      type: String,
+      required: true
+    },
+    alt: {
+      type: String
+    }
+  }],
+  videos: [{
     url: {
       type: String,
       required: true
@@ -140,6 +166,13 @@ const productSchema = new mongoose.Schema({
       type: String,
       required: true
     }
+  }],
+  features: [{
+    type: String,
+    trim: true,
+    required: [true, 'Feature cannot be empty'],
+    minlength: [1, 'Feature must be at least 1 character'],
+    maxlength: [200, 'Feature cannot exceed 200 characters']
   }],
   seo: {
     title: {

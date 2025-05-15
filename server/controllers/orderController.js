@@ -378,7 +378,7 @@ exports.downloadInvoice = async (req, res, next) => {
 
     // Footer
     doc.moveDown(2);
-    doc.fontSize(10).text('Thank you for shopping with Raees Mobiles!', { align: 'center' });
+    doc.fontSize(10).text('Thank you for shopping with Raees Malls!', { align: 'center' });
 
     doc.end();
 

@@ -34,6 +34,7 @@ const ProductForm = ({
         description: product?.seo?.description || ''
       },
       specifications: product?.specifications || [],
+      features: product?.features || [],
       variants: product?.variants || [],
       isFeatured: product?.isFeatured || false
     }
@@ -41,11 +42,15 @@ const ProductForm = ({
 
   const [existingImages, setExistingImages] = useState(product?.images || []);
   const [newImageFiles, setNewImageFiles] = useState([]);
+  const [existingVideos, setExistingVideos] = useState(product?.videos || []);
+  const [newVideoFiles, setNewVideoFiles] = useState([]);
   const [specifications, setSpecifications] = useState(product?.specifications || []);
+  const [features, setFeatures] = useState(product?.features || []);
   const [variants, setVariants] = useState(
     product?.variants?.map(v => ({
       ...v,
-      newImageFiles: []
+      newImageFiles: [],
+      newVideoFiles: []
     })) || []
   );
   const [categories, setCategories] = useState([]);
@@ -115,6 +120,30 @@ const ProductForm = ({
     setNewImageFiles(prev => [...prev, ...validFiles]);
   };
 
+  const handleVideoChange = async (e) => {
+    const files = Array.from(e.target.files);
+    const validFiles = [];
+
+    for (const file of files) {
+      if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(file.type)) {
+        toast.error(`Invalid file type: ${file.name}. Use MP4, WebM, or MOV.`);
+        continue;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error(`File too large: ${file.name}. Max 50MB.`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (existingVideos.length + newVideoFiles.length + validFiles.length > 3) {
+      toast.error('Maximum 3 videos allowed');
+      return;
+    }
+
+    setNewVideoFiles(prev => [...prev, ...validFiles]);
+  };
+
   const handleVariantImageChange = async (variantIndex, e) => {
     const files = Array.from(e.target.files);
     const validFiles = [];
@@ -159,11 +188,53 @@ const ProductForm = ({
     );
   };
 
+  const handleVariantVideoChange = async (variantIndex, e) => {
+    const files = Array.from(e.target.files);
+    const validFiles = [];
+
+    for (const file of files) {
+      if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(file.type)) {
+        toast.error(`Invalid file type: ${file.name}. Use MP4, WebM, or MOV.`);
+        continue;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        toast.error(`File too large: ${file.name}. Max 50MB.`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    const maxVideos = 3;
+    const currentVideos = variants[variantIndex].videos?.length || 0;
+    const currentNewVideos = variants[variantIndex].newVideoFiles?.length || 0;
+
+    if (currentVideos + currentNewVideos + validFiles.length > maxVideos) {
+      toast.error(`Maximum ${maxVideos} videos allowed for this variant`);
+      return;
+    }
+
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === variantIndex
+          ? { ...v, newVideoFiles: [...(v.newVideoFiles || []), ...validFiles] }
+          : v
+      )
+    );
+  };
+
   const handleRemoveImage = (index, isNew = false) => {
     if (isNew) {
       setNewImageFiles(prev => prev.filter((_, i) => i !== index));
     } else {
       setExistingImages(prev => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleRemoveVideo = (index, isNew = false) => {
+    if (isNew) {
+      setNewVideoFiles(prev => prev.filter((_, i) => i !== index));
+    } else {
+      setExistingVideos(prev => prev.filter((_, i) => i !== index));
     }
   };
 
@@ -185,6 +256,24 @@ const ProductForm = ({
     );
   };
 
+  const handleRemoveVariantVideo = (variantIndex, videoIndex, isNew = false) => {
+    setVariants(prev =>
+      prev.map((v, i) => {
+        if (i !== variantIndex) return v;
+        if (isNew) {
+          return {
+            ...v,
+            newVideoFiles: v.newVideoFiles.filter((_, idx) => idx !== videoIndex)
+          };
+        }
+        return {
+          ...v,
+          videos: v.videos.filter((_, idx) => idx !== videoIndex)
+        };
+      })
+    );
+  };
+
   const handleAddSpecification = () => {
     setSpecifications(prev => [...prev, { key: '', value: '' }]);
   };
@@ -201,6 +290,24 @@ const ProductForm = ({
     setSpecifications(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleAddFeature = () => {
+    if (features.length >= 10) {
+      toast.error('Maximum 10 features allowed');
+      return;
+    }
+    setFeatures(prev => [...prev, '']);
+  };
+
+  const handleFeatureChange = (index, value) => {
+    setFeatures(prev =>
+      prev.map((f, i) => (i === index ? value : f))
+    );
+  };
+
+  const handleRemoveFeature = (index) => {
+    setFeatures(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleAddVariant = () => {
     if (variants.length >= 3) {
       toast.error('Maximum 3 variants allowed');
@@ -215,7 +322,9 @@ const ProductForm = ({
         stock: 0,
         attributes: [{ key: '', value: '' }],
         images: [],
-        newImageFiles: []
+        videos: [],
+        newImageFiles: [],
+        newVideoFiles: []
       }
     ]);
   };
@@ -289,6 +398,14 @@ const ProductForm = ({
       return;
     }
 
+    for (let i = 0; i < features.length; i++) {
+      const feature = features[i].trim();
+      if (feature && (feature.length < 1 || feature.length > 200)) {
+        toast.error(`Feature ${i + 1}: Must be between 1 and 200 characters`);
+        return;
+      }
+    }
+
     for (let i = 0; i < variants.length; i++) {
       const variant = variants[i];
       const price = parseFloat(variant.price) || 0;
@@ -327,6 +444,7 @@ const ProductForm = ({
       discountPrice: data.discountPrice ? parseFloat(data.discountPrice) : undefined,
       stock: parseInt(data.stock),
       specifications: specifications.filter(s => s.key.trim() && s.value.trim()),
+      features: features.filter(f => f.trim()),
       variants: variants.map(v => ({
         ...v,
         price: parseFloat(v.price),
@@ -347,12 +465,14 @@ const ProductForm = ({
       sku: data.sku?.trim() || undefined
     };
 
-    const images = {
+    const media = {
       baseImages: newImageFiles,
-      variantImages: variants.map(v => v.newImageFiles || [])
+      baseVideos: newVideoFiles,
+      variantImages: variants.map(v => v.newImageFiles || []),
+      variantVideos: variants.map(v => v.newVideoFiles || [])
     };
 
-    await onSubmit(productData, images);
+    await onSubmit(productData, media);
   };
 
   if (categoriesLoading) {
@@ -451,8 +571,8 @@ const ProductForm = ({
         </div>
       </div>
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <h2 className="text-lg font-semibold mb-4">Images</h2>
-        <div className="mb-4">
+        <h2 className="text-lg font-semibold mb-4">Media</h2>
+        <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Main Product Images (Max 5, At least 1 required)
           </label>
@@ -467,9 +587,9 @@ const ProductForm = ({
             JPEG or PNG, max 5MB each
           </p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
           {existingImages.map((img, index) => (
-            <div key={`existing-${index}`} className="relative group">
+            <div key={`existing-img-${index}`} className="relative group">
               <img
                 src={img.url}
                 alt={`Product ${index + 1}`}
@@ -485,7 +605,7 @@ const ProductForm = ({
             </div>
           ))}
           {newImageFiles.map((file, index) => (
-            <div key={`new-${index}`} className="relative group">
+            <div key={`new-img-${index}`} className="relative group">
               <img
                 src={URL.createObjectURL(file)}
                 alt={`New image ${index + 1}`}
@@ -494,6 +614,55 @@ const ProductForm = ({
               <button
                 type="button"
                 onClick={() => handleRemoveImage(index, true)}
+                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Main Product Videos (Max 3, Optional)
+          </label>
+          <input
+            type="file"
+            multiple
+            accept="video/mp4,video/webm,video/quicktime"
+            onChange={handleVideoChange}
+            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+          />
+          <p className="mt-1 text-sm text-gray-500">
+            MP4, WebM, or MOV, max 50MB each
+          </p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {existingVideos.map((vid, index) => (
+            <div key={`existing-vid-${index}`} className="relative group">
+              <video
+                src={vid.url}
+                controls
+                className="w-full h-32 object-cover rounded-md"
+              />
+              <button
+                type="button"
+                onClick={() => handleRemoveVideo(index)}
+                className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          {newVideoFiles.map((file, index) => (
+            <div key={`new-vid-${index}`} className="relative group">
+              <video
+                src={URL.createObjectURL(file)}
+                controls
+                className="w-full h-32 object-cover rounded-md"
+              />
+              <button
+                type="button"
+                onClick={() => handleRemoveVideo(index, true)}
                 className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <XMarkIcon className="h-4 w-4" />
@@ -521,6 +690,44 @@ const ProductForm = ({
             error={errors.seo?.description?.message}
           />
         </div>
+      </div>
+      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold">Features</h2>
+          <Button
+            type="button"
+            onClick={handleAddFeature}
+            variant="outline"
+            size="sm"
+            disabled={features.length >= 10}
+          >
+            Add Feature
+          </Button>
+        </div>
+        {features.length === 0 ? (
+          <p className="text-gray-500 text-sm">No features added</p>
+        ) : (
+          <div className="space-y-4">
+            {features.map((feature, index) => (
+              <div key={index} className="flex items-end gap-4">
+                <Input
+                  label={`Feature ${index + 1}`}
+                  value={feature}
+                  onChange={(e) => handleFeatureChange(index, e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  onClick={() => handleRemoveFeature(index)}
+                  variant="danger"
+                  size="sm"
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-4">
@@ -637,8 +844,11 @@ const ProductForm = ({
                     onChange={(e) => handleVariantImageChange(vIndex, e)}
                     className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                   />
+                  <p className="mt-1 text-sm text-gray-500">
+                    JPEG or PNG, max 5MB each
+                  </p>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
                   {variant.images?.map((img, imgIndex) => (
                     <div key={`variant-img-${imgIndex}`} className="relative group">
                       <img
@@ -665,6 +875,55 @@ const ProductForm = ({
                       <button
                         type="button"
                         onClick={() => handleRemoveVariantImage(vIndex, imgIndex, true)}
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Variant Videos (Max 3)
+                  </label>
+                  <input
+                    type="file"
+                    multiple
+                    accept="video/mp4,video/webm,video/quicktime"
+                    onChange={(e) => handleVariantVideoChange(vIndex, e)}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    MP4, WebM, or MOV, max 50MB each
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-6">
+                  {variant.videos?.map((vid, vidIndex) => (
+                    <div key={`variant-vid-${vidIndex}`} className="relative group">
+                      <video
+                        src={vid.url}
+                        controls
+                        className="w-full h-32 object-cover rounded-md"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveVariantVideo(vIndex, vidIndex)}
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {variant.newVideoFiles?.map((file, vidIndex) => (
+                    <div key={`variant-new-vid-${vidIndex}`} className="relative group">
+                      <video
+                        src={URL.createObjectURL(file)}
+                        controls
+                        className="w-full h-32 object-cover rounded-md"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveVariantVideo(vIndex, vidIndex, true)}
                         className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <XMarkIcon className="h-4 w-4" />

@@ -122,10 +122,19 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     minimumFractionDigits: 0,
   }).format(product.discountPrice || product.price);
 
-  const handleImageError = (e) => {
-    console.warn('Image failed to load:', e.target.src);
+  const handleMediaError = (e) => {
+    console.warn('Media failed to load:', e.target.src);
     e.target.src = '/images/placeholder-product.png';
     e.target.onerror = null;
+    if (e.target.tagName === 'VIDEO') {
+      // Replace video with first image if available
+      e.target.outerHTML = `<img
+        src="${product.images?.[0]?.url || '/images/placeholder-product.png'}"
+        alt="${product.images?.[0]?.alt || product.title}"
+        class="w-full aspect-square sm:aspect-[4/3] object-cover"
+        loading="lazy"
+      />`;
+    }
   };
 
   const categoryNames = product.categoryId?.name ? product.categoryId.name : 'Uncategorized';
@@ -153,12 +162,22 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const isOutOfStock = product.stock <= 0;
   const hasDiscount = product.discountPrice && product.discountPrice < product.price;
 
-  // Ensure image URL is valid
-  const imageUrl = product.images?.[0]?.url
-    ? product.images[0].url.startsWith('http')
-      ? product.images[0].url
-      : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${product.images[0].url}`
-    : '/images/placeholder-product.png';
+  // Determine media to display (prefer video over image)
+  const primaryMedia = product.videos?.[0]?.url
+    ? { type: 'video', url: product.videos[0].url }
+    : product.images?.[0]?.url
+      ? { type: 'image', url: product.images[0].url }
+      : { type: 'image', url: '/images/placeholder-product.png' };
+
+  // Ensure media URL is valid
+  const mediaUrl = primaryMedia.url.startsWith('http')
+    ? primaryMedia.url
+    : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${primaryMedia.url}`;
+
+  // Get first 2 features for display (truncate to 30 chars each)
+  const displayedFeatures = (product.features || [])
+    .slice(0, 2)
+    .map(f => f.length > 30 ? `${f.slice(0, 27)}...` : f);
 
   return (
     <div
@@ -170,13 +189,25 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       aria-label={`View ${product.title} details`}
     >
       <div className="relative">
-        <img
-          src={imageUrl}
-          alt={product.images?.[0]?.alt || product.title}
-          className="w-full aspect-square sm:aspect-[4/3] object-cover"
-          loading="lazy"
-          onError={handleImageError}
-        />
+        {primaryMedia.type === 'video' ? (
+          <video
+            src={mediaUrl}
+            alt={product.title}
+            className="w-full aspect-square sm:aspect-[4/3] object-cover"
+            muted
+            controls
+            preload="metadata"
+            onError={handleMediaError}
+          />
+        ) : (
+          <img
+            src={mediaUrl}
+            alt={product.images?.[0]?.alt || product.title}
+            className="w-full aspect-square sm:aspect-[4/3] object-cover"
+            loading="lazy"
+            onError={handleMediaError}
+          />
+        )}
         <span className={`absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium ${
           isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
         }`}>
@@ -205,6 +236,17 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
           Category: <span className="text-gray-700">{categoryNames}</span>
         </p>
         
+        {displayedFeatures.length > 0 && (
+          <ul className="text-xs text-gray-600 mt-1 sm:mt-2 hidden sm:block">
+            {displayedFeatures.map((feature, index) => (
+              <li key={index} className="flex items-center gap-1">
+                <span className="text-red-600">•</span>
+                <span>{feature}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <div className="mt-1 sm:mt-2">
           {hasDiscount ? (
             <div className="flex flex-col">
@@ -266,6 +308,13 @@ ProductCard.propTypes = {
         alt: PropTypes.string,
       })
     ),
+    videos: PropTypes.arrayOf(
+      PropTypes.shape({
+        url: PropTypes.string,
+        public_id: PropTypes.string,
+      })
+    ),
+    features: PropTypes.arrayOf(PropTypes.string),
     averageRating: PropTypes.number,
     numReviews: PropTypes.number,
     stock: PropTypes.number,
@@ -277,7 +326,33 @@ ProductCard.propTypes = {
         name: PropTypes.string,
       }),
     ]),
-    isFeatured: PropTypes.bool
+    isFeatured: PropTypes.bool,
+    variants: PropTypes.arrayOf(
+      PropTypes.shape({
+        sku: PropTypes.string,
+        price: PropTypes.number,
+        discountPrice: PropTypes.number,
+        stock: PropTypes.number,
+        attributes: PropTypes.arrayOf(
+          PropTypes.shape({
+            key: PropTypes.string,
+            value: PropTypes.string,
+          })
+        ),
+        images: PropTypes.arrayOf(
+          PropTypes.shape({
+            url: PropTypes.string,
+            public_id: PropTypes.string,
+          })
+        ),
+        videos: PropTypes.arrayOf(
+          PropTypes.shape({
+            url: PropTypes.string,
+            public_id: PropTypes.string,
+          })
+        ),
+      })
+    ),
   }),
 };
 

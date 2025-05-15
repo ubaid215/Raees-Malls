@@ -52,11 +52,19 @@ const EditProductPage = () => {
   }, [fetchProduct, isAdminAuthenticated]);
 
   // Handle form submission
-  const handleSubmit = useCallback(async (formData, images) => {
+  const handleSubmit = useCallback(async (formData, media) => {
     setIsSubmitting(true);
     setError(null);
 
     try {
+      console.log('Submitting product update:', {
+        productData: formData,
+        baseImagesCount: media.baseImages?.length || 0,
+        baseVideosCount: media.baseVideos?.length || 0,
+        variantImagesCount: media.variantImages?.map(v => v?.length || 0) || [],
+        variantVideosCount: media.variantVideos?.map(v => v?.length || 0) || []
+      });
+
       // Prepare data for submission
       const submissionData = {
         ...formData,
@@ -69,7 +77,7 @@ const EditProductPage = () => {
         }))
       };
 
-      const updatedProduct = await updateProduct(id, submissionData, images);
+      const updatedProduct = await updateProduct(id, submissionData, media);
       
       toast.success('Product updated successfully');
       navigate('/admin/inventory');
