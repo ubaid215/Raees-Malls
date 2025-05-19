@@ -1,5 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import React, { createContext, useState, useCallback, useMemo, useEffect } from 'react';
+import { toast } from 'react-toastify';
+import SocketService from '../services/socketService';
 import { getCategories, getCategoryById, createCategory, updateCategory, deleteCategory } from '../services/categoryService';
 
 export const CategoryContext = createContext();
@@ -13,7 +15,7 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
   const [parentCategories, setParentCategories] = useState([]);
 
   // Cache management functions
-  const getCache = (key) => {
+  const getCache = useCallback((key) => {
     try {
       const cached = localStorage.getItem(key);
       return cached ? JSON.parse(cached) : null;
@@ -21,271 +23,250 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
       console.warn('Cache read error:', err);
       return null;
     }
-  };
+  }, []);
 
-  const setCache = (key, data) => {
+  const setCache = useCallback((key, data) => {
     try {
       localStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
     } catch (err) {
       console.warn('Cache write error:', err);
     }
-  };
+  }, []);
 
-  const clearCache = (key) => {
+  const clearCache = useCallback((key) => {
     try {
       localStorage.removeItem(key);
     } catch (err) {
       console.warn('Cache clear error:', err);
     }
-  };
+  }, []);
 
-  const clearRelatedCaches = (categoryId) => {
+  const clearRelatedCaches = useCallback((categoryId) => {
+    const clearedKeys = [];
     if (categoryId) {
       clearCache(`category_${categoryId}`);
+      clearedKeys.push(`category_${categoryId}`);
     }
-    const keysToClear = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key?.startsWith('categories_') || key?.startsWith('category_')) {
-        keysToClear.push(key);
+        clearCache(key);
+        clearedKeys.push(key);
       }
     }
-    keysToClear.forEach(clearCache);
-  };
+    console.log('Cleared cache keys:', clearedKeys);
+  }, [clearCache]);
 
-  // Utility for API retries
-  const withRetry = async (fn, retries = 3, delay = 1000) => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        return await fn();
-      } catch (err) {
-        const status = err.response?.status;
-        if ((status === 429 || status === 503) && attempt < retries) {
-          const waitTime = delay * 2 ** (attempt - 1);
-          console.warn(`Error ${status}, retrying in ${waitTime}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-          continue;
+  // Fetch categories
+  const fetchCategories = useCallback(async ({ sort = 'name', page = 1, limit = 50, forcePublic = isPublic } = {}) => {
+    setLoading(true);
+    setError('');
+    const cacheKey = `categories_${forcePublic ? 'public' : 'all'}_${page}_${limit}_${sort}`;
+    // Bypass cache for testing
+    // const cached = getCache(cacheKey);
+    // if (cached && Date.now() - cached.timestamp < 300000) {
+    //   setCategories(cached.data || []);
+    //   setParentCategories((cached.data || []).filter((cat) => !cat.parentId));
+    //   setLoading(false);
+    //   console.log('Fetched from cache:', cacheKey, cached.data);
+    //   return cached.data;
+    // }
+    try {
+      // console.log('Fetching categories from API:', { sort, page, limit, forcePublic });
+      const data = await getCategories({ sort, page, limit, isPublic: forcePublic });
+      // console.log('Fetched categories:', data);
+      setCategories(data || []);
+      setParentCategories((data || []).filter((cat) => !cat.parentId));
+      setCache(cacheKey, data || []);
+      setLoading(false);
+      return data;
+    } catch (err) {
+      setError(err.message || 'Failed to fetch categories');
+      console.error('Fetch categories error:', err);
+      setLoading(false);
+      throw err;
+    }
+  }, [getCache, setCache, isPublic]);
+
+  // Socket.IO event listeners
+  useEffect(() => {
+    console.log('Setting up Socket.IO listeners');
+    const handleCategoryCreated = ({ category }) => {
+      // console.log('Received categoryCreated:', category);
+      setCategories((prev) => {
+        if (prev.some((cat) => cat._id === category._id)) {
+          console.log('Category already exists:', category._id);
+          return prev;
         }
-        throw err;
-      }
-    }
-  };
+        const updatedCategories = [...prev, category];
+        console.log('Updated categories:', updatedCategories.map(c => c._id));
+        setParentCategories(updatedCategories.filter((cat) => !cat.parentId));
+        clearRelatedCaches();
+        toast.success(`New category added: ${category.name}`);
+        return updatedCategories;
+      });
+    };
 
-  // Fetch categories with options for filtering
-  const fetchCategories = useCallback(async (options = {}) => {
-    const { 
-      forcePublic = isPublic,
-      parentId = null,
-      page = 1,
-      limit = 50,
-      sort = 'name'
-    } = options;
-    
-    const cacheKey = `categories_${forcePublic ? 'public' : 'admin'}_${parentId || 'all'}_${page}_${limit}_${sort}`;
+    const handleCategoryUpdated = ({ category }) => {
+      console.log('Received categoryUpdated:', category);
+      setCategories((prev) => {
+        const updatedCategories = prev.map((cat) =>
+          cat._id === category._id ? { ...cat, ...category } : cat
+        );
+        console.log('Updated categories:', updatedCategories.map(c => c._id));
+        setParentCategories(updatedCategories.filter((cat) => !cat.parentId));
+        clearRelatedCaches(category._id);
+        toast.info(`Category updated: ${category.name}`);
+        return updatedCategories;
+      });
+      setSelectedCategory((prev) =>
+        prev && prev._id === category._id ? { ...prev, ...category } : prev
+      );
+    };
+
+    const handleCategoryDeleted = ({ categoryIds }) => {
+      console.log('Received categoryDeleted:', categoryIds);
+      setCategories((prev) => {
+        const updatedCategories = prev.filter(
+          (cat) => !categoryIds.includes(cat._id.toString())
+        );
+        console.log('Before deletion:', prev.map(c => c._id));
+        console.log('After deletion:', updatedCategories.map(c => c._id));
+        setParentCategories(updatedCategories.filter((cat) => !cat.parentId));
+        clearRelatedCaches();
+        toast.info('Category deleted');
+        return updatedCategories;
+      });
+      setSelectedCategory((prev) =>
+        prev && categoryIds.includes(prev._id.toString()) ? null : prev
+      );
+    };
+
+    SocketService.on('categoryCreated', handleCategoryCreated);
+    SocketService.on('categoryUpdated', handleCategoryUpdated);
+    SocketService.on('categoryDeleted', handleCategoryDeleted);
+
+    return () => {
+      console.log('Cleaning up Socket.IO listeners');
+      SocketService.off('categoryCreated', handleCategoryCreated);
+      SocketService.off('categoryUpdated', handleCategoryUpdated);
+      SocketService.off('categoryDeleted', handleCategoryDeleted);
+    };
+  }, [clearRelatedCaches]);
+
+  // Fetch categories on mount
+  useEffect(() => {
+    console.log('Fetching initial categories');
+    fetchCategories({ forcePublic: isPublicDefault });
+  }, [fetchCategories, isPublicDefault]);
+
+  // Log categories changes for debugging
+  useEffect(() => {
+    console.log('Categories state updated:', categories.map(c => ({ _id: c._id, name: c.name })));
+  }, [categories]);
+
+  // Other context functions
+  const fetchCategoryById = useCallback(async (id) => {
+    setLoading(true);
+    setError('');
+    const cacheKey = `category_${id}`;
     const cached = getCache(cacheKey);
-
-    // Use cache if fresh (less than 1 hour old)
-    if (cached && Date.now() - cached.timestamp < 3600000) {
-      setCategories(cached.data || []);
+    if (cached && Date.now() - cached.timestamp < 300000) {
+      setSelectedCategory(cached.data || null);
+      setLoading(false);
+      console.log('Fetched category from cache:', cacheKey, cached.data);
       return cached.data;
     }
-
-    setLoading(true);
-    setError('');
-
     try {
-      // Build query parameters
-      const queryParams = new URLSearchParams({
-        page,
-        limit,
-        sort
-      });
-      
-      if (parentId !== null) {
-        queryParams.append('parentId', parentId);
-      }
-      
-      const categoryData = await withRetry(() => 
-        getCategories({ 
-          isPublic: forcePublic,
-          queryParams: queryParams.toString()
-        })
-      );
-      
-      const validCategoryData = Array.isArray(categoryData) ? categoryData : [];
-      setCategories(validCategoryData);
-      
-      // Update parent categories if top-level categories are fetched
-      if (parentId === null || parentId === 'null') {
-        setParentCategories(validCategoryData.filter(cat => !cat.parentId));
-      }
-      
-      setCache(cacheKey, validCategoryData);
-      return validCategoryData;
-    } catch (err) {
-      console.error('Fetch categories error:', err);
-      setError(err.message || 'Failed to fetch categories');
-      if (cached?.data) {
-        setCategories(cached.data || []);
-        return cached.data;
-      }
-      throw err;
-    } finally {
+      console.log('Fetching category by ID:', id);
+      const data = await getCategoryById(id);
+      setSelectedCategory(data || null);
+      setCache(cacheKey, data || null);
       setLoading(false);
-    }
-  }, [isPublic]);
-
-  // Get a single category by ID
-  const fetchCategoryById = useCallback(async (id, options = {}) => {
-    const { forcePublic = isPublic } = options;
-    
-    setLoading(true);
-    setError('');
-    
-    try {
-      const category = await getCategoryById(id, { isPublic: forcePublic });
-      setSelectedCategory(category);
-      return category;
+      return data;
     } catch (err) {
-      setError(err.message || `Failed to fetch category with ID ${id}`);
-      throw err;
-    } finally {
+      setError(err.message || 'Failed to fetch category');
+      console.error('Fetch category error:', err);
       setLoading(false);
+      throw err;
     }
-  }, [isPublic]);
+  }, [getCache, setCache]);
 
-  // Create a new category
   const createNewCategory = useCallback(async (categoryData) => {
     setLoading(true);
     setError('');
-
     try {
-      const category = await createCategory(categoryData);
+      console.log('Creating category:', categoryData);
+      const data = await createCategory(categoryData);
       clearRelatedCaches();
-      await fetchCategories({ forcePublic: false });
-      return category;
+      setLoading(false);
+      return data;
     } catch (err) {
       setError(err.message || 'Failed to create category');
-      throw err;
-    } finally {
+      console.error('Create category error:', err);
       setLoading(false);
+      throw err;
     }
-  }, [fetchCategories]);
+  }, [clearRelatedCaches]);
 
-  // Update an existing category
   const updateExistingCategory = useCallback(async (id, categoryData) => {
     setLoading(true);
     setError('');
-
     try {
-      const category = await updateCategory(id, categoryData);
+      console.log('Updating category:', id, categoryData);
+      const data = await updateCategory(id, categoryData);
       clearRelatedCaches(id);
-      await fetchCategories({ forcePublic: false });
-      return category;
+      setLoading(false);
+      return data;
     } catch (err) {
       setError(err.message || 'Failed to update category');
-      throw err;
-    } finally {
+      console.error('Update category error:', err);
       setLoading(false);
+      throw err;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchCategories]);
+  }, [clearRelatedCaches]);
 
-  // Delete a category
   const deleteExistingCategory = useCallback(async (id) => {
     setLoading(true);
     setError('');
-
     try {
+      console.log('Deleting category:', id);
       await deleteCategory(id);
       clearRelatedCaches(id);
-      await fetchCategories({ forcePublic: false });
       setSelectedCategory(null);
+      setLoading(false);
       return true;
     } catch (err) {
       setError(err.message || 'Failed to delete category');
-      throw err;
-    } finally {
+      console.error('Delete category error:', err);
       setLoading(false);
+      throw err;
     }
-  }, [fetchCategories]);
+  }, [clearRelatedCaches]);
 
-  // Clear expired cache entries
-  useEffect(() => {
-    const cleanupExpiredCache = () => {
-      const now = Date.now();
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        const cached = key ? getCache(key) : null;
-        if (cached && now - cached.timestamp > 86400000) { // 24 hours
-          clearCache(key);
-        }
-      }
-    };
-    
-    cleanupExpiredCache();
-    const intervalId = setInterval(cleanupExpiredCache, 3600000); // Every hour
-    
-    return () => clearInterval(intervalId);
+  const setCategoryPublic = useCallback((value) => {
+    setIsPublic(value);
   }, []);
 
-  // Initial category load
-  useEffect(() => {
-    fetchCategories().catch(err => {
-      console.error("Initial category load failed:", err);
-    });
-  }, [fetchCategories, isPublic]);
-
-  // Public helper functions for common operations
-  const getCategoryTree = useCallback(() => {
-    // Creates a hierarchical tree from flat category list
-    const buildTree = (items, parentId = null) => {
-      return items
-        .filter(item => 
-          (parentId === null && !item.parentId) || 
-          (item.parentId && item.parentId.toString() === parentId?.toString())
-        )
-        .map(item => ({
-          ...item,
-          children: buildTree(items, item._id)
-        }));
-    };
-    
-    return buildTree(categories);
-  }, [categories]);
-
-  const findCategoryBySlug = useCallback((slug) => {
-    return categories.find(category => category.slug === slug);
-  }, [categories]);
-
-  const value = useMemo(
+  const contextValue = useMemo(
     () => ({
-      // State
       categories,
-      selectedCategory,
       parentCategories,
+      selectedCategory,
       loading,
       error,
       isPublic,
-      
-      // Actions
-      setIsPublic,
-      setSelectedCategory,
       fetchCategories,
       fetchCategoryById,
       createNewCategory,
       updateExistingCategory,
       deleteExistingCategory,
-      
-      // Helpers
-      getCategoryTree,
-      findCategoryBySlug,
-      clearCache: clearRelatedCaches
+      setCategoryPublic,
     }),
     [
       categories,
-      selectedCategory,
       parentCategories,
+      selectedCategory,
       loading,
       error,
       isPublic,
@@ -294,10 +275,15 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
       createNewCategory,
       updateExistingCategory,
       deleteExistingCategory,
-      getCategoryTree,
-      findCategoryBySlug
+      setCategoryPublic,
     ]
   );
 
-  return <CategoryContext.Provider value={value}>{children}</CategoryContext.Provider>;
+  return (
+    <CategoryContext.Provider value={contextValue}>
+      {children}
+    </CategoryContext.Provider>
+  );
 };
+
+export default CategoryProvider;

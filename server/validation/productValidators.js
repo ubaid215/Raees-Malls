@@ -215,25 +215,56 @@ const updateProductValidator = [
     .withMessage('isFeatured must be a boolean'),
 
   body('variants')
-    .optional()
-    .customSanitizer(parseJsonField)
-    .isArray().withMessage('Variants must be an array')
-    .custom((value) => {
-      const isValid = value.every(variant =>
-        typeof variant.sku === 'string' &&
-        /^[A-Z0-9-]+$/i.test(variant.sku) &&
-        typeof variant.price === 'number' && variant.price >= 0 &&
-        typeof variant.stock === 'number' && variant.stock >= 0 &&
-        Array.isArray(variant.attributes) &&
-        variant.attributes.every(attr =>
-          typeof attr.key === 'string' && typeof attr.value === 'string'
-        )
-      );
-      if (!isValid) {
-        throw new Error('Each variant must have a valid SKU, price, stock, and attributes array');
+  .optional()
+  .customSanitizer(parseJsonField)
+  .isArray().withMessage('Variants must be an array')
+  .custom((variants, { req }) => {
+    if (!variants) return true;
+    
+    // Check each variant
+    return variants.every((variant, index) => {
+      // Validate SKU if provided
+      if (variant.sku && !/^[A-Z0-9-]+$/i.test(variant.sku)) {
+        throw new Error(`Variant ${index + 1}: SKU can only contain letters, numbers, and hyphens`);
       }
-      return true;
-    }),
+      
+      // Validate price
+      if (typeof variant.price !== 'number' || variant.price < 0) {
+        throw new Error(`Variant ${index + 1}: Price must be a positive number`);
+      }
+      
+      // Validate discount price if provided
+      if (variant.discountPrice !== undefined) {
+        if (typeof variant.discountPrice !== 'number' || variant.discountPrice < 0) {
+          throw new Error(`Variant ${index + 1}: Discount price must be a positive number`);
+        }
+        if (variant.discountPrice >= variant.price) {
+          throw new Error(`Variant ${index + 1}: Discount price must be less than the price`);
+        }
+      }
+      
+      // Validate stock
+      if (!Number.isInteger(variant.stock) || variant.stock < 0) {
+        throw new Error(`Variant ${index + 1}: Stock must be a positive integer`);
+      }
+      
+      // Validate attributes
+      if (!Array.isArray(variant.attributes) || variant.attributes.length === 0) {
+        throw new Error(`Variant ${index + 1}: At least one attribute is required`);
+      }
+      
+      // Validate each attribute
+      return variant.attributes.every((attr, attrIndex) => {
+        if (!attr.key || !attr.value) {
+          throw new Error(`Variant ${index + 1}, Attribute ${attrIndex + 1}: Both key and value are required`);
+        }
+        if (!['size', 'color', 'material', 'style', 'ram'].includes(attr.key.toLowerCase())) {
+          throw new Error(`Variant ${index + 1}, Attribute ${attrIndex + 1}: Invalid attribute key`);
+        }
+        return true;
+      });
+    });
+  }),
 
   body('specifications')
     .optional()
@@ -264,6 +295,7 @@ const updateProductValidator = [
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error('Validation errors:', errors.array());
       return next(new ApiError(400, 'Validation failed', errors.array()));
     }
     next();

@@ -20,7 +20,8 @@ const Register = lazy(() => import('../pages/Register'));
 const Profile = lazy(() => import('../components/shared/Profile'));
 const Wishlist = lazy(() => import('../components/Products/Wishlist'));
 const Cart = lazy(() => import('../components/features/Cart'));
-const Order = lazy(() => import('../pages/Order')); // New import
+const Order = lazy(() => import('../pages/Order'));
+const GoogleCallback = lazy(() => import('../pages/GoogleCallback')); // New import
 const Dashboard = lazy(() => import('../admin/pages/Dashboard'));
 const ProductInventory = lazy(() => import('../admin/pages/ProductInventory'));
 const OrderManagement = lazy(() => import('../admin/pages/OrderManagment'));
@@ -45,6 +46,7 @@ const AppRouter = () => {
           <Route path="contact" element={<Contact />} />
           <Route path="login" element={<Login />} />
           <Route path="register" element={<Register />} />
+          <Route path="callback" element={<GoogleCallback />} /> {/* New route */}
 
           {/* Protected Customer Routes */}
           <Route
@@ -99,10 +101,7 @@ const AppRouter = () => {
 
         {/* Admin Routes */}
         <Route path="/admin" element={<AdminLayout />}>
-          {/* Unprotected Admin Login Route */}
           <Route path="login" element={<AdminLogin />} />
-
-          {/* Protected Admin Routes */}
           <Route element={<ProtectedAdminRoute />}>
             <Route index element={<Dashboard />} />
             <Route path="inventory" element={<ProductInventory />} />
@@ -113,7 +112,6 @@ const AppRouter = () => {
             <Route path="category" element={<CategoryManager />} />
             <Route path="banner-upload" element={<BannerManager />} />
             <Route path="hero-slider" element={<HeroSliderAdmin />} />
-            {/* Fallback for unmatched admin routes */}
             <Route path="*" element={<Navigate to="/admin" replace />} />
           </Route>
         </Route>

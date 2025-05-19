@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import Logo from '../../shared/Logo';
 import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
 import { CategoryContext } from '../../../context/CategoryContext';
 import { ProductContext } from '../../../context/ProductContext';
 import { useCart } from '../../../context/CartContext';
+import SocketService from '../../../services/socketService';
+import { toast } from 'react-toastify';
 
 // Navigation links
 const navLinks = [
@@ -25,8 +26,9 @@ function Navbar() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState({});
   const navigate = useNavigate();
-  
+
   // Cart context
   const { cart } = useCart();
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
@@ -36,6 +38,33 @@ function Navbar() {
   const cartCount = Array.isArray(cart?.items)
     ? cart.items.reduce((count, item) => count + (item.quantity || 0), 0)
     : 0;
+
+  // Create hierarchical category structure
+  const categoriesWithSubcategories = React.useMemo(() => {
+    console.log('Building categoriesWithSubcategories:', categories);
+    const categoryMap = {};
+    categories.forEach((category) => {
+      categoryMap[category._id] = { ...category, subCategories: [] };
+    });
+
+    const rootCategories = [];
+    categories.forEach((category) => {
+      const parentId = category.parentId?._id || category.parentId;
+      if (parentId && categoryMap[parentId]) {
+        categoryMap[parentId].subCategories.push(categoryMap[category._id]);
+      } else {
+        rootCategories.push(categoryMap[category._id]);
+      }
+    });
+
+    rootCategories.sort((a, b) => a.name.localeCompare(b.name));
+    rootCategories.forEach((cat) => {
+      cat.subCategories.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    console.log('categoriesWithSubcategories:', rootCategories);
+    return rootCategories;
+  }, [categories]);
 
   // Fetch categories on component mount
   useEffect(() => {
@@ -48,6 +77,50 @@ function Navbar() {
     };
     loadCategories();
   }, [fetchCategories]);
+
+  // Socket.IO integration for category events
+  useEffect(() => {
+    const handleCategoryCreated = ({ category }) => {
+      console.log('Navbar: Received categoryCreated:', category);
+      toast.success(`New category added: ${category.name}`);
+    };
+
+    const handleCategoryUpdated = ({ category }) => {
+      console.log('Navbar: Received categoryUpdated:', category);
+      toast.info(`Category updated: ${category.name}`);
+    };
+
+    const handleCategoryDeleted = () => {
+      console.log('Navbar: Received categoryDeleted');
+      toast.warn('Category removed');
+    };
+
+    SocketService.on('categoryCreated', handleCategoryCreated);
+    SocketService.on('categoryUpdated', handleCategoryUpdated);
+    SocketService.on('categoryDeleted', handleCategoryDeleted);
+
+    return () => {
+      SocketService.off('categoryCreated', handleCategoryCreated);
+      SocketService.off('categoryUpdated', handleCategoryUpdated);
+      SocketService.off('categoryDeleted', handleCategoryDeleted);
+    };
+  }, []);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      const dropdown = document.getElementById('category-dropdown');
+      if (dropdown && !dropdown.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDropdown]);
 
   // Handle search input changes with debounce
   useEffect(() => {
@@ -102,33 +175,127 @@ function Navbar() {
   };
 
   const handleCategorySelect = (category) => {
-    setSelectedCategory(category.name);
-    setShowDropdown(false);
-    navigate(`/categories/${category.slug}`);
+  console.log('Navbar: Selected category:', category);
+  setSelectedCategory(category.name);
+  setShowDropdown(false);
+  setShowMobileMenu(false);
+  // Simply navigate to products page with category as query param
+  navigate(`/products?category=${category.slug}`);
+};
+
+  const toggleSubcategory = (categoryId) => {
+    console.log('Navbar: Toggling subcategory:', categoryId);
+    setExpandedCategories((prev) => ({
+      ...prev,
+      [categoryId]: !prev[categoryId],
+    }));
   };
 
   const closeMobileMenu = () => {
     setShowMobileMenu(false);
   };
 
-  // Direct navigation handlers with console logging for debugging
+  // Direct navigation handlers
   const handleCartClick = (e) => {
-    console.log("Cart link clicked");
+    console.log('Navbar: Cart link clicked');
     navigate('/cart');
-    e.stopPropagation(); // Prevent event bubbling
+    e.stopPropagation();
   };
 
   const handleAccountClick = (e) => {
-    console.log("Account link clicked");
+    console.log('Navbar: Account link clicked');
     navigate('/account');
-    e.stopPropagation(); // Prevent event bubbling
+    e.stopPropagation();
   };
 
-  // Generate category links with paths
-  const categoryLinks = categories.map((category) => ({
-    ...category,
-    path: `/categories/${category.slug}`,
-  }));
+  // Render category with subcategories for desktop dropdown
+  const renderDesktopCategory = (category, level = 0) => {
+    const hasSubcategories = category.subCategories?.length > 0;
+    const isExpanded = expandedCategories[category._id];
+
+    return (
+      <div key={category._id} className="relative">
+        <div className="flex items-center">
+          <button
+            onClick={() => hasSubcategories ? toggleSubcategory(category._id) : handleCategorySelect(category)}
+            className="flex-grow flex items-center justify-between w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100 truncate"
+            style={{ paddingLeft: `${level * 12 + 16}px` }}
+          >
+            <span>{category.name}</span>
+            {hasSubcategories && (
+              <svg
+                className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            )}
+          </button>
+        </div>
+        {hasSubcategories && isExpanded && (
+          <div className="ml-2">
+            {category.subCategories.map((subCategory) =>
+              renderDesktopCategory(subCategory, level + 1)
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render category with subcategories for mobile dropdown
+  const renderMobileCategory = (category, level = 0) => {
+    const hasSubcategories = category.subCategories?.length > 0;
+    const isExpanded = expandedCategories[category._id];
+
+    return (
+      <React.Fragment key={category._id}>
+        <div className="relative">
+          <div className="flex items-center">
+            <button
+              onClick={() => {
+                if (hasSubcategories) {
+                  toggleSubcategory(category._id);
+                } else {
+                  handleCategorySelect(category);
+                  setShowMobileMenu(false);
+                }
+              }}
+              className="flex-grow flex items-center justify-between w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100 truncate"
+              style={{ paddingLeft: `${level * 12 + 16}px` }}
+            >
+              <span>{category.name}</span>
+              {hasSubcategories && (
+                <svg
+                  className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+        {hasSubcategories && isExpanded && (
+          <div className="ml-2">
+            {category.subCategories.map((subCategory) =>
+              renderMobileCategory(subCategory, level + 1)
+            )}
+          </div>
+        )}
+      </React.Fragment>
+    );
+  };
 
   return (
     <header className="sticky top-0 z-50 bg-white shadow-md">
@@ -156,7 +323,9 @@ function Navbar() {
         </button>
 
         <div className="flex-shrink-0 mx-4">
-          <h1 className='text-red-600 font-sans'>Raees <br /> Malls</h1>
+          <h1 className="text-red-600 font-sans">
+            Raees <br /> Malls
+          </h1>
         </div>
 
         <div className="flex items-center gap-4">
@@ -167,7 +336,6 @@ function Navbar() {
           >
             <CiSearch size={24} strokeWidth={1} />
           </button>
-          {/* Modified cart link with onClick handler */}
           <button
             onClick={handleCartClick}
             className="p-2 relative text-red-600"
@@ -203,8 +371,7 @@ function Navbar() {
               <CiSearch size={20} strokeWidth={1} />
             </button>
           </form>
-          
-          {/* Mobile Search Results */}
+
           {showSearchResults && (
             <div className="absolute left-0 right-0 mt-1 bg-white shadow-lg rounded-md z-50 max-h-80 overflow-y-auto">
               {isSearching ? (
@@ -217,8 +384,8 @@ function Navbar() {
                     onClick={() => handleSearchResultClick(product)}
                   >
                     <div className="flex items-center gap-3">
-                      <img 
-                        src={product.images?.[0]?.url || '/placeholder-product.png'} 
+                      <img
+                        src={product.images?.[0]?.url || '/placeholder-product.png'}
                         alt={product.title}
                         className="w-10 h-10 object-cover rounded"
                       />
@@ -257,6 +424,34 @@ function Navbar() {
                 Sign Up
               </Link>
             </div>
+            <div className="relative" id="category-dropdown">
+              <button
+                onClick={() => setShowDropdown(!showDropdown)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 text-gray-700 rounded-md border"
+                aria-label="Select category"
+              >
+                <span className="truncate">
+                  {loading ? 'Loading...' : selectedCategory}
+                </span>
+                <RiArrowDownLine
+                  size={18}
+                  className={`transition-transform ${showDropdown ? 'rotate-180' : ''}`}
+                />
+              </button>
+              {showDropdown && (
+                <div className="mt-1 w-full bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
+                  {loading ? (
+                    <div className="px-4 py-2 text-gray-800">Loading categories...</div>
+                  ) : categoriesWithSubcategories.length > 0 ? (
+                    categoriesWithSubcategories.map((category) =>
+                      renderMobileCategory(category)
+                    )
+                  ) : (
+                    <div className="px-4 py-2 text-gray-800">No categories available</div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <div className="px-4 py-2">
             {navLinks.map((link) => (
@@ -271,7 +466,6 @@ function Navbar() {
                 {link.name}
               </NavLink>
             ))}
-            {/* Add account link to mobile menu */}
             <button
               onClick={(e) => {
                 handleAccountClick(e);
@@ -288,11 +482,13 @@ function Navbar() {
       {/* Desktop Top Navigation */}
       <nav className="hidden md:flex max-w-7xl mx-auto px-4 py-4 bg-white items-center justify-between border-b">
         <div className="flex-shrink-0">
-          <h1 className='text-red-500 font-sans tracking-tighter'>Raees <br /> Malls</h1>
+          <h1 className="text-red-500 font-sans tracking-tighter">
+            Raees <br /> Malls
+          </h1>
         </div>
 
         <div className="flex items-center flex-1 max-w-xl mx-6 relative">
-          <div className="relative">
+          <div className="relative" id="category-dropdown">
             <button
               onClick={() => setShowDropdown(!showDropdown)}
               className="px-4 py-3 flex items-center gap-2 bg-gray-50 text-gray-700 rounded-l-md border-r border hover:bg-gray-100 transition-colors hover:shadow-md min-w-[180px] justify-between"
@@ -309,19 +505,13 @@ function Navbar() {
             </button>
 
             {showDropdown && (
-              <div className="absolute left-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
+              <div className="absolute left-0 mt-1 w-64 bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
                 {loading ? (
                   <div className="px-4 py-2 text-gray-800">Loading categories...</div>
-                ) : categoryLinks.length > 0 ? (
-                  categoryLinks.map((category) => (
-                    <button
-                      key={category._id}
-                      onClick={() => handleCategorySelect(category)}
-                      className="block w-full text-left px-4 py-2 text-gray-800 hover:bg-gray-100 truncate"
-                    >
-                      {category.name}
-                    </button>
-                  ))
+                ) : categoriesWithSubcategories.length > 0 ? (
+                  categoriesWithSubcategories.map((category) =>
+                    renderDesktopCategory(category)
+                  )
                 ) : (
                   <div className="px-4 py-2 text-gray-800">No categories available</div>
                 )}
@@ -346,7 +536,6 @@ function Navbar() {
               <CiSearch size={20} strokeWidth={1} />
             </button>
 
-            {/* Desktop Search Results */}
             {showSearchResults && (
               <div className="absolute left-0 right-0 top-full mt-1 bg-white shadow-lg rounded-md z-50 max-h-80 overflow-y-auto">
                 {isSearching ? (
@@ -360,8 +549,8 @@ function Navbar() {
                         onClick={() => handleSearchResultClick(product)}
                       >
                         <div className="flex items-center gap-3">
-                          <img 
-                            src={product.images?.[0]?.url || '/placeholder-product.png'} 
+                          <img
+                            src={product.images?.[0]?.url || '/placeholder-product.png'}
                             alt={product.title}
                             className="w-10 h-10 object-cover rounded"
                           />
@@ -372,7 +561,7 @@ function Navbar() {
                         </div>
                       </div>
                     ))}
-                    <div 
+                    <div
                       className="p-3 text-center text-red-600 font-medium cursor-pointer hover:bg-gray-50"
                       onClick={handleSearch}
                     >
@@ -388,7 +577,6 @@ function Navbar() {
         </div>
 
         <div className="flex items-center gap-4 lg:gap-6">
-          {/* Modified cart button with onClick handler */}
           <button
             onClick={handleCartClick}
             className="p-2 text-red-600 hover:text-red-700 transition-colors relative cursor-pointer"
@@ -401,8 +589,7 @@ function Navbar() {
               </span>
             )}
           </button>
-          
-          {/* Modified account button with onClick handler */}
+
           <button
             onClick={handleAccountClick}
             className="flex items-center gap-1 p-2 text-red-600 hover:text-red-700 transition-colors cursor-pointer"

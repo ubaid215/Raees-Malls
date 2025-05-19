@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useContext,
+} from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import { FiPlus, FiTrash2, FiEdit2, FiX, FiImage } from 'react-icons/fi';
@@ -7,6 +13,7 @@ import Input from '../../components/core/Input';
 import CategorySelector from '../../admin/pages/CategorySelector';
 import ImagePreview from '../../components/core/ImagePreview';
 import { CategoryContext } from '../../context/CategoryContext';
+import SocketService from '../../services/socketService';
 
 const CategoryManager = () => {
   const {
@@ -41,15 +48,48 @@ const CategoryManager = () => {
     },
   });
 
+  // Fetch categories on mount
   useEffect(() => {
+    console.log('CategoryManager: Fetching initial categories');
     fetchCategories({ forcePublic: false }).catch((err) => {
       console.error('Fetch categories failed:', err);
       toast.error(err.message || 'Failed to fetch categories');
     });
   }, [fetchCategories]);
 
+  // Socket.IO listener for real-time updates
   useEffect(() => {
-    console.log('Updated categories:', categories);
+    console.log('CategoryManager: Setting up Socket.IO listeners');
+    const handleCategoryCreated = ({ category }) => {
+      console.log('CategoryManager: Received categoryCreated:', category);
+      toast.success(`New category added: ${category.name}`);
+    };
+
+    const handleCategoryUpdated = ({ category }) => {
+      console.log('CategoryManager: Received categoryUpdated:', category);
+      toast.info(`Category updated: ${category.name}`);
+    };
+
+    const handleCategoryDeleted = ({ categoryIds }) => {
+      console.log('CategoryManager: Received categoryDeleted:', categoryIds);
+      toast.warn('Category deleted');
+    };
+
+    SocketService.on('categoryCreated', handleCategoryCreated);
+    SocketService.on('categoryUpdated', handleCategoryUpdated);
+    SocketService.on('categoryDeleted', handleCategoryDeleted);
+
+    return () => {
+      console.log('CategoryManager: Cleaning up Socket.IO listeners');
+      SocketService.off('categoryCreated', handleCategoryCreated);
+      SocketService.off('categoryUpdated', handleCategoryUpdated);
+      SocketService.off('categoryDeleted', handleCategoryDeleted);
+    };
+  }, []);
+
+  // Log categories changes for debugging
+  useEffect(() => {
+    console.log('CategoryManager: Categories updated:', categories.map(c => ({ _id: c._id, name: c.name })));
   }, [categories]);
 
   const handleParentCategoryChange = useCallback(
@@ -113,16 +153,16 @@ const CategoryManager = () => {
       }
 
       if (editCategory) {
+        console.log('CategoryManager: Updating category:', editCategory._id, categoryData);
         await updateExistingCategory(editCategory._id, categoryData);
-        toast.success('Category updated successfully');
       } else {
+        console.log('CategoryManager: Creating category:', categoryData);
         await createNewCategory(categoryData);
-        toast.success('Category created successfully');
       }
 
       resetForm();
     } catch (err) {
-      console.error('Submit error:', err);
+      console.error('CategoryManager: Submit error:', err);
       const errorMessage =
         err.response?.data?.errors?.map((e) => e.msg).join(', ') ||
         err.response?.data?.message ||
@@ -135,6 +175,7 @@ const CategoryManager = () => {
   };
 
   const resetForm = () => {
+    console.log('CategoryManager: Resetting form');
     reset({
       name: '',
       slug: '',
@@ -149,11 +190,12 @@ const CategoryManager = () => {
 
   const handleEditCategory = useCallback(
     (category) => {
+      console.log('CategoryManager: Editing category:', category._id);
       setEditCategory(category);
       setValue('name', category.name);
       setValue('slug', category.slug);
       setValue('description', category.description || '');
-      setValue('parentId', category.parentId || null);
+      setValue('parentId', category.parentId?._id || null);
       setImageFile(null);
       setImagePreview(category.image || '');
       setIsImageRemoved(false);
@@ -162,15 +204,12 @@ const CategoryManager = () => {
   );
 
   const handleDeleteCategory = async (id) => {
+    console.log('CategoryManager: Deleting category:', id);
     if (window.confirm('Are you sure you want to delete this category?')) {
       try {
         await deleteExistingCategory(id);
-        toast.success('Category deleted successfully');
-        if (editCategory?._id === id) {
-          resetForm();
-        }
       } catch (err) {
-        console.error('Delete error:', err);
+        console.error('CategoryManager: Delete error:', err);
         toast.error(err.message || 'Failed to delete category');
       }
     }
@@ -183,7 +222,9 @@ const CategoryManager = () => {
       const queue = [categoryId];
       while (queue.length > 0) {
         const currentId = queue.pop();
-        const children = allCategories.filter((cat) => cat.parentId === currentId);
+        const children = allCategories.filter(
+          (cat) => cat.parentId?._id === currentId
+        );
         children.forEach((child) => {
           descendants.add(child._id);
           queue.push(child._id);
@@ -204,13 +245,15 @@ const CategoryManager = () => {
           .filter((c) => c._id === parentId)
           .map((c) => ({ _id: c._id, name: c.name, image: c.image }))
       : [];
-  }, [watch('parentId'), categories]);
+  }, [watch, categories]);
 
-  if (loading) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>;
+  if (loading && categories.length === 0) {
+    return (
+      <div className="flex justify-center items-center h-64">Loading...</div>
+    );
   }
 
-  if (error) {
+  if (error && categories.length === 0) {
     return (
       <div className="p-4 bg-red-50 text-red-600 rounded-lg">
         <p>Error: {error}</p>
@@ -227,16 +270,27 @@ const CategoryManager = () => {
 
   return (
     <div className="container mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Category Management</h1>
-      <form onSubmit={handleSubmit(onSubmit)} className="mb-8 bg-white rounded-lg shadow p-6">
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">
+        Category Management
+      </h1>
+      <form
+        onSubmit={handleSubmit(onSubmit)}
+        className="mb-8 bg-white rounded-lg shadow p-6"
+      >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
             <Input
               label="Category Name*"
               {...register('name', {
                 required: 'Name is required',
-                minLength: { value: 2, message: 'Name must be at least 2 characters' },
-                maxLength: { value: 50, message: 'Name cannot exceed 50 characters' },
+                minLength: {
+                  value: 2,
+                  message: 'Name must be at least 2 characters',
+                },
+                maxLength: {
+                  value: 50,
+                  message: 'Name cannot exceed 50 characters',
+                },
               })}
               error={errors.name?.message}
               placeholder="Enter category name"
@@ -247,7 +301,8 @@ const CategoryManager = () => {
                 required: 'Slug is required',
                 pattern: {
                   value: /^[a-z0-9-]+$/,
-                  message: 'Slug can only contain lowercase letters, numbers, and hyphens',
+                  message:
+                    'Slug can only contain lowercase letters, numbers, and hyphens',
                 },
               })}
               error={errors.slug?.message}
@@ -256,7 +311,10 @@ const CategoryManager = () => {
             <Input
               label="Description (Optional)"
               {...register('description', {
-                maxLength: { value: 500, message: 'Description cannot exceed 500 characters' },
+                maxLength: {
+                  value: 500,
+                  message: 'Description cannot exceed 500 characters',
+                },
               })}
               as="textarea"
               rows={3}
@@ -320,7 +378,11 @@ const CategoryManager = () => {
           </div>
         </div>
         <div className="mt-6 flex space-x-3">
-          <Button type="submit" isLoading={isSubmitting} className="flex items-center">
+          <Button
+            type="submit"
+            isLoading={isSubmitting}
+            className="flex items-center"
+          >
             {editCategory ? (
               <>
                 <FiEdit2 className="mr-2" /> Update Category
@@ -397,16 +459,18 @@ const CategoryManager = () => {
                           </div>
                         )}
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{category.name}</div>
-                          <div className="text-sm text-gray-500">{category.slug}</div>
+                          <div className="text-sm font-medium text-gray-900">
+                            {category.name}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {category.slug}
+                          </div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {category.parentId
-                          ? categories.find((c) => c._id === category.parentId)?.name || 'N/A'
-                          : '—'}
+                        {category.parentId?.name || '—'}
                       </div>
                     </td>
                     <td className="px-6 py-4">

@@ -18,8 +18,20 @@ const userSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
-    minlength: 8 
+    required: function() {
+      return this.provider === 'local'; // Password required only for local auth
+    },
+    minlength: 8
+  },
+  googleId: {
+    type: String,
+    unique: true,
+    sparse: true // Allows null values without violating uniqueness
+  },
+  provider: {
+    type: String,
+    enum: ['local', 'google'],
+    default: 'local'
   },
   role: {
     type: String,
@@ -45,15 +57,16 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Hash password before saving
+// Hash password before saving (only for local provider)
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  if (!this.isModified('password') || this.provider !== 'local') return next();
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
 
-// Method to compare passwords
+// Method to compare passwords (only for local provider)
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (this.provider !== 'local') return false;
   return await bcrypt.compare(candidatePassword, this.password);
 };
 

@@ -9,7 +9,7 @@ const cloudinary = require('../config/cloudinary');
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, slug, description, parentId } = req.body;
-    const image = req.file ? req.file.path : null; 
+    const image = req.file ? req.file.path : null;
 
     const category = new Category({
       name,
@@ -20,12 +20,34 @@ exports.createCategory = async (req, res, next) => {
     });
     await category.save();
 
+    // Emit Socket.IO event for category creation
+    const io = req.app.get('socketio');
+    io.to('adminRoom').emit('categoryCreated', {
+      category: {
+        _id: category._id,
+        name: category.name,
+        slug: category.slug,
+        description: category.description,
+        parentId: category.parentId,
+        image: category.image,
+      },
+    });
+    io.to('publicRoom').emit('categoryCreated', {
+      category: {
+        _id: category._id,
+        name: category.name,
+        slug: category.slug,
+        description: category.description,
+        parentId: category.parentId,
+        image: category.image,
+      },
+    });
+
     res.status(201).json({ message: 'Category created', category });
   } catch (err) {
     next(new ApiError(500, err.message || 'Failed to create category'));
   }
 };
-
 
 // Get all categories for admin with pagination, sorting, and filtering (Admin only)
 exports.getAllCategories = async (req, res, next) => {
@@ -53,7 +75,7 @@ exports.getAllCategories = async (req, res, next) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);
@@ -63,14 +85,18 @@ exports.getAllCategories = async (req, res, next) => {
 // Get a single category by ID (Admin only)
 exports.getCategoryById = async (req, res, next) => {
   try {
-    const category = await Category.findById(req.params.id)
-      .populate('parentId', 'name slug');
+    const category = await Category.findById(req.params.id).populate(
+      'parentId',
+      'name slug'
+    );
 
     if (!category) {
       throw new ApiError(404, 'Category not found');
     }
 
-    ApiResponse.success(res, 200, 'Category retrieved successfully', { category });
+    ApiResponse.success(res, 200, 'Category retrieved successfully', {
+      category,
+    });
   } catch (error) {
     next(error);
   }
@@ -95,7 +121,7 @@ exports.updateCategory = async (req, res, next) => {
 
       // Upload new image
       const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'categories'
+        folder: 'categories',
       });
       category.image = result.secure_url;
       category.imagePublicId = result.public_id;
@@ -104,7 +130,12 @@ exports.updateCategory = async (req, res, next) => {
     category.name = name || category.name;
     category.slug = slug || category.slug;
     category.description = description || category.description;
-    category.parentId = parentId !== undefined ? (parentId === 'null' ? null : parentId) : category.parentId;
+    category.parentId =
+      parentId !== undefined
+        ? parentId === 'null'
+          ? null
+          : parentId
+        : category.parentId;
 
     await category.save();
 
@@ -114,17 +145,42 @@ exports.updateCategory = async (req, res, next) => {
       action: 'CATEGORY_UPDATE',
       details: `Category updated: ${category._id}`,
       ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
+      userAgent: req.headers['user-agent'],
     });
 
-    ApiResponse.success(res, 200, 'Category updated successfully', { category });
+    // Emit Socket.IO event for category update
+    const io = req.app.get('socketio');
+    io.to('adminRoom').emit('categoryUpdated', {
+      category: {
+        _id: category._id,
+        name: category.name,
+        slug: category.slug,
+        description: category.description,
+        parentId: category.parentId,
+        image: category.image,
+      },
+    });
+    io.to('publicRoom').emit('categoryUpdated', {
+      category: {
+        _id: category._id,
+        name: category.name,
+        slug: category.slug,
+        description: category.description,
+        parentId: category.parentId,
+        image: category.image,
+      },
+    });
+
+    ApiResponse.success(res, 200, 'Category updated successfully', {
+      category,
+    });
   } catch (error) {
     next(error);
   }
 };
 
-
 // Delete a category (Admin only)
+ 
 exports.deleteCategory = async (req, res, next) => {
   try {
     const category = await Category.findById(req.params.id);
@@ -132,40 +188,94 @@ exports.deleteCategory = async (req, res, next) => {
       throw new ApiError(404, 'Category not found');
     }
 
-    // Check if the category has subcategories
-    const subcategories = await Category.find({ parentId: category._id });
-    if (subcategories.length > 0) {
-      throw new ApiError(400, 'Cannot delete category with subcategories');
+    // Track deleted category IDs for Socket.IO event
+    const deletedCategoryIds = [];
+
+    // Recursively delete products in category and subcategories
+    async function deleteProductsInCategory(categoryId) {
+      // Delete products in the current category
+      const products = await Product.find({ categoryId });
+      for (const product of products) {
+        // Delete product images from Cloudinary if they exist
+        if (product.images && product.images.length > 0) {
+          for (const image of product.images) {
+            if (image.public_id) {
+              await cloudinary.uploader.destroy(image.public_id);
+            }
+          }
+        }
+
+        await product.deleteOne();
+
+        // Log product deletion
+        await AuditLog.create({
+          userId: req.user._id,
+          action: 'PRODUCT_DELETE',
+          details: `Product deleted due to category deletion: ${product._id}`,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
+
+      // Recursively delete products in subcategories
+      const subcategories = await Category.find({ parentId: categoryId });
+      for (const subcategory of subcategories) {
+        await deleteProductsInCategory(subcategory._id);
+      }
     }
 
-    // Check if the category has associated products
-    const products = await Product.find({ categoryId: category._id });
-    if (products.length > 0) {
-      throw new ApiError(400, 'Cannot delete category with associated products');
+    // Recursively delete category and subcategories
+    async function deleteCategoryAndSubcategories(categoryId) {
+      // Delete products first
+      await deleteProductsInCategory(categoryId);
+
+      // Delete subcategories
+      const subcategories = await Category.find({ parentId: categoryId });
+      for (const subcategory of subcategories) {
+        await deleteCategoryAndSubcategories(subcategory._id);
+      }
+
+      const cat = await Category.findById(categoryId);
+      if (cat) {
+        // Delete category image from Cloudinary if exists
+        if (cat.imagePublicId) {
+          await cloudinary.uploader.destroy(cat.imagePublicId);
+        }
+
+        await cat.deleteOne();
+        deletedCategoryIds.push(categoryId.toString());
+
+        // Log category deletion
+        await AuditLog.create({
+          userId: req.user._id,
+          action: 'CATEGORY_DELETE',
+          details: `Category deleted: ${cat._id}`,
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'],
+        });
+      }
     }
 
-    // Delete image from Cloudinary if exists
-    if (category.imagePublicId) {
-      await cloudinary.uploader.destroy(category.imagePublicId);
-    }
+    await deleteCategoryAndSubcategories(category._id);
 
-    await category.deleteOne();
-
-    // Log the action
-    await AuditLog.create({
-      userId: req.user._id,
-      action: 'CATEGORY_DELETE',
-      details: `Category deleted: ${category._id}`,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
+    // Emit Socket.IO event for category deletion
+    const io = req.app.get('socketio');
+    io.to('adminRoom').emit('categoryDeleted', {
+      categoryIds: deletedCategoryIds,
+    });
+    io.to('publicRoom').emit('categoryDeleted', {
+      categoryIds: deletedCategoryIds,
     });
 
-    ApiResponse.success(res, 200, 'Category deleted successfully');
+    ApiResponse.success(
+      res,
+      200,
+      'Category, its subcategories, and associated products deleted successfully'
+    );
   } catch (error) {
     next(error);
   }
 };
-
 
 // Get all categories for customers (Public)
 exports.getAllCategoriesForCustomers = async (req, res, next) => {
@@ -194,7 +304,7 @@ exports.getAllCategoriesForCustomers = async (req, res, next) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);
@@ -212,7 +322,9 @@ exports.getCategoryByIdForCustomers = async (req, res, next) => {
       throw new ApiError(404, 'Category not found');
     }
 
-    ApiResponse.success(res, 200, 'Category retrieved successfully', { category });
+    ApiResponse.success(res, 200, 'Category retrieved successfully', {
+      category,
+    });
   } catch (error) {
     next(error);
   }
@@ -221,7 +333,8 @@ exports.getCategoryByIdForCustomers = async (req, res, next) => {
 // Get products in a specific category for customers (Public)
 exports.getCategoryProductsForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, minPrice, maxPrice, search } = req.query;
+    const { page = 1, limit = 10, sort, minPrice, maxPrice, search } =
+      req.query;
     const categoryId = req.params.id;
 
     // Verify category exists
@@ -233,7 +346,7 @@ exports.getCategoryProductsForCustomers = async (req, res, next) => {
     // Build query for products
     const query = {
       categoryId: categoryId,
-      stock: { $gt: 0 } // Only show products in stock
+      stock: { $gt: 0 }, // Only show products in stock
     };
 
     if (minPrice || maxPrice) {
@@ -245,7 +358,7 @@ exports.getCategoryProductsForCustomers = async (req, res, next) => {
       query.$or = [
         { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
-        { brand: { $regex: search, $options: 'i' } }
+        { brand: { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -266,13 +379,13 @@ exports.getCategoryProductsForCustomers = async (req, res, next) => {
       category: {
         _id: category._id,
         name: category.name,
-        slug: category.slug
+        slug: category.slug,
       },
       products,
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);

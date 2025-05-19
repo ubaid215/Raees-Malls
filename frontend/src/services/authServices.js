@@ -1,7 +1,7 @@
 import api from './api';
 import * as yup from 'yup';
 
-// Validation schemas
+// Validation schemas unchanged
 const registerSchema = yup.object().shape({
   name: yup
     .string()
@@ -73,9 +73,8 @@ export const login = async (email, password) => {
     console.log('Login response:', response.data);
     const { success, data } = response.data;
 
-    // Handle both response formats (tokens object or direct token/refreshToken)
-    const accessToken = data?.tokens?.accessToken || data?.token;
-    const refreshToken = data?.tokens?.refreshToken || data?.refreshToken;
+    const accessToken = data?.token;
+    const refreshToken = data?.refreshToken;
     const user = data?.user;
 
     if (!success || !accessToken || !user?._id) {
@@ -101,12 +100,75 @@ export const login = async (email, password) => {
         `Too many login attempts. Please try again in ${retryAfter} seconds.`
       );
     }
+    if (error.response?.data?.message === 'Please use Google to log in') {
+      throw new Error('This account uses Google login. Please use the Google login option.');
+    }
     throw new Error(
       error.response?.data?.message || error.message || 'Login failed'
     );
   }
 };
 
+export const googleLogin = async (authCode = null) => {
+  try {
+    // Determine the base URL based on the environment
+    const baseUrl = import.meta.env.NODE_ENV === 'production'
+      ? import.meta.env.VITE_API_BASE_PROD_URL
+      : import.meta.env.VITE_API_BASE_URL;
+
+    // If authCode is provided, we're handling a redirect
+    if (authCode) {
+      console.log('GoogleLogin: Processing auth code from redirect');
+      const response = await api.post('/auth/google/callback', { code: authCode });
+      
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Google authentication failed');
+      }
+      
+      const { token, refreshToken, user } = response.data.data;
+      
+      localStorage.setItem('token', token);
+      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem('userId', user._id || user.id);
+      
+      return user;
+    } else {
+      // Initiate Google OAuth flow
+      const redirectUrl = `${baseUrl}/api/auth/google`; // Added /api prefix
+      console.log('GoogleLogin: Redirecting to', redirectUrl);
+      window.location.href = redirectUrl;
+      return null;
+    }
+  } catch (error) {
+    console.error('Google login error:', error.response?.data, error.message);
+    throw new Error(
+      error.response?.data?.message || error.message || 'Google login failed'
+    );
+  }
+};
+
+// Function to handle Google OAuth redirect
+export const handleGoogleRedirect = async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get('code');
+  const error = urlParams.get('error');
+  
+  if (error) {
+    console.error('Google OAuth error:', error);
+    throw new Error(`Google login failed: ${error}`);
+  }
+  
+  if (code) {
+    console.log('Google redirect detected with auth code');
+    // Clean the URL to remove the code
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return await googleLogin(code);
+  }
+  
+  return null;
+};
+
+// Other functions unchanged
 export const register = async (name, email, password) => {
   try {
     const userData = await registerSchema.validate(
@@ -118,9 +180,8 @@ export const register = async (name, email, password) => {
     console.log('Register response:', response.data);
     const { success, data } = response.data;
 
-    // Handle both response formats (tokens object or direct token/refreshToken)
-    const accessToken = data?.tokens?.accessToken || data?.token;
-    const refreshToken = data?.tokens?.refreshToken || data?.refreshToken;
+    const accessToken = data?.token;
+    const refreshToken = data?.refreshToken;
     const user = data?.user;
 
     if (!success || !accessToken || !user) {
@@ -146,8 +207,7 @@ export const register = async (name, email, password) => {
     const validationErrors = errorData?.errors;
 
     if (Array.isArray(validationErrors) && validationErrors.length > 0) {
-      // Fixed the typo here: validationExperts -> validationErrors
-      const messages = validationErrors.map((e) => e.msg).join(', ');  
+      const messages = validationErrors.map((e) => e.msg).join(', ');
       console.error('Backend Validation Errors:', messages);
       throw new Error(messages);
     }
@@ -175,9 +235,8 @@ export const refreshToken = async () => {
     console.log('Refresh token response:', response.data);
     const { success, data } = response.data;
 
-    // Handle both response formats (tokens object or direct token/refreshToken)
-    const accessToken = data?.tokens?.accessToken || data?.token;
-    const newRefreshToken = data?.tokens?.refreshToken || data?.refreshToken;
+    const accessToken = data?.token;
+    const newRefreshToken = data?.refreshToken;
 
     if (!success || !accessToken) {
       console.error('Invalid refresh response:', response.data);
@@ -186,10 +245,6 @@ export const refreshToken = async () => {
 
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', newRefreshToken);
-
-    if (data.tokens?.expiresIn) {
-      localStorage.setItem('tokenExpiry', Date.now() + data.tokens.expiresIn * 1000);
-    }
 
     return data.user || null;
   } catch (error) {
@@ -266,7 +321,7 @@ export const updateUser = async (userData) => {
       abortEarly: false,
     });
 
-    const response = await api.put('/auth/update', validatedData);
+    const response = await api.put('/auth/update-profile', validatedData);
     console.log('Update user response:', response.data);
     const { success, data } = response.data;
 

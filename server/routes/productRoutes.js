@@ -19,8 +19,8 @@ const createUploadFields = (variantCount = 10) => {
   ];
   
   for (let i = 0; i < variantCount; i++) {
-    fields.push({ name: `variantImages[${i}]`, maxCount: 5 });
-    fields.push({ name: `variantVideos[${i}]`, maxCount: 3 });
+    fields.push({ name: `variantImages[${i}]`, maxCount: 15 }); // Match your 15 image limit
+    fields.push({ name: `variantVideos[${i}]`, maxCount: 3 }); // Match your 3 video limit
   }
   
   return upload.fields(fields);
@@ -69,7 +69,7 @@ router.put(
   '/:id',
   ensureAuthenticated,
   authorizeRoles('admin'),
-  createUploadFields(), // Use dynamic upload configuration
+  createUploadFields(),
   productIdValidator,
   updateProductValidator,
   productController.updateProduct

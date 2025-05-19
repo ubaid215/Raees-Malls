@@ -15,9 +15,38 @@ exports.createProduct = async (req, res, next) => {
       throw new ApiError(400, 'Discount price must be less than the base price');
     }
 
-    if (!req.files?.baseImages?.length) {
-      throw new ApiError(400, 'At least one base image is required');
+    if (req.files) {
+  // Process variant images and videos
+  const variantImages = {};
+  const variantVideos = {};
+  
+  Object.keys(req.files).forEach(key => {
+    if (key.startsWith('variantImages[')) {
+      const index = key.match(/\[(\d+)\]/)[1];
+      variantImages[index] = req.files[key].map(file => ({
+        url: file.path,
+        public_id: file.filename,
+        alt: file.originalname
+      }));
+    } else if (key.startsWith('variantVideos[')) {
+      const index = key.match(/\[(\d+)\]/)[1];
+      variantVideos[index] = req.files[key].map(file => ({
+        url: file.path,
+        public_id: file.filename,
+        alt: file.originalname
+      }));
     }
+  });
+
+  // Update variants with new media
+  if (parsedVariants) {
+    product.variants = parsedVariants.map((variant, index) => ({
+      ...variant,
+      images: variantImages[index] || variant.images || [],
+      videos: variantVideos[index] || variant.videos || []
+    }));
+  }
+}
 
     const images = req.files.baseImages.map(file => ({
       url: file.path,

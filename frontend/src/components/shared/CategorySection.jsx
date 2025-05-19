@@ -4,11 +4,41 @@ import { CategoryContext } from '../../context/CategoryContext';
 import LoadingSkeleton from '../shared/LoadingSkelaton';
 import { toast } from 'react-toastify';
 import { FiGrid, FiRefreshCw } from 'react-icons/fi';
+import SocketService from '../../services/socketService';
 
 const CategorySection = () => {
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
 
-  // Automatically fetch categories on mount
+  // Initialize Socket.IO and handle category events
+  useEffect(() => {
+    // Ensure SocketService is connected (should be handled in App.jsx, but connect here if needed)
+    // SocketService.connect();
+
+    const handleCategoryCreated = ({ category }) => {
+      toast.success(`New category added: ${category.name}`);
+    };
+
+    const handleCategoryUpdated = ({ category }) => {
+      toast.info(`Category updated: ${category.name}`);
+    };
+
+    const handleCategoryDeleted = () => {
+      toast.warn('Category removed');
+    };
+
+    SocketService.on('categoryCreated', handleCategoryCreated);
+    SocketService.on('categoryUpdated', handleCategoryUpdated);
+    SocketService.on('categoryDeleted', handleCategoryDeleted);
+
+    return () => {
+      SocketService.off('categoryCreated', handleCategoryCreated);
+      SocketService.off('categoryUpdated', handleCategoryUpdated);
+      SocketService.off('categoryDeleted', handleCategoryDeleted);
+      // Do not disconnect SocketService here as it's shared across components
+    };
+  }, []);
+
+  // Fetch categories on mount if empty
   useEffect(() => {
     const loadCategories = async () => {
       try {

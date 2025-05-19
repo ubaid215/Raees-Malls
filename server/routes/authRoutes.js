@@ -11,6 +11,8 @@ router.use(apiLimiter);
 // Public routes with validation and stricter rate limiting
 router.post('/register', authLimiter, registerValidator, validate, authController.register);
 router.post('/login', authLimiter, loginValidator, validate, authController.login);
+router.get('/google', authLimiter, authController.googleAuth);
+router.get('/google/callback', authLimiter, authController.googleAuthCallback);
 
 // Public refresh token route (no JWT auth)
 router.post('/refresh-token', authController.refreshToken);

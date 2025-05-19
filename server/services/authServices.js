@@ -11,19 +11,40 @@ module.exports = {
     return await User.findOne({ email });
   },
 
-  createUser: async (name, email, password, role = 'user') => {
+  createUser: async (name, email, password, role = 'user', provider = 'local', googleId = null) => {
     if (!validator.isEmail(email)) {
       throw new ApiError(400, 'Invalid email format');
     }
-    if (!validator.isLength(password, { min: 8 })) {
+    if (provider === 'local' && (!password || !validator.isLength(password, { min: 8 }))) {
       throw new ApiError(400, 'Password must be at least 8 characters');
     }
     if (!['user', 'admin'].includes(role)) {
       throw new ApiError(400, 'Invalid role');
     }
-    const user = new User({ name, email, password, role });
-    await user.save();
-    return user;
+
+    const userData = {
+      name,
+      email,
+      role,
+      provider,
+    };
+
+    if (provider === 'local') {
+      userData.password = password;
+    } else if (provider === 'google') {
+      userData.googleId = googleId;
+      userData.isVerified = true;
+    }
+
+    try {
+      const user = await User.create(userData);
+      return user;
+    } catch (error) {
+      if (error.code === 11000) {
+        throw new ApiError(400, 'Email or Google ID already in use');
+      }
+      throw new ApiError(500, 'Failed to create user', [error.message]);
+    }
   },
 
   authenticateUser: async (email, password) => {
@@ -31,7 +52,7 @@ module.exports = {
       throw new ApiError(400, 'Invalid email format');
     }
     const user = await User.findOne({ email });
-    if (!user) return null;
+    if (!user || user.provider !== 'local') return null;
 
     const isMatch = await bcrypt.compare(password, user.password);
     return isMatch ? user : null;
@@ -41,5 +62,5 @@ module.exports = {
     const userObj = user.toObject ? user.toObject() : user;
     const { password, __v, ...sanitizedUser } = userObj;
     return sanitizedUser;
-  }
+  },
 };

@@ -196,7 +196,9 @@ export const deleteCategory = async (id) => {
       throw new Error('Category ID is required');
     }
     
+    console.log('Deleting category with ID:', id); // Debug log
     const response = await api.delete(`/admin/categories/${id}`);
+    console.log('Delete response:', response.data); // Debug log
     return response.data;
   } catch (error) {
     console.error('Delete category error:', {
@@ -204,20 +206,16 @@ export const deleteCategory = async (id) => {
       data: error.response?.data,
       message: error.message,
     });
-    
-    if (error.response?.status === 404) {
-      throw new Error('Category not found');
-    }
-    if (error.response?.status === 403) {
-      throw new Error('You are not authorized to delete categories. Admin access required.');
-    }
-    if (error.response?.status === 400) {
-      const message = error.response?.data?.message || '';
-      if (message.includes('subcategories') || message.includes('products')) {
-        throw new Error('Cannot delete category with subcategories or products');
-      }
-      throw new Error(message || 'Invalid request');
-    }
-    throw new Error(error.response?.data?.message || 'Failed to delete category');
+    throw new Error(
+      error.response?.data?.message ||
+      (error.response?.status === 404
+        ? 'Category not found'
+        : error.response?.status === 403
+        ? 'You are not authorized to delete categories. Admin access required.'
+        : error.response?.status === 400 &&
+          error.response?.data?.message?.includes('subcategories')
+        ? 'Cannot delete category with subcategories or products'
+        : 'Failed to delete category')
+    );
   }
 };

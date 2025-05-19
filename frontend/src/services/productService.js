@@ -1,5 +1,31 @@
 import api from './api';
 
+const normalizeVariant = (variant) => {
+  // Extract actual variant data from _doc or __parentArray[0]
+  const variantData = variant._doc || variant.__parentArray?.[0] || variant;
+  console.log('Raw Variant:', variantData); // Debug log
+
+  return {
+    _id: variantData._id || variant._id,
+    sku: variantData.sku || variant.sku || '',
+    price: Number.isFinite(parseFloat(variantData.price)) ? parseFloat(variantData.price) : 0,
+    discountPrice: variantData.discountPrice
+      ? Number.isFinite(parseFloat(variantData.discountPrice))
+        ? parseFloat(variantData.discountPrice)
+        : null
+      : null,
+    stock: Number.isFinite(parseInt(variantData.stock)) ? parseInt(variantData.stock) : 0,
+    attributes: Array.isArray(variantData.attributes) ? variantData.attributes : [],
+    images: Array.isArray(variantData.images) ? variantData.images : [],
+    videos: Array.isArray(variantData.videos) ? variantData.videos : [],
+    displayPrice: variantData.discountPrice
+      ? Number.isFinite(parseFloat(variantData.discountPrice))
+        ? parseFloat(variantData.discountPrice)
+        : parseFloat(variantData.price) || 0
+      : parseFloat(variantData.price) || 0,
+  };
+};
+
 export const getProducts = async (page = 1, limit = 10, sort = null, filters = {}, options = {}) => {
   const { isPublic = false } = options;
   let endpoint;
@@ -30,10 +56,7 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
     const validProducts = products.map(product => ({
       ...product,
       displayPrice: product.discountPrice || product.price,
-      variants: product.variants?.map(variant => ({
-        ...variant,
-        displayPrice: variant.discountPrice || variant.price
-      })) || []
+      variants: product.variants?.map(variant => normalizeVariant(variant)) || [],
     }));
 
     return { 
@@ -81,10 +104,7 @@ export const getFeaturedProducts = async (page = 1, limit = 10, sort = null) => 
     const validProducts = products.map(product => ({
       ...product,
       displayPrice: product.discountPrice || product.price,
-      variants: product.variants?.map(variant => ({
-        ...variant,
-        displayPrice: variant.discountPrice || variant.price
-      })) || []
+      variants: product.variants?.map(variant => normalizeVariant(variant)) || [],
     }));
 
     return { 
@@ -126,14 +146,29 @@ export const getProductById = async (id, options = {}) => {
       throw new Error('Invalid product response');
     }
 
-    return {
+    const normalizedProduct = {
       ...product,
-      displayPrice: product.discountPrice || product.price,
-      variants: product.variants?.map(variant => ({
-        ...variant,
-        displayPrice: variant.discountPrice || variant.price
-      })) || []
+      price: Number.isFinite(parseFloat(product.price)) ? parseFloat(product.price) : 0,
+      discountPrice: product.discountPrice
+        ? Number.isFinite(parseFloat(product.discountPrice))
+          ? parseFloat(product.discountPrice)
+          : null
+        : null,
+      stock: Number.isFinite(parseInt(product.stock)) ? parseInt(product.stock) : 0,
+      displayPrice: product.discountPrice
+        ? Number.isFinite(parseFloat(product.discountPrice))
+          ? parseFloat(product.discountPrice)
+          : parseFloat(product.price) || 0
+        : parseFloat(product.price) || 0,
+      variants: product.variants?.map(variant => normalizeVariant(variant)) || [],
+      images: Array.isArray(product.images) ? product.images : [],
+      videos: Array.isArray(product.videos) ? product.videos : [],
+      specifications: Array.isArray(product.specifications) ? product.specifications : [],
+      features: Array.isArray(product.features) ? product.features : [],
     };
+    console.log('Normalized Product:', normalizedProduct); // Debug log
+
+    return normalizedProduct;
   } catch (error) {
     console.error('Get product by ID error:', {
       id,

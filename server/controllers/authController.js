@@ -8,8 +8,6 @@ const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 
 exports.register = async (req, res, next) => {
-  // console.log('Request headers:', req.headers);
-  // console.log('Request body:', req.body);
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -17,7 +15,7 @@ exports.register = async (req, res, next) => {
     }
 
     const { name, email, password, role = 'user' } = req.body;
-    const user = await authService.createUser(name, email, password, role);
+    const user = await authService.createUser(name, email, password, role, 'local');
     const tokens = jwtService.generateTokens(user);
 
     // Store refresh token
@@ -34,6 +32,7 @@ exports.register = async (req, res, next) => {
         refreshToken: tokens.refreshToken,
       });
     });
+
   } catch (error) {
     next(error);
   }
@@ -70,15 +69,49 @@ exports.login = async (req, res, next) => {
         });
       });
     })(req, res, next);
+
   } catch (error) {
     next(error);
   }
 };
 
+exports.googleAuth = passport.authenticate('google', {
+  scope: ['profile', 'email']
+});
+
+exports.googleAuthCallback = (req, res, next) => {
+  passport.authenticate('google', async (err, user, info) => {
+    if (err) return next(err);
+    if (!user) return next(new ApiError(401, info?.message || 'Google authentication failed'));
+
+    try {
+      // Log the user in to create a session
+      req.login(user, async (err) => {
+        if (err) return next(err);
+
+        // Generate JWT tokens
+        const tokens = jwtService.generateTokens(user);
+
+        // Store refresh token
+        await Token.create({ userId: user._id, token: tokens.refreshToken });
+
+        // Determine the frontend callback URL based on environment
+        const frontendCallbackUrl = `${
+          process.env.NODE_ENV === 'production'
+            ? process.env.FRONTEND_PROD_URL
+            : process.env.FRONTEND_DEV_URL
+        }/callback?token=${tokens.accessToken}&refreshToken=${tokens.refreshToken}&userId=${user._id}`;
+        res.redirect(frontendCallbackUrl);
+      });
+    } catch (error) {
+      next(error);
+    }
+  })(req, res, next);
+};
+
 exports.refreshToken = async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
-    console.log('Refresh token request:', { refreshToken: refreshToken?.slice(0, 10) + '...' });
     if (!refreshToken || refreshToken === 'undefined') {
       throw new ApiError(400, 'Refresh token is required');
     }
@@ -111,6 +144,7 @@ exports.refreshToken = async (req, res, next) => {
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     });
+
   } catch (error) {
     console.error('Refresh token error:', error.message);
     next(error);
@@ -159,6 +193,7 @@ exports.getMe = async (req, res, next) => {
     ApiResponse.success(res, 200, 'User data retrieved', {
       user: authService.sanitizeUser(user),
     });
+
   } catch (error) {
     next(error);
   }
@@ -196,6 +231,7 @@ exports.updateProfile = async (req, res, next) => {
     ApiResponse.success(res, 200, 'Profile updated successfully', {
       user: authService.sanitizeUser(updatedUser),
     });
+
   } catch (error) {
     next(error);
   }

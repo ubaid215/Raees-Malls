@@ -1,5 +1,14 @@
 import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
-import { login, register, logout, refreshToken, getMe, updateUser } from '../services/authServices';
+import { 
+  login, 
+  register, 
+  logout, 
+  refreshToken, 
+  getMe, 
+  updateUser, 
+  googleLogin,
+  handleGoogleRedirect 
+} from '../services/authServices';
 import socketService from '../services/socketService';
 
 const AuthContext = createContext();
@@ -7,14 +16,37 @@ const AuthContext = createContext();
 const AuthProvider = ({ children }) => {
   const [authState, setAuthState] = useState({
     user: null,
-    loading: true, // Start as loading to prevent flicker
+    loading: true,
     error: null,
-    needsFetch: false, // Changed from true so we control fetch explicitly
+    needsFetch: false,
   });
 
-  // Initialize authentication state on app mount/refresh
   useEffect(() => {
     const initializeAuth = async () => {
+      // Check if we're returning from Google OAuth redirect
+      try {
+        const googleUser = await handleGoogleRedirect();
+        if (googleUser) {
+          setAuthState({
+            user: googleUser,
+            loading: false,
+            error: null,
+            needsFetch: false,
+          });
+          setupSocketConnection(googleUser);
+          return;
+        }
+      } catch (googleError) {
+        console.error("Google auth redirect error:", googleError);
+        setAuthState(prev => ({
+          ...prev, 
+          error: [{ msg: googleError.message || "Google authentication failed" }],
+          loading: false
+        }));
+        return;
+      }
+
+      // Regular token-based auth flow
       const storedToken = localStorage.getItem('token');
       if (storedToken) {
         try {
@@ -48,7 +80,9 @@ const AuthProvider = ({ children }) => {
     } else if (error.message === 'This email is already registered') {
       errorMessage = [{ msg: 'This email is already registered' }];
     } else if (error.message.includes('Too many')) {
-      errorMessage = [{ msg: error.message }]; // Rate limit error
+      errorMessage = [{ msg: error.message }];
+    } else if (error.message.includes('Google login')) {
+      errorMessage = [{ msg: error.message }];
     } else {
       errorMessage = [{ msg: errorMessage }];
     }
@@ -132,6 +166,16 @@ const AuthProvider = ({ children }) => {
     }
   };
 
+  const googleLoginUser = async () => {
+    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      await googleLogin(); // Redirects to Google OAuth
+    } catch (err) {
+      handleAuthError(err);
+      throw err;
+    }
+  };
+
   const registerUser = async (userData) => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
@@ -181,7 +225,7 @@ const AuthProvider = ({ children }) => {
     }
   };
 
-  const updateUser = async (userData) => {
+  const updateUserProfile = async (userData) => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const updatedUser = await updateUser(userData);
@@ -204,11 +248,12 @@ const AuthProvider = ({ children }) => {
       ...authState,
       isAuthenticated: !!authState.user,
       loginUser,
+      googleLoginUser,
       registerUser,
       logoutUser,
       refreshUserToken,
       fetchUser,
-      updateUser,
+      updateUser: updateUserProfile, // Renamed to avoid collision
     }),
     [authState]
   );

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import { FcGoogle } from 'react-icons/fc';
 
 const Register = () => {
   const [name, setName] = useState('');
@@ -11,7 +12,7 @@ const Register = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const { registerUser } = useAuth();
+  const { registerUser, googleLoginUser } = useAuth();
   const navigate = useNavigate();
 
   const validateForm = () => {
@@ -47,11 +48,12 @@ const Register = () => {
       navigate('/login');
     } catch (err) {
       console.error('Registration error:', err);
-      if (err.message.includes('Validation failed')) {
-        const backendErrors = err.message.split(', ').reduce((acc, msg) => {
+      if (Array.isArray(err.error)) {
+        const backendErrors = err.error.reduce((acc, { msg }) => {
           if (msg.includes('email')) acc.email = msg;
           else if (msg.includes('password')) acc.password = msg;
           else if (msg.includes('name')) acc.name = msg;
+          else acc.general = msg;
           return acc;
         }, {});
         setErrors(backendErrors);
@@ -59,6 +61,20 @@ const Register = () => {
         setErrors({ general: err.message || 'Registration failed. Please try again.' });
       }
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignUp = async () => {
+    setErrors({});
+    setLoading(true);
+    try {
+      console.log('Register: Initiating Google sign-up');
+      await googleLoginUser();
+      console.log('Register: Google sign-up initiated, expecting redirect');
+    } catch (err) {
+      console.error('Google sign-up error:', err);
+      setErrors({ general: err.message || 'Google sign-up failed. Please try again.' });
       setLoading(false);
     }
   };
@@ -147,6 +163,17 @@ const Register = () => {
             ) : 'Sign Up'}
           </button>
         </form>
+
+        <div className="mt-4">
+          <button
+            onClick={handleGoogleSignUp}
+            disabled={loading}
+            className={`w-full py-2 px-4 bg-white text-gray-700 border border-gray-300 rounded-lg font-medium hover:bg-gray-50 transition duration-200 flex items-center justify-center ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+          >
+            <FcGoogle size={20} className="mr-2" />
+            {loading ? 'Processing...' : 'Sign Up with Google'}
+          </button>
+        </div>
 
         <div className="mt-4 text-center text-sm text-gray-600">
           <p>

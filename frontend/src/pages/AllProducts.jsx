@@ -1,12 +1,6 @@
-import React, {
-  useState,
-  useCallback,
-  useEffect,
-  useMemo,
-  useContext,
-} from "react";
+import React, { useState, useCallback, useEffect, useMemo, useContext } from "react";
 import { Helmet } from "react-helmet";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import Button from "../components/core/Button";
 import LoadingSkeleton from "../components/shared/LoadingSkelaton";
 import { toast } from "react-toastify";
@@ -20,6 +14,7 @@ import SocketService from "../services/socketService";
 function AllProducts() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState({});
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 12,
@@ -28,138 +23,192 @@ function AllProducts() {
   });
   const [needsFetch, setNeedsFetch] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
   const { categories, fetchCategories } = useContext(CategoryContext);
-  const { products, loading, error, fetchProducts } =
-    useContext(ProductContext);
+  const { products, loading, error, fetchProducts } = useContext(ProductContext);
 
-  const safeCategories =
-    categories.length > 0
-      ? [{ _id: "all", name: "All Categories", slug: "all" }, ...categories]
-      : [{ _id: "all", name: "All Categories", slug: "all" }];
+  // Create a hierarchical structure for categories
+  const categoriesWithSubcategories = useMemo(() => {
+    const categoryMap = {};
+    categories.forEach((category) => {
+      categoryMap[category._id] = { ...category, subCategories: [] };
+    });
+
+    const rootCategories = [];
+    categories.forEach((category) => {
+      const parentId = category.parentId?._id || category.parentId;
+      if (parentId && categoryMap[parentId]) {
+        categoryMap[parentId].subCategories.push(categoryMap[category._id]);
+      } else {
+        rootCategories.push(categoryMap[category._id]);
+      }
+    });
+
+    rootCategories.sort((a, b) => a.name.localeCompare(b.name));
+    rootCategories.forEach((cat) => {
+      cat.subCategories.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    return rootCategories;
+  }, [categories]);
+
+  const safeCategories = useMemo(() => {
+    return [
+      { _id: "all", name: "All Categories", slug: "all", subCategories: [] },
+      ...categoriesWithSubcategories,
+    ];
+  }, [categoriesWithSubcategories]);
 
   const selectedCategoryName = useMemo(() => {
-    return (
-      safeCategories.find((c) => c._id === selectedCategory)?.name ||
-      "All Categories"
-    );
+    const findCategoryName = (cats, id) => {
+      for (const cat of cats) {
+        if (cat._id === id) return cat.name;
+        if (cat.subCategories?.length > 0) {
+          const found = findCategoryName(cat.subCategories, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return findCategoryName(safeCategories, selectedCategory) || "All Categories";
   }, [selectedCategory, safeCategories]);
 
-  const debouncedFetchProducts = useCallback(
-    debounce(async (page, limit, categoryId) => {
-      try {
-        const result = await fetchProducts(
-          {
-            page,
-            limit,
-            categoryId: categoryId !== "all" ? categoryId : null,
-            sort: "-createdAt",
-          },
-          { isPublic: true }
-        );
-
-        if (!result || typeof result !== "object") {
-          throw new Error("Invalid response from fetchProducts");
+  // Handle initial category from URL
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const categorySlug = searchParams.get('category');
+    
+    if (categorySlug) {
+      const findCategoryBySlug = (cats, slug) => {
+        for (const cat of cats) {
+          if (cat.slug === slug) return cat._id;
+          if (cat.subCategories?.length > 0) {
+            const found = findCategoryBySlug(cat.subCategories, slug);
+            if (found) return found;
+          }
         }
+        return null;
+      };
+      
+      const categoryId = findCategoryBySlug(safeCategories, categorySlug);
+      if (categoryId && categoryId !== selectedCategory) {
+        setSelectedCategory(categoryId);
+        setPagination(prev => ({ ...prev, page: 1 }));
+        setNeedsFetch(true);
+      }
+    }
+  }, [location.search, safeCategories]);
 
-        setPagination((prev) => ({
-          ...prev,
-          pages: result.totalPages || 1,
-          total: result.totalItems || 0,
-        }));
-        setNeedsFetch(false);
-      } catch (err) {
-        console.error("Product fetch error:", err);
-        toast.error(err.message || "Failed to load products");
-        setPagination((prev) => ({
-          ...prev,
-          pages: 1,
-          total: 0,
-        }));
+  const debouncedFetchProducts = useCallback(
+    debounce(async (page, limit, categoryId, retries = 3) => {
+      let attempts = 0;
+      while (attempts < retries) {
+        try {
+          const result = await fetchProducts(
+            {
+              page,
+              limit,
+              categoryId: categoryId !== "all" ? categoryId : null,
+              sort: "-createdAt",
+            },
+            { isPublic: true }
+          );
+
+          if (!result || !result.products || typeof result !== "object") {
+            throw new Error("Invalid response from fetchProducts");
+          }
+
+          setPagination((prev) => ({
+            ...prev,
+            pages: result.totalPages || 1,
+            total: result.totalItems || 0,
+          }));
+          setNeedsFetch(false);
+          return;
+        } catch (err) {
+          attempts++;
+          console.warn(`Product fetch attempt ${attempts} failed:`, err);
+          if (attempts === retries) {
+            console.error("Product fetch error:", err);
+            toast.error(err.message || "Failed to load products");
+            setPagination((prev) => ({
+              ...prev,
+              pages: 1,
+              total: 0,
+            }));
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       }
     }, 500),
     [fetchProducts]
   );
 
-  // Clear cache on mount to ensure fresh data
-  useEffect(() => {
-    const clearProductCaches = () => {
-      Object.keys(localStorage).forEach((key) => {
-        if (key.startsWith("products_") || key.startsWith("product_")) {
-          localStorage.removeItem(key);
-        }
-      });
-    };
-
-    clearProductCaches();
-    setNeedsFetch(true); // Trigger fresh fetch
-  }, []);
-
-  // Fetch initial categories
+  // Fetch initial data
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         await fetchCategories({ isPublic: true });
+        await debouncedFetchProducts(pagination.page, pagination.limit, selectedCategory);
       } catch (err) {
-        console.error("Category fetch error:", err);
-        toast.error(err.message || "Failed to fetch categories");
+        console.error("Initial fetch error:", err);
+        toast.error("Failed to load initial data. Please try again.");
       }
     };
+
     fetchInitialData();
-  }, [fetchCategories]);
+  }, [fetchCategories, debouncedFetchProducts, pagination.page, pagination.limit, selectedCategory]);
 
-  // Socket.IO integration for real-time updates
+  // Socket.IO integration
   useEffect(() => {
-    SocketService.connect();
-
     const handleProductCreated = (data) => {
-      // Only trigger fetch if product matches current category and is in stock
-      if (
-        data.product.stock > 0 &&
-        (selectedCategory === "all" ||
-          data.product.categoryId === selectedCategory)
-      ) {
-        setNeedsFetch(true); // Trigger a fetch to refresh the product list
-        toast.success(`New product added: ${data.product.title}`);
+      if (data.product.stock > 0 && (selectedCategory === "all" || data.product.categoryId === selectedCategory)) {
+        setNeedsFetch(true);
       }
     };
 
     const handleProductUpdated = (data) => {
-      // Trigger fetch if product is in the current category or was previously displayed
-      if (
-        selectedCategory === "all" ||
-        data.product.categoryId === selectedCategory
-      ) {
-        setNeedsFetch(true); // Trigger a fetch to refresh the product list
-        toast.info(`Product updated: ${data.product.title}`);
+      if (selectedCategory === "all" || data.product.categoryId === selectedCategory) {
+        setNeedsFetch(true);
       }
     };
 
-    const handleProductDeleted = (data) => {
-      // Trigger fetch to remove the deleted product
+    const handleProductDeleted = () => {
       setNeedsFetch(true);
-      toast.warn("Product removed");
+    };
+
+    const handleCategoryUpdated = ({ category }) => {
+      if (selectedCategory !== "all" && category._id === selectedCategory) {
+        setNeedsFetch(true);
+      }
+    };
+
+    const handleCategoryDeleted = ({ categoryIds }) => {
+      if (categoryIds.includes(selectedCategory)) {
+        setSelectedCategory("all");
+      }
+      setNeedsFetch(true);
     };
 
     SocketService.on("productCreated", handleProductCreated);
     SocketService.on("productUpdated", handleProductUpdated);
     SocketService.on("productDeleted", handleProductDeleted);
+    SocketService.on("categoryUpdated", handleCategoryUpdated);
+    SocketService.on("categoryDeleted", handleCategoryDeleted);
 
     return () => {
       SocketService.off("productCreated", handleProductCreated);
       SocketService.off("productUpdated", handleProductUpdated);
       SocketService.off("productDeleted", handleProductDeleted);
-      SocketService.disconnect();
+      SocketService.off("categoryUpdated", handleCategoryUpdated);
+      SocketService.off("categoryDeleted", handleCategoryDeleted);
     };
   }, [selectedCategory]);
 
   // Fetch products when needed
   useEffect(() => {
     if (needsFetch) {
-      debouncedFetchProducts(
-        pagination.page,
-        pagination.limit,
-        selectedCategory
-      );
+      debouncedFetchProducts(pagination.page, pagination.limit, selectedCategory);
     }
   }, [pagination.page, selectedCategory, needsFetch, debouncedFetchProducts]);
 
@@ -170,21 +219,43 @@ function AllProducts() {
     }
   };
 
-  const handleCategoryChange = useCallback(
-    debounce((categoryId) => {
-      setSelectedCategory(categoryId);
-      setPagination((prev) => ({ ...prev, page: 1 }));
-      setNeedsFetch(true);
-      setIsCategoryDropdownOpen(false); // Close dropdown after selection
-    }, 300),
-    []
-  );
+  const handleCategoryChange = (categoryId) => {
+    // Find the category to get its slug
+    const findCategoryById = (cats, id) => {
+      for (const cat of cats) {
+        if (cat._id === id) return cat;
+        if (cat.subCategories?.length > 0) {
+          const found = findCategoryById(cat.subCategories, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    
+    const category = findCategoryById(safeCategories, categoryId);
+    const slug = category?.slug || '';
+    
+    // Update URL without reload
+    navigate(`?category=${slug}`, { replace: true });
+    
+    // Update local state
+    setSelectedCategory(categoryId);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    setNeedsFetch(true);
+  };
 
   const toggleCategoryDropdown = () => {
     setIsCategoryDropdownOpen((prev) => !prev);
   };
 
-  // Close dropdown when clicking outside
+  const toggleSubcategory = (categoryId) => {
+    setExpandedCategories((prev) => ({
+      ...prev,
+      [categoryId]: !prev[categoryId],
+    }));
+  };
+
+  // Close dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       const dropdown = document.getElementById("category-dropdown");
@@ -209,9 +280,7 @@ function AllProducts() {
       price: product.price || 0,
       discountPrice: product.discountPrice || 0,
       images: product.images?.map((img) => ({
-        url: img.url?.startsWith("http")
-          ? img.url
-          : `${API_BASE_URL}${img.url}`,
+        url: img.url?.startsWith("http") ? img.url : `${API_BASE_URL}${img.url}`,
       })) || [{ url: "/placeholder-product.png" }],
       sku: product.sku || "N/A",
       rating: product.averageRating || product.rating || 0,
@@ -221,6 +290,88 @@ function AllProducts() {
       isFeatured: product.isFeatured || false,
     }));
   }, [products]);
+
+  // Render category for desktop sidebar
+  const renderCategory = (category, level = 0) => {
+    const hasSubcategories = category.subCategories?.length > 0;
+    const isExpanded = expandedCategories[category._id];
+    const isSelected = selectedCategory === category._id;
+
+    return (
+      <li key={category._id} className="relative">
+        <button
+          onClick={() => hasSubcategories ? toggleSubcategory(category._id) : handleCategoryChange(category._id)}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm sm:text-base transition-colors ${
+            isSelected ? "bg-red-600 text-white" : "text-gray-600 hover:bg-gray-50"
+          }`}
+          style={{ paddingLeft: `${level * 12 + 12}px` }}
+        >
+          <span>{category.name}</span>
+          {hasSubcategories && (
+            <svg
+              className={`h-5 w-5 transition-transform duration-200 ${isExpanded ? "transform rotate-180" : ""}`}
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
+            </svg>
+          )}
+        </button>
+        {hasSubcategories && isExpanded && (
+          <ul className="mt-1 space-y-1">
+            {category.subCategories.map((subCategory) =>
+              renderCategory(subCategory, level + 1)
+            )}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
+  // Render category for mobile dropdown
+  const renderMobileCategory = (category, level = 0) => {
+    const hasSubcategories = category.subCategories?.length > 0;
+    const isExpanded = expandedCategories[category._id];
+    const isSelected = selectedCategory === category._id;
+
+    return (
+      <React.Fragment key={category._id}>
+        <li className="relative">
+          <button
+            onClick={() => hasSubcategories ? toggleSubcategory(category._id) : (handleCategoryChange(category._id), setIsCategoryDropdownOpen(false))}
+            className={`w-full flex items-center justify-between px-4 py-2 text-sm ${
+              isSelected ? "bg-red-600 text-white" : "text-gray-600 hover:bg-gray-50"
+            }`}
+            style={{ paddingLeft: `${level * 12 + 16}px` }}
+          >
+            <span>{category.name}</span>
+            {hasSubcategories && (
+              <svg
+                className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? "transform rotate-180" : ""}`}
+                viewBox="0 0 20 20"
+                fill="currentColor"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            )}
+          </button>
+        </li>
+        {hasSubcategories && isExpanded && (
+          category.subCategories.map((subCategory) =>
+            renderMobileCategory(subCategory, level + 1)
+          )
+        )}
+      </React.Fragment>
+    );
+  };
 
   if (loading && memoizedProducts.length === 0) {
     return (
@@ -266,19 +417,15 @@ function AllProducts() {
     <section className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <Helmet>
         <title>All Products | Your Store</title>
-        <meta
-          name="description"
-          content="Browse our full collection of products"
-        />
+        <meta name="description" content="Browse our full collection of products" />
       </Helmet>
 
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">
           Our Products
-          {selectedCategory !== "all" && categories.length > 0 && (
+          {selectedCategory !== "all" && (
             <span className="text-lg font-normal block mt-2 text-gray-600">
-              Category:{" "}
-              {categories.find((c) => c._id === selectedCategory)?.name}
+              Category: {selectedCategoryName}
             </span>
           )}
         </h1>
@@ -287,11 +434,7 @@ function AllProducts() {
           <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg
-                  className="h-5 w-5 text-red-500"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
+                <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
                   <path
                     fillRule="evenodd"
                     d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
@@ -359,20 +502,9 @@ function AllProducts() {
                     </div>
                   ) : (
                     <ul>
-                      {safeCategories.map((category) => (
-                        <li key={category._id}>
-                          <button
-                            onClick={() => handleCategoryChange(category._id)}
-                            className={`w-full text-left px-4 py-2 text-sm ${
-                              selectedCategory === category._id
-                                ? "bg-red-600 text-white"
-                                : "text-gray-600 hover:bg-gray-50"
-                            }`}
-                          >
-                            {category.name}
-                          </button>
-                        </li>
-                      ))}
+                      {safeCategories.map((category) =>
+                        renderMobileCategory(category)
+                      )}
                     </ul>
                   )}
                 </div>
@@ -399,20 +531,7 @@ function AllProducts() {
               </div>
             ) : (
               <ul className="space-y-2">
-                {safeCategories.map((category) => (
-                  <li key={category._id}>
-                    <button
-                      onClick={() => handleCategoryChange(category._id)}
-                      className={`w-full text-left px-3 py-2 rounded-md text-sm sm:text-base transition-colors ${
-                        selectedCategory === category._id
-                          ? "bg-red-600 text-white"
-                          : "text-gray-600 hover:bg-gray-50"
-                      }`}
-                    >
-                      {category.name}
-                    </button>
-                  </li>
-                ))}
+                {safeCategories.map((category) => renderCategory(category))}
               </ul>
             )}
           </nav>
@@ -457,9 +576,7 @@ function AllProducts() {
                 </p>
                 <div className="mt-6 flex flex-col gap-4">
                   <Button
-                    onClick={() => {
-                      setNeedsFetch(true);
-                    }}
+                    onClick={() => setNeedsFetch(true)}
                     className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none"
                   >
                     Refresh Products
@@ -500,8 +617,8 @@ function AllProducts() {
                             pagination.page <= 3
                               ? i + 1
                               : pagination.page >= pagination.pages - 2
-                                ? pagination.pages - 4 + i
-                                : pagination.page - 2 + i;
+                              ? pagination.pages - 4 + i
+                              : pagination.page - 2 + i;
 
                           return (
                             <button

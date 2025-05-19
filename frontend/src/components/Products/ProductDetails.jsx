@@ -6,6 +6,7 @@ import { getProductById } from '../../services/productService';
 import { useCart } from '../../context/CartContext';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
+import { FaStar, FaStarHalfAlt, FaRegStar } from 'react-icons/fa';
 
 const ProductDetails = memo(() => {
   const { productId } = useParams();
@@ -16,6 +17,7 @@ const ProductDetails = memo(() => {
   const [product, setProduct] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [expandedSection, setExpandedSection] = useState(null);
 
   useEffect(() => {
     const fetchProductData = async () => {
@@ -23,56 +25,27 @@ const ProductDetails = memo(() => {
       setError(null);
       try {
         const fetchedProduct = await getProductById(productId, { isPublic: true });
-        
+        console.log('Fetched Product:', JSON.stringify(fetchedProduct, null, 2)); // Debug log
+
         if (!fetchedProduct) {
           throw new Error('Product not found');
         }
 
-        // Process images and videos
-        const processMedia = (items) => (items || []).map(item => {
-          let url = typeof item === 'string' ? item : item?.url;
-          if (url && !url.startsWith('http')) {
-            url = `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${url}`;
-          }
-          return {
-            url: url || '/images/placeholder-product.png',
-            alt: item?.alt || fetchedProduct.title || 'Product media',
-            public_id: item?.public_id
-          };
-        });
+        setProduct(fetchedProduct);
 
-        const processedProduct = {
-          ...fetchedProduct,
-          images: processMedia(fetchedProduct.images),
-          videos: processMedia(fetchedProduct.videos),
-          variants: (fetchedProduct.variants || []).map(variant => ({
-            ...variant,
-            images: processMedia(variant.images),
-            videos: processMedia(variant.videos),
-            price: parseFloat(variant.price) || 0,
-            discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : undefined,
-            stock: parseInt(variant.stock) || 0
-          })),
-          price: parseFloat(fetchedProduct.price) || 0,
-          discountPrice: fetchedProduct.discountPrice ? parseFloat(fetchedProduct.discountPrice) : undefined,
-          stock: parseInt(fetchedProduct.stock) || 0,
-          specifications: fetchedProduct.specifications || []
-        };
-
-        setProduct(processedProduct);
-
-        // Set initial media (prefer video, then image)
-        const initialMedia = processedProduct.videos?.[0]
-          ? { type: 'video', url: processedProduct.videos[0].url }
-          : processedProduct.images?.[0]
-            ? { type: 'image', url: processedProduct.images[0].url }
+        // Set initial media from base product
+        const initialMedia = fetchedProduct.videos?.[0]
+          ? { type: 'video', url: fetchedProduct.videos[0].url }
+          : fetchedProduct.images?.[0]
+            ? { type: 'image', url: fetchedProduct.images[0].url }
             : { type: 'image', url: '/images/placeholder-product.png' };
+        console.log('Initial Media:', initialMedia); // Debug log
         setActiveMedia(initialMedia);
 
-        // Set default variant (first one, if available)
-        setSelectedVariant(processedProduct.variants?.[0] || null);
+        // Do not auto-select variant
+        console.log('Variants available:', fetchedProduct.variants?.length || 0); // Debug log
       } catch (err) {
-        console.error('Fetch error:', err);
+        console.error('Fetch error:', err); // Debug log
         setError(err.message || 'Failed to load product details');
         toast.error(err.message || 'Failed to load product details');
       } finally {
@@ -88,41 +61,51 @@ const ProductDetails = memo(() => {
     }
   }, [productId]);
 
-  const handleAddToCart = async () => {
-    if (!product || (selectedVariant ? selectedVariant.stock : product.stock) <= 0) {
-      toast.error('Product is out of stock');
-      return;
-    }
+ const handleAddToCart = async () => {
+  const currentStock = selectedVariant ? selectedVariant.stock : product?.stock;
+  const price = selectedVariant ? (selectedVariant.discountPrice ?? selectedVariant.price) : (product.discountPrice ?? product.price);
 
-    try {
-      await addItemToCart(
-        product._id,
-        selectedVariant?._id || null,
-        1 // Fixed quantity of 1
-      );
-      toast.success('Added to cart');
-    } catch (err) {
-      toast.error(err.message || 'Failed to add to cart');
-    }
-  };
+  if (!product || currentStock <= 0) {
+    toast.error('Product is out of stock');
+    return;
+  }
 
-  const handleOrderNow = async () => {
-    if (!product || (selectedVariant ? selectedVariant.stock : product.stock) <= 0) {
-      toast.error('Product is out of stock');
-      return;
-    }
+  try {
+    await addItemToCart(
+      product._id, 
+      selectedVariant?._id || null, 
+      1,
+      price  // Pass the price explicitly
+    );
+    toast.success('Added to cart');
+  } catch (err) {
+    toast.error(err.message || 'Failed to add to cart');
+  }
+};
 
-    try {
-      await addItemToCart(
-        product._id,
-        selectedVariant?._id || null,
-        1 // Fixed quantity of 1
-      );
-      navigate('/checkout');
-    } catch (err) {
-      toast.error(err.message || 'Failed to proceed to checkout');
-    }
-  };
+const handleOrderNow = async () => {
+  const currentStock = selectedVariant ? selectedVariant.stock : product?.stock;
+  const price = selectedVariant ? (selectedVariant.discountPrice ?? selectedVariant.price) : (product.discountPrice ?? product.price);
+
+  if (!product || currentStock <= 0) {
+    toast.error('Product is out of stock');
+    return;
+  }
+
+  try {
+    await addItemToCart(
+      product._id, 
+      selectedVariant?._id || null, 
+      1,
+      price  // Pass the price explicitly
+    );
+    navigate('/checkout');
+  } catch (err) {
+    toast.error(err.message || 'Failed to proceed to checkout');
+  }
+};
+
+ 
 
   const handleRetry = () => {
     setError(null);
@@ -131,26 +114,35 @@ const ProductDetails = memo(() => {
   };
 
   const handleMediaClick = (media, type = 'image') => {
+    console.log('Media Clicked:', { media, type }); // Debug log
     setActiveMedia({ type, url: media.url });
   };
 
-  const handleVariantSelect = (variant) => {
+  const handleVariantSelect = (variantId) => {
+    const variant = variantId ? product.variants.find((v) => v._id === variantId) : null;
+    console.log('Selected Variant:', variant); // Debug log
     setSelectedVariant(variant);
-    // Set variant's first video or image as active media
-    const media = variant.videos?.[0]
-      ? { type: 'video', url: variant.videos[0].url }
-      : variant.images?.[0]
-        ? { type: 'image', url: variant.images[0].url }
-        : product.videos?.[0]
-          ? { type: 'video', url: product.videos[0].url }
-          : product.images?.[0]
-            ? { type: 'image', url: product.images[0].url }
-            : { type: 'image', url: '/images/placeholder-product.png' };
+    const media = variant
+      ? variant.videos?.[0]
+        ? { type: 'video', url: variant.videos[0].url }
+        : variant.images?.[0]
+          ? { type: 'image', url: variant.images[0].url }
+          : product.videos?.[0]
+            ? { type: 'video', url: product.videos[0].url }
+            : product.images?.[0]
+              ? { type: 'image', url: product.images[0].url }
+              : { type: 'image', url: '/images/placeholder-product.png' }
+      : product.videos?.[0]
+        ? { type: 'video', url: product.videos[0].url }
+        : product.images?.[0]
+          ? { type: 'image', url: product.images[0].url }
+          : { type: 'image', url: '/images/placeholder-product.png' };
+    console.log('Active Media Set:', media); // Debug log
     setActiveMedia(media);
   };
 
   const handleMediaError = (e) => {
-    console.warn('Media failed to load:', e.target.src);
+    console.warn('Media failed to load:', e.target.src); // Debug log
     e.target.src = '/images/placeholder-product.png';
     e.target.onerror = null;
     if (e.target.tagName === 'VIDEO') {
@@ -161,6 +153,48 @@ const ProductDetails = memo(() => {
         loading="lazy"
       />`;
     }
+  };
+
+  const formatPrice = (price) => {
+    console.log('Formatting Price:', price); // Debug log
+    if (!Number.isFinite(price)) {
+      console.warn('Invalid price:', price); // Debug log
+      return 'Price unavailable';
+    }
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 0,
+    }).format(price);
+  };
+
+  const getVariantLabel = (variant, index) => {
+    const firstAttr = variant.attributes?.[0];
+    if (firstAttr?.value) {
+      return firstAttr.value.charAt(0).toUpperCase() + firstAttr.value.slice(1);
+    }
+    return `Variant ${index + 1}`;
+  };
+
+  const renderStars = (rating = 0) => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+
+    for (let i = 0; i < 5; i++) {
+      if (i < fullStars) {
+        stars.push(<FaStar key={i} className="text-yellow-400" />);
+      } else if (i === fullStars && hasHalfStar) {
+        stars.push(<FaStarHalfAlt key={i} className="text-yellow-400" />);
+      } else {
+        stars.push(<FaRegStar key={i} className="text-yellow-400" />);
+      }
+    }
+    return stars;
+  };
+
+  const toggleSection = (section) => {
+    setExpandedSection(expandedSection === section ? null : section);
   };
 
   if (isLoading) {
@@ -189,95 +223,24 @@ const ProductDetails = memo(() => {
     );
   }
 
-  const renderStars = (rating = 0) => {
-    const stars = [];
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
+  const currentPrice = selectedVariant
+    ? selectedVariant.discountPrice ?? selectedVariant.price
+    : product.discountPrice ?? product.price;
+  const originalPrice = selectedVariant ? selectedVariant.price : product.price;
+  const currentStock = selectedVariant ? selectedVariant.stock : product.stock;
+  console.log('Price and Stock:', { currentPrice, originalPrice, currentStock }); // Debug log
 
-    for (let i = 0; i < 5; i++) {
-      if (i < fullStars) {
-        stars.push(
-          <svg
-            key={i}
-            className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118l-2.8-2.034c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-          </svg>
-        );
-      } else if (i === fullStars && hasHalfStar) {
-        stars.push(
-          <svg
-            key={i}
-            className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <defs>
-              <linearGradient id="half-star" x1="0" x2="100%" y1="0" y2="0">
-                <stop offset="50%" stopColor="currentColor" />
-                <stop offset="50%" stopColor="#D1D5DB" />
-              </linearGradient>
-            </defs>
-            <path
-              fill="url(#half-star)"
-              d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118l-2.8-2.034c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"
-            />
-          </svg>
-        );
-      } else {
-        stars.push(
-          <svg
-            key={i}
-            className="w-4 h-4 sm:w-5 sm:h-5 text-gray-300"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3 .921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784 .57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118l-2.8-2.034c-.783-.57-.38-1.81 .588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-          </svg>
-        );
-      }
-    }
-    return stars;
-  };
-
-  const formatPrice = (price) => {
-    if (!Number.isFinite(price)) {
-      console.warn('Invalid price:', price);
-      return 'Price unavailable';
-    }
-    return new Intl.NumberFormat('en-PK', {
-      style: 'currency',
-      currency: 'PKR',
-      minimumFractionDigits: 0,
-    }).format(price);
-  };
-
-  // Ensure valid price and stock
-  const currentPrice = Number.isFinite(selectedVariant?.discountPrice)
-    ? selectedVariant.discountPrice
-    : Number.isFinite(selectedVariant?.price)
-      ? selectedVariant.price
-      : Number.isFinite(product.discountPrice)
-        ? product.discountPrice
-        : product.price || 0;
-
-  const originalPrice = selectedVariant
-    ? selectedVariant.price
-    : product.price || 0;
-
-  const currentStock = Number.isFinite(selectedVariant?.stock)
-    ? selectedVariant.stock
-    : product.stock || 0;
+  const hasDiscount = Number.isFinite(currentPrice) && Number.isFinite(originalPrice) && currentPrice < originalPrice;
+  const discountPercentage = hasDiscount
+    ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
+    : 0;
 
   return (
     <section className="py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row gap-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
+        <div className="flex flex-col lg:flex-row gap-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
           {/* Media section */}
-          <div className="w-full md:w-1/2 flex flex-col gap-4">
-            {/* Main media */}
+          <div className="w-full lg:w-1/2 flex flex-col gap-4">
             <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-center h-96">
               {activeMedia.type === 'video' ? (
                 <video
@@ -299,10 +262,9 @@ const ProductDetails = memo(() => {
               )}
             </div>
 
-            {/* Thumbnail media (images and videos) */}
-            {(product.images?.length || product.videos?.length || selectedVariant?.images?.length || selectedVariant?.videos?.length) && (
-              <div className="flex gap-2 overflow-x-auto pb-2">
-                {product.images?.map((img, index) => (
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              {product.images?.length > 0 &&
+                product.images.map((img, index) => (
                   <button
                     key={`img-${index}`}
                     type="button"
@@ -310,6 +272,7 @@ const ProductDetails = memo(() => {
                       activeMedia.url === img.url && activeMedia.type === 'image' ? 'border-red-600' : 'border-gray-200'
                     }`}
                     onClick={() => handleMediaClick(img, 'image')}
+                    aria-label={`View image ${index + 1}`}
                   >
                     <img
                       src={img.url}
@@ -320,7 +283,8 @@ const ProductDetails = memo(() => {
                     />
                   </button>
                 ))}
-                {product.videos?.map((vid, index) => (
+              {product.videos?.length > 0 &&
+                product.videos.map((vid, index) => (
                   <button
                     key={`vid-${index}`}
                     type="button"
@@ -328,6 +292,7 @@ const ProductDetails = memo(() => {
                       activeMedia.url === vid.url && activeMedia.type === 'video' ? 'border-red-600' : 'border-gray-200'
                     }`}
                     onClick={() => handleMediaClick(vid, 'video')}
+                    aria-label={`View video ${index + 1}`}
                   >
                     <video
                       src={vid.url}
@@ -343,7 +308,8 @@ const ProductDetails = memo(() => {
                     </div>
                   </button>
                 ))}
-                {selectedVariant?.images?.map((img, index) => (
+              {selectedVariant?.images?.length > 0 ? (
+                selectedVariant.images.map((img, index) => (
                   <button
                     key={`var-img-${index}`}
                     type="button"
@@ -351,6 +317,7 @@ const ProductDetails = memo(() => {
                       activeMedia.url === img.url && activeMedia.type === 'image' ? 'border-red-600' : 'border-gray-200'
                     }`}
                     onClick={() => handleMediaClick(img, 'image')}
+                    aria-label={`View variant image ${index + 1}`}
                   >
                     <img
                       src={img.url}
@@ -360,8 +327,12 @@ const ProductDetails = memo(() => {
                       onError={handleMediaError}
                     />
                   </button>
-                ))}
-                {selectedVariant?.videos?.map((vid, index) => (
+                ))
+              ) : selectedVariant ? (
+                <p className="text-sm text-gray-500">No variant images available</p>
+              ) : null}
+              {selectedVariant?.videos?.length > 0 &&
+                selectedVariant.videos.map((vid, index) => (
                   <button
                     key={`var-vid-${index}`}
                     type="button"
@@ -369,6 +340,7 @@ const ProductDetails = memo(() => {
                       activeMedia.url === vid.url && activeMedia.type === 'video' ? 'border-red-600' : 'border-gray-200'
                     }`}
                     onClick={() => handleMediaClick(vid, 'video')}
+                    aria-label={`View variant video ${index + 1}`}
                   >
                     <video
                       src={vid.url}
@@ -384,55 +356,36 @@ const ProductDetails = memo(() => {
                     </div>
                   </button>
                 ))}
-              </div>
-            )}
+              {console.log('Rendering Variant Images:', selectedVariant?.images?.length || 0)} {/* Debug log */}
+            </div>
           </div>
 
-          {/* Product details */}
-          <div className="w-full md:w-1/2 flex flex-col gap-4">
+          <div className="w-full lg:w-1/2 flex flex-col gap-4">
             <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">
               {product.title || 'Untitled Product'}
             </h1>
 
-            {/* SKU */}
-            {product.sku && (
-              <p className="text-sm text-gray-600">
-                SKU: <span className="font-medium">{product.sku}</span>
-              </p>
-            )}
-
-            {/* Rating */}
             <div className="flex items-center gap-2">
-              <div className="flex">
-                {renderStars(product.averageRating || 0)}
-              </div>
-              <span className="text-gray-600 text-sm sm:text-base">
-                {product.numReviews || 0} reviews
-              </span>
+              <div className="flex">{renderStars(product.averageRating || 0)}</div>
+              <span className="text-gray-600 text-sm sm:text-base">{product.numReviews || 0} reviews</span>
             </div>
 
-            {/* Price */}
+            <p className="text-sm text-gray-600">
+              SKU: <span className="font-medium">{selectedVariant?.sku || product.sku || 'N/A'}</span>
+            </p>
+
             <div className="flex items-center gap-3">
-              {currentPrice < originalPrice ? (
+              <p className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">{formatPrice(currentPrice)}</p>
+              {hasDiscount && (
                 <>
-                  <p className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">
-                    {formatPrice(currentPrice)}
-                  </p>
-                  <p className="text-base text-gray-500 line-through">
-                    {formatPrice(originalPrice)}
-                  </p>
+                  <p className="text-base text-gray-500 line-through">{formatPrice(originalPrice)}</p>
                   <span className="bg-red-100 text-red-800 text-xs font-medium px-2 py-0.5 rounded">
-                    {Math.round(((originalPrice - currentPrice) / originalPrice) * 100)}% OFF
+                    {discountPercentage}% OFF
                   </span>
                 </>
-              ) : (
-                <p className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">
-                  {formatPrice(currentPrice)}
-                </p>
               )}
             </div>
 
-            {/* Stock */}
             <p
               className={`text-sm sm:text-base ${
                 currentStock > 0 ? 'text-green-600' : 'text-red-600'
@@ -441,33 +394,58 @@ const ProductDetails = memo(() => {
               {currentStock > 0 ? `${currentStock} in stock` : 'Out of stock'}
             </p>
 
-            {/* Variants */}
             {product.variants?.length > 0 && (
-              <div>
-                <h3 className="text-sm sm:text-base font-medium text-gray-900 mb-2">
-                  Variants
-                </h3>
-                <div className="flex flex-wrap gap-2">
+              <div className="mt-4">
+                <label htmlFor="variant-select" className="text-sm sm:text-base font-medium text-gray-900 mb-2 block">
+                  Select Variant
+                </label>
+                <select
+                  id="variant-select"
+                  value={selectedVariant?._id || ''}
+                  onChange={(e) => handleVariantSelect(e.target.value)}
+                  className="w-full sm:w-64 border border-gray-300 rounded-md px-3 py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-red-600"
+                  aria-label="Select product variant"
+                >
+                  <option value="">Select a variant</option>
                   {product.variants.map((variant, index) => (
-                    <button
-                      key={variant._id || index}
-                      type="button"
-                      onClick={() => handleVariantSelect(variant)}
-                      className={`px-3 py-1.5 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-red-600 ${
-                        selectedVariant?._id === variant._id
-                          ? 'border-red-600 bg-red-50 text-red-600'
-                          : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
-                      }`}
-                      aria-label={`Select variant ${variant.attributes?.map(a => `${a.key}: ${a.value}`).join(', ')}`}
-                    >
-                      {variant.attributes?.map(a => `${a.key}: ${a.value}`).join(', ') || `Variant ${index + 1}`}
-                    </button>
+                    <option key={variant._id || index} value={variant._id}>
+                      {getVariantLabel(variant, index)} - {formatPrice(variant.discountPrice ?? variant.price)}
+                      {variant.stock <= 0 && ' (Out of stock)'}
+                    </option>
                   ))}
-                </div>
+                </select>
+
+                {/* Variant Summary */}
+                {selectedVariant && (
+                  <div className="mt-2 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
+                    <p>
+                      <span className="font-medium">Selected:</span> {getVariantLabel(selectedVariant, product.variants.indexOf(selectedVariant))}
+                    </p>
+                    <p>
+                      <span className="font-medium">Price:</span> {formatPrice(selectedVariant.discountPrice ?? selectedVariant.price)}
+                      {selectedVariant.discountPrice && (
+                        <span className="text-gray-500 line-through ml-2">{formatPrice(selectedVariant.price)}</span>
+                      )}
+                    </p>
+                    <p>
+                      <span className="font-medium">Stock:</span>{' '}
+                      {selectedVariant.stock > 0 ? (
+                        <span className="text-green-600">{selectedVariant.stock} in stock</span>
+                      ) : (
+                        <span className="text-red-600">Out of stock</span>
+                      )}
+                    </p>
+                    {selectedVariant.attributes?.length > 0 && (
+                      <p>
+                        <span className="font-medium">Attributes:</span>{' '}
+                        {selectedVariant.attributes.map((a) => `${a.key}: ${a.value}`).join(', ')}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-3 mt-4">
               <Button
                 onClick={handleAddToCart}
@@ -495,122 +473,139 @@ const ProductDetails = memo(() => {
               </Button>
             </div>
 
-            {/* Description */}
             <div className="mt-4">
-              <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">
-                Description
+              <h3
+                className="text-base sm:text-lg font-medium text-gray-900 mb-2 cursor-pointer flex justify-between items-center"
+                onClick={() => toggleSection('description')}
+              >
+                <span>Description</span>
+                <span className="text-lg">{expandedSection === 'description' ? '−' : '+'}</span>
               </h3>
-              <p className="text-gray-600 text-sm sm:text-base">
-                {product.description || 'No description available'}
-              </p>
+              {expandedSection === 'description' && (
+                <p className="text-gray-600 text-sm sm:text-base">
+                  {product.description || 'No description available'}
+                </p>
+              )}
             </div>
 
-            {/* Features */}
             {product.features?.length > 0 && (
               <div className="mt-4">
-                <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">
-                  Features
+                <h3
+                  className="text-base sm:text-lg font-medium text-gray-900 mb-2 cursor-pointer flex justify-between items-center"
+                  onClick={() => toggleSection('features')}
+                >
+                  <span>Features</span>
+                  <span className="text-lg">{expandedSection === 'features' ? '−' : '+'}</span>
                 </h3>
-                <ul className="text-gray-600 text-sm sm:text-base list-disc pl-5">
-                  {product.features.map((feature, index) => (
-                    <li key={index}>{feature}</li>
-                  ))}
-                </ul>
+                {expandedSection === 'features' && (
+                  <ul className="text-gray-600 text-sm sm:text-base list-disc pl-5 space-y-1">
+                    {product.features.map((feature, index) => (
+                      <li key={index}>{feature}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
 
-            {/* Specifications */}
             {product.specifications?.length > 0 && (
               <div className="mt-4">
-                <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">
-                  Specifications
+                <h3
+                  className="text-base sm:text-lg font-medium text-gray-900 mb-2 cursor-pointer flex justify-between items-center"
+                  onClick={() => toggleSection('specifications')}
+                >
+                  <span>Specifications</span>
+                  <span className="text-lg">{expandedSection === 'specifications' ? '−' : '+'}</span>
                 </h3>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {product.specifications.map((spec, index) => (
-                        <tr key={index}>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
-                            {spec.key}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {spec.value}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                {expandedSection === 'specifications' && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {product.specifications.map((spec, index) => (
+                          <tr key={index}>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
+                              {spec.key}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{spec.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Variant Details */}
             {selectedVariant && (
               <div className="mt-4">
-                <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">
-                  Selected Variant Details
+                <h3
+                  className="text-base sm:text-lg font-medium text-gray-900 mb-2 cursor-pointer flex justify-between items-center"
+                  onClick={() => toggleSection('variant')}
+                >
+                  <span>Selected Variant Details</span>
+                  <span className="text-lg">{expandedSection === 'variant' ? '−' : '+'}</span>
                 </h3>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {selectedVariant.attributes?.map((attr, index) => (
-                        <tr key={index}>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 capitalize">
-                            {attr.key}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 capitalize">
-                            {attr.value}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
-                          SKU
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                          {selectedVariant.sku || 'N/A'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
-                          Price
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                          {formatPrice(selectedVariant.price)}
-                        </td>
-                      </tr>
-                      {selectedVariant.discountPrice && (
+                {expandedSection === 'variant' && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {selectedVariant.attributes?.map((attr, index) => (
+                          <tr key={index}>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 capitalize">
+                              {attr.key}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 capitalize">
+                              {attr.value}
+                            </td>
+                          </tr>
+                        ))}
                         <tr>
                           <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
-                            Discount Price
+                            SKU
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {formatPrice(selectedVariant.discountPrice)}
+                            {selectedVariant.sku || 'N/A'}
                           </td>
                         </tr>
-                      )}
-                      <tr>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
-                          Stock
-                        </td>
-                        <td className={`px-4 py-3 whitespace-nowrap text-sm ${
-                          selectedVariant.stock > 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {selectedVariant.stock > 0 ? `${selectedVariant.stock} in stock` : 'Out of stock'}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                        <tr>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
+                            Price
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                            {formatPrice(selectedVariant.price)}
+                          </td>
+                        </tr>
+                        {selectedVariant.discountPrice && (
+                          <tr>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
+                              Discount Price
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                              {formatPrice(selectedVariant.discountPrice)}
+                            </td>
+                          </tr>
+                        )}
+                        <tr>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
+                            Stock
+                          </td>
+                          <td
+                            className={`px-4 py-3 whitespace-nowrap text-sm ${
+                              selectedVariant.stock > 0 ? 'text-green-600' : 'text-red-600'
+                            }`}
+                          >
+                            {selectedVariant.stock > 0 ? `${selectedVariant.stock} in stock` : 'Out of stock'}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Category */}
             {product.categoryId && (
               <div className="mt-4">
-                <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">
-                  Category
-                </h3>
+                <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-2">Category</h3>
                 <span className="inline-block bg-gray-100 text-gray-600 text-xs sm:text-sm px-3 py-1 rounded-full">
                   {product.categoryId.name || 'Uncategorized'}
                 </span>
@@ -632,21 +627,21 @@ ProductDetails.propTypes = {
     PropTypes.shape({
       url: PropTypes.string,
       alt: PropTypes.string,
-      public_id: PropTypes.string
-    })
+      public_id: PropTypes.string,
+    }),
   ),
   videos: PropTypes.arrayOf(
     PropTypes.shape({
       url: PropTypes.string,
-      public_id: PropTypes.string
-    })
+      public_id: PropTypes.string,
+    }),
   ),
   features: PropTypes.arrayOf(PropTypes.string),
   specifications: PropTypes.arrayOf(
     PropTypes.shape({
       key: PropTypes.string,
-      value: PropTypes.string
-    })
+      value: PropTypes.string,
+    }),
   ),
   sku: PropTypes.string,
   stock: PropTypes.number,
@@ -655,7 +650,7 @@ ProductDetails.propTypes = {
   description: PropTypes.string,
   categoryId: PropTypes.shape({
     _id: PropTypes.string,
-    name: PropTypes.string
+    name: PropTypes.string,
   }),
   variants: PropTypes.arrayOf(
     PropTypes.shape({
@@ -667,23 +662,23 @@ ProductDetails.propTypes = {
       attributes: PropTypes.arrayOf(
         PropTypes.shape({
           key: PropTypes.string,
-          value: PropTypes.string
-        })
+          value: PropTypes.string,
+        }),
       ),
       images: PropTypes.arrayOf(
         PropTypes.shape({
           url: PropTypes.string,
-          public_id: PropTypes.string
-        })
+          public_id: PropTypes.string,
+        }),
       ),
       videos: PropTypes.arrayOf(
         PropTypes.shape({
-          url: PropTypes.string,
-          public_id: PropTypes.string
-        })
-      )
-    })
-  )
+          url: String,
+          public_id: String,
+        }),
+      ),
+    }),
+  ),
 };
 
 export default ProductDetails;
