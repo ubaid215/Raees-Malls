@@ -1,3 +1,5 @@
+// Fixed passport.js configuration with dynamic URL handling
+
 module.exports = function (passport) {
   const LocalStrategy = require('passport-local').Strategy;
   const GoogleStrategy = require('passport-google-oauth20').Strategy;
@@ -42,13 +44,21 @@ module.exports = function (passport) {
     )
   );
 
-  // Google Strategy
+  // Determine correct callback URL based on environment
+  const googleCallbackURL = process.env.NODE_ENV === 'production'
+    ? `${process.env.BACKEND_PROD_URL}/api/auth/google/callback`
+    : `${process.env.BACKEND_DEV_URL}/api/auth/google/callback`;
+  
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('Google Callback URL:', googleCallbackURL);
+  
+  // Google Strategy with dynamic callback URL
   passport.use(
     new GoogleStrategy(
       {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: `${process.env.BACKEND_URL}/api/auth/google/callback`,
+        callbackURL: googleCallbackURL,
       },
       async (accessToken, refreshToken, profile, done) => {
         try {

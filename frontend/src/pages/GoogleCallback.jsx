@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -6,8 +6,11 @@ const GoogleCallback = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { fetchUser } = useAuth();
+  const hasProcessed = useRef(false); // Track if callback was processed
 
   useEffect(() => {
+    if (hasProcessed.current) return; // Skip if already processed
+
     const handleCallback = async () => {
       try {
         console.log('GoogleCallback: Processing callback', location.search);
@@ -27,21 +30,30 @@ const GoogleCallback = () => {
           throw new Error('Missing or invalid authentication parameters');
         }
 
+        // Check if tokens are already stored
+        if (localStorage.getItem('token')) {
+          console.log('GoogleCallback: Tokens already exist, navigating to /account');
+          navigate('/account', { replace: true });
+          return;
+        }
+
         localStorage.setItem('token', token);
         localStorage.setItem('refreshToken', refreshToken);
         localStorage.setItem('userId', userId);
         console.log('GoogleCallback: Tokens stored, fetching user...');
         await fetchUser();
         console.log('GoogleCallback: User fetched, navigating to /account');
+        hasProcessed.current = true; // Mark as processed
         navigate('/account', { replace: true });
       } catch (err) {
         console.error('GoogleCallback error:', err.message, err);
+        hasProcessed.current = true; // Prevent retry on error
         navigate('/login', { state: { error: err.message || 'Google login failed' } });
       }
     };
 
     handleCallback();
-  }, [navigate, fetchUser, location]);
+  }, [navigate, fetchUser, location.search]); // Use location.search instead of location
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">

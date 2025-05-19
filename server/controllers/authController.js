@@ -1,3 +1,5 @@
+// Fixed authController.js with proper URL handling
+
 const { validationResult } = require('express-validator');
 const passport = require('passport');
 const User = require('../models/User');
@@ -96,11 +98,13 @@ exports.googleAuthCallback = (req, res, next) => {
         await Token.create({ userId: user._id, token: tokens.refreshToken });
 
         // Determine the frontend callback URL based on environment
-        const frontendCallbackUrl = `${
-          process.env.NODE_ENV === 'production'
-            ? process.env.FRONTEND_PROD_URL
-            : process.env.FRONTEND_DEV_URL
-        }/callback?token=${tokens.accessToken}&refreshToken=${tokens.refreshToken}&userId=${user._id}`;
+        const frontendUrl = process.env.NODE_ENV === 'production'
+          ? process.env.FRONTEND_PROD_URL
+          : process.env.FRONTEND_DEV_URL;
+        
+        const frontendCallbackUrl = `${frontendUrl}/callback?token=${tokens.accessToken}&refreshToken=${tokens.refreshToken}&userId=${user._id}`;
+        
+        console.log('Redirecting to:', frontendCallbackUrl);
         res.redirect(frontendCallbackUrl);
       });
     } catch (error) {

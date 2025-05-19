@@ -5,7 +5,6 @@ const passport = require('passport');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const cookieParser = require('cookie-parser');
-// CORS middleware commented out - being handled by Nginx instead
 const cors = require('cors');
 const path = require('path');
 const helmet = require('helmet');
@@ -18,6 +17,19 @@ const { Server } = require('socket.io');
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
+
+// Environment Configuration
+const isProduction = process.env.NODE_ENV === 'production';
+const frontendUrl = isProduction ? process.env.FRONTEND_PROD_URL : process.env.FRONTEND_DEV_URL;
+const backendUrl = isProduction ? process.env.BACKEND_PROD_URL : process.env.BACKEND_DEV_URL;
+
+// Log environment details for debugging
+console.log(`
+=== Environment Configuration ===
+NODE_ENV: ${process.env.NODE_ENV}
+Frontend URL: ${frontendUrl}
+Backend URL: ${backendUrl}
+`);
 
 // Security middleware
 app.use(helmet());
@@ -33,7 +45,7 @@ app.use((req, res, next) => {
 // Connect to MongoDB
 connectDB();
 
-// CORS Configuration - commented out as Nginx is handling CORS
+// CORS Configuration
 const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = [
@@ -48,6 +60,7 @@ const corsOptions = {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log(`CORS blocked origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));  
     }
   },
@@ -56,13 +69,29 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 
-// Comment out CORS middleware as Nginx handles it now
+
+// Comment it when update on live site
 // app.use(cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Dynamic cookie domain based on environment
+let cookieDomain;
+if (isProduction) {
+  // Extract domain from FRONTEND_PROD_URL
+  try {
+    const url = new URL(process.env.FRONTEND_PROD_URL);
+    cookieDomain = url.hostname.startsWith('www.') 
+      ? url.hostname.substring(4) 
+      : url.hostname;
+  } catch (e) {
+    cookieDomain = '.raeesmalls.com'; // Fallback
+    console.warn('Failed to parse FRONTEND_PROD_URL for cookie domain:', e.message);
+  }
+}
 
 // Session configuration
 app.use(session({
@@ -74,11 +103,11 @@ app.use(session({
     collectionName: 'sessions'
   }),
   cookie: { 
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    sameSite: isProduction ? 'none' : 'lax',
     maxAge: 24 * 60 * 60 * 1000,
-    domain: process.env.NODE_ENV === 'production' ? '.raeesmalls.com' : undefined
+    domain: cookieDomain
   }
 }));
 
@@ -95,7 +124,10 @@ const io = new Server(server, {
   cors: {
     origin: [
       process.env.FRONTEND_PROD_URL,
-      process.env.FRONTEND_DEV_URL
+      process.env.FRONTEND_DEV_URL,
+      'https://raeesmalls.com',
+      'https://www.raeesmalls.com',
+      'http://localhost:5173'
     ],
     methods: ['GET', 'POST'],
     credentials: true
@@ -147,6 +179,17 @@ app.use('/api/banners', bannerRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/discounts', discountRoutes);
 
+// Environment check endpoint
+app.get('/environment', (req, res) => {
+  res.status(200).json({
+    nodeEnv: process.env.NODE_ENV,
+    frontendUrl,
+    backendUrl,
+    isProduction,
+    timestamp: new Date()
+  });
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date() });
@@ -193,9 +236,12 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`
+  ==========================================
   Server running in ${process.env.NODE_ENV} mode
   Port: ${PORT}
-  CORS handling moved to Nginx
+  Frontend URL: ${frontendUrl}
+  Backend URL: ${backendUrl}
+  ==========================================
   `);
 });
 

@@ -6,8 +6,7 @@ import {
   refreshToken, 
   getMe, 
   updateUser, 
-  googleLogin,
-  handleGoogleRedirect 
+  googleLogin 
 } from '../services/authServices';
 import socketService from '../services/socketService';
 
@@ -23,30 +22,7 @@ const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initializeAuth = async () => {
-      // Check if we're returning from Google OAuth redirect
-      try {
-        const googleUser = await handleGoogleRedirect();
-        if (googleUser) {
-          setAuthState({
-            user: googleUser,
-            loading: false,
-            error: null,
-            needsFetch: false,
-          });
-          setupSocketConnection(googleUser);
-          return;
-        }
-      } catch (googleError) {
-        console.error("Google auth redirect error:", googleError);
-        setAuthState(prev => ({
-          ...prev, 
-          error: [{ msg: googleError.message || "Google authentication failed" }],
-          loading: false
-        }));
-        return;
-      }
-
-      // Regular token-based auth flow
+      // Skip Google redirect handling; let GoogleCallback.jsx handle it
       const storedToken = localStorage.getItem('token');
       if (storedToken) {
         try {
@@ -134,6 +110,8 @@ const AuthProvider = ({ children }) => {
       }
 
       const userData = await getMe();
+      localStorage.setItem('userData', JSON.stringify(userData));
+      localStorage.setItem('userDataTimestamp', Date.now().toString());
       setAuthState({
         user: userData,
         loading: false,
@@ -152,6 +130,8 @@ const AuthProvider = ({ children }) => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const userData = await login(credentials.email, credentials.password);
+      localStorage.setItem('userData', JSON.stringify(userData));
+      localStorage.setItem('userDataTimestamp', Date.now().toString());
       setAuthState({
         user: userData,
         loading: false,
@@ -180,6 +160,8 @@ const AuthProvider = ({ children }) => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const newUser = await register(userData.name, userData.email, userData.password);
+      localStorage.setItem('userData', JSON.stringify(newUser));
+      localStorage.setItem('userDataTimestamp', Date.now().toString());
       setAuthState({
         user: newUser,
         loading: false,
@@ -211,6 +193,8 @@ const AuthProvider = ({ children }) => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const userData = await refreshToken();
+      localStorage.setItem('userData', JSON.stringify(userData));
+      localStorage.setItem('userDataTimestamp', Date.now().toString());
       setAuthState((prev) => ({
         ...prev,
         user: userData || prev.user,
@@ -229,6 +213,8 @@ const AuthProvider = ({ children }) => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const updatedUser = await updateUser(userData);
+      localStorage.setItem('userData', JSON.stringify(updatedUser));
+      localStorage.setItem('userDataTimestamp', Date.now().toString());
       setAuthState({
         user: updatedUser,
         loading: false,
@@ -253,7 +239,7 @@ const AuthProvider = ({ children }) => {
       logoutUser,
       refreshUserToken,
       fetchUser,
-      updateUser: updateUserProfile, // Renamed to avoid collision
+      updateUser: updateUserProfile,
     }),
     [authState]
   );
