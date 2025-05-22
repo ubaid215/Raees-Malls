@@ -24,7 +24,6 @@ attributeSchema.pre('validate', function (next) {
 const variantSchema = new mongoose.Schema({
   sku: {
     type: String,
-    unique: true,
     trim: true,
     uppercase: true,
   },
