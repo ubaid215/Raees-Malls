@@ -13,7 +13,10 @@ const AddProductPage = () => {
     setLoading(true);
     try {
       console.log('Submitting product:', {
-        productData,
+        productData: {
+          ...productData,
+          shippingCost: productData.shippingCost,
+        },
         baseImagesCount: media.baseImages?.length || 0,
         baseVideosCount: media.baseVideos?.length || 0,
         variantImagesCount: media.variantImages?.map(v => v?.length || 0) || [],

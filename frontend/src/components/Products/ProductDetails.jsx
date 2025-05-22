@@ -42,7 +42,8 @@ const ProductDetails = memo(() => {
         console.log('Initial Media:', initialMedia); // Debug log
         setActiveMedia(initialMedia);
 
-        // Do not auto-select variant
+        // Reset selected variant to null (base product)
+        setSelectedVariant(null);
         console.log('Variants available:', fetchedProduct.variants?.length || 0); // Debug log
       } catch (err) {
         console.error('Fetch error:', err); // Debug log
@@ -61,51 +62,49 @@ const ProductDetails = memo(() => {
     }
   }, [productId]);
 
- const handleAddToCart = async () => {
-  const currentStock = selectedVariant ? selectedVariant.stock : product?.stock;
-  const price = selectedVariant ? (selectedVariant.discountPrice ?? selectedVariant.price) : (product.discountPrice ?? product.price);
+  const handleAddToCart = async () => {
+    const currentStock = selectedVariant ? selectedVariant.stock : product?.stock;
+    const price = selectedVariant ? (selectedVariant.discountPrice ?? selectedVariant.price) : (product.discountPrice ?? product.price);
 
-  if (!product || currentStock <= 0) {
-    toast.error('Product is out of stock');
-    return;
-  }
+    if (!product || currentStock <= 0) {
+      toast.error('Product is out of stock');
+      return;
+    }
 
-  try {
-    await addItemToCart(
-      product._id, 
-      selectedVariant?._id || null, 
-      1,
-      price  // Pass the price explicitly
-    );
-    toast.success('Added to cart');
-  } catch (err) {
-    toast.error(err.message || 'Failed to add to cart');
-  }
-};
+    try {
+      await addItemToCart(
+        product._id, 
+        selectedVariant?._id || null, 
+        1,
+        price  // Pass the price explicitly
+      );
+      toast.success('Added to cart');
+    } catch (err) {
+      toast.error(err.message || 'Failed to add to cart');
+    }
+  };
 
-const handleOrderNow = async () => {
-  const currentStock = selectedVariant ? selectedVariant.stock : product?.stock;
-  const price = selectedVariant ? (selectedVariant.discountPrice ?? selectedVariant.price) : (product.discountPrice ?? product.price);
+  const handleOrderNow = async () => {
+    const currentStock = selectedVariant ? selectedVariant.stock : product?.stock;
+    const price = selectedVariant ? (selectedVariant.discountPrice ?? selectedVariant.price) : (product.discountPrice ?? product.price);
 
-  if (!product || currentStock <= 0) {
-    toast.error('Product is out of stock');
-    return;
-  }
+    if (!product || currentStock <= 0) {
+      toast.error('Product is out of stock');
+      return;
+    }
 
-  try {
-    await addItemToCart(
-      product._id, 
-      selectedVariant?._id || null, 
-      1,
-      price  // Pass the price explicitly
-    );
-    navigate('/checkout');
-  } catch (err) {
-    toast.error(err.message || 'Failed to proceed to checkout');
-  }
-};
-
- 
+    try {
+      await addItemToCart(
+        product._id, 
+        selectedVariant?._id || null, 
+        1,
+        price  // Pass the price explicitly
+      );
+      navigate('/checkout');
+    } catch (err) {
+      toast.error(err.message || 'Failed to proceed to checkout');
+    }
+  };
 
   const handleRetry = () => {
     setError(null);
@@ -113,32 +112,18 @@ const handleOrderNow = async () => {
     setProduct(null);
   };
 
-  const handleMediaClick = (media, type = 'image') => {
-    console.log('Media Clicked:', { media, type }); // Debug log
+  const handleMediaClick = (media, type = 'image', variantId = null) => {
+    console.log('Media Clicked:', { media, type, variantId }); // Debug log
     setActiveMedia({ type, url: media.url });
-  };
-
-  const handleVariantSelect = (variantId) => {
-    const variant = variantId ? product.variants.find((v) => v._id === variantId) : null;
-    console.log('Selected Variant:', variant); // Debug log
-    setSelectedVariant(variant);
-    const media = variant
-      ? variant.videos?.[0]
-        ? { type: 'video', url: variant.videos[0].url }
-        : variant.images?.[0]
-          ? { type: 'image', url: variant.images[0].url }
-          : product.videos?.[0]
-            ? { type: 'video', url: product.videos[0].url }
-            : product.images?.[0]
-              ? { type: 'image', url: product.images[0].url }
-              : { type: 'image', url: '/images/placeholder-product.png' }
-      : product.videos?.[0]
-        ? { type: 'video', url: product.videos[0].url }
-        : product.images?.[0]
-          ? { type: 'image', url: product.images[0].url }
-          : { type: 'image', url: '/images/placeholder-product.png' };
-    console.log('Active Media Set:', media); // Debug log
-    setActiveMedia(media);
+    
+    // If clicking on variant media, select that variant
+    if (variantId) {
+      const variant = product.variants.find(v => v._id === variantId);
+      setSelectedVariant(variant);
+    } else {
+      // If clicking on base product media, deselect variant
+      setSelectedVariant(null);
+    }
   };
 
   const handleMediaError = (e) => {
@@ -263,13 +248,14 @@ const handleOrderNow = async () => {
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-2">
+              {/* Base Product Images */}
               {product.images?.length > 0 &&
                 product.images.map((img, index) => (
                   <button
                     key={`img-${index}`}
                     type="button"
                     className={`flex-shrink-0 w-16 h-16 border-2 rounded-md cursor-pointer transition-all ${
-                      activeMedia.url === img.url && activeMedia.type === 'image' ? 'border-red-600' : 'border-gray-200'
+                      activeMedia.url === img.url && activeMedia.type === 'image' && !selectedVariant ? 'border-red-600' : 'border-gray-200'
                     }`}
                     onClick={() => handleMediaClick(img, 'image')}
                     aria-label={`View image ${index + 1}`}
@@ -283,13 +269,15 @@ const handleOrderNow = async () => {
                     />
                   </button>
                 ))}
+              
+              {/* Base Product Videos */}
               {product.videos?.length > 0 &&
                 product.videos.map((vid, index) => (
                   <button
                     key={`vid-${index}`}
                     type="button"
                     className={`flex-shrink-0 w-16 h-16 border-2 rounded-md cursor-pointer transition-all relative ${
-                      activeMedia.url === vid.url && activeMedia.type === 'video' ? 'border-red-600' : 'border-gray-200'
+                      activeMedia.url === vid.url && activeMedia.type === 'video' && !selectedVariant ? 'border-red-600' : 'border-gray-200'
                     }`}
                     onClick={() => handleMediaClick(vid, 'video')}
                     aria-label={`View video ${index + 1}`}
@@ -308,39 +296,45 @@ const handleOrderNow = async () => {
                     </div>
                   </button>
                 ))}
-              {selectedVariant?.images?.length > 0 ? (
-                selectedVariant.images.map((img, index) => (
+
+              {/* Variant Images */}
+              {product.variants?.map((variant) =>
+                variant.images?.map((img, index) => (
                   <button
-                    key={`var-img-${index}`}
+                    key={`var-${variant._id}-img-${index}`}
                     type="button"
-                    className={`flex-shrink-0 w-16 h-16 border-2 rounded-md cursor-pointer transition-all ${
-                      activeMedia.url === img.url && activeMedia.type === 'image' ? 'border-red-600' : 'border-gray-200'
+                    className={`flex-shrink-0 w-16 h-16 border-2 rounded-md cursor-pointer transition-all relative ${
+                      activeMedia.url === img.url && activeMedia.type === 'image' && selectedVariant?._id === variant._id ? 'border-red-600' : 'border-gray-200'
                     }`}
-                    onClick={() => handleMediaClick(img, 'image')}
-                    aria-label={`View variant image ${index + 1}`}
+                    onClick={() => handleMediaClick(img, 'image', variant._id)}
+                    aria-label={`View ${getVariantLabel(variant, product.variants.indexOf(variant))} image ${index + 1}`}
                   >
                     <img
                       src={img.url}
-                      alt={`${product.title} variant thumbnail ${index + 1}`}
+                      alt={`${product.title} ${getVariantLabel(variant, product.variants.indexOf(variant))} thumbnail ${index + 1}`}
                       className="w-full h-full object-cover rounded-md"
                       loading="lazy"
                       onError={handleMediaError}
                     />
+                    {/* Variant indicator */}
+                    <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                      V
+                    </div>
                   </button>
                 ))
-              ) : selectedVariant ? (
-                <p className="text-sm text-gray-500">No variant images available</p>
-              ) : null}
-              {selectedVariant?.videos?.length > 0 &&
-                selectedVariant.videos.map((vid, index) => (
+              )}
+
+              {/* Variant Videos */}
+              {product.variants?.map((variant) =>
+                variant.videos?.map((vid, index) => (
                   <button
-                    key={`var-vid-${index}`}
+                    key={`var-${variant._id}-vid-${index}`}
                     type="button"
                     className={`flex-shrink-0 w-16 h-16 border-2 rounded-md cursor-pointer transition-all relative ${
-                      activeMedia.url === vid.url && activeMedia.type === 'video' ? 'border-red-600' : 'border-gray-200'
+                      activeMedia.url === vid.url && activeMedia.type === 'video' && selectedVariant?._id === variant._id ? 'border-red-600' : 'border-gray-200'
                     }`}
-                    onClick={() => handleMediaClick(vid, 'video')}
-                    aria-label={`View variant video ${index + 1}`}
+                    onClick={() => handleMediaClick(vid, 'video', variant._id)}
+                    aria-label={`View ${getVariantLabel(variant, product.variants.indexOf(variant))} video ${index + 1}`}
                   >
                     <video
                       src={vid.url}
@@ -354,21 +348,25 @@ const handleOrderNow = async () => {
                         <path d="M8 5v14l11-7z" />
                       </svg>
                     </div>
+                    {/* Variant indicator */}
+                    <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                      V
+                    </div>
                   </button>
-                ))}
-              {console.log('Rendering Variant Images:', selectedVariant?.images?.length || 0)} {/* Debug log */}
+                ))
+              )}
             </div>
           </div>
 
           <div className="w-full lg:w-1/2 flex flex-col gap-4">
             <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">
               {product.title || 'Untitled Product'}
+              {selectedVariant && (
+                <span className="text-lg font-medium text-red-600 ml-2">
+                  ({getVariantLabel(selectedVariant, product.variants.indexOf(selectedVariant))})
+                </span>
+              )}
             </h1>
-
-            <div className="flex items-center gap-2">
-              <div className="flex">{renderStars(product.averageRating || 0)}</div>
-              <span className="text-gray-600 text-sm sm:text-base">{product.numReviews || 0} reviews</span>
-            </div>
 
             <p className="text-sm text-gray-600">
               SKU: <span className="font-medium">{selectedVariant?.sku || product.sku || 'N/A'}</span>
@@ -394,55 +392,22 @@ const handleOrderNow = async () => {
               {currentStock > 0 ? `${currentStock} in stock` : 'Out of stock'}
             </p>
 
-            {product.variants?.length > 0 && (
-              <div className="mt-4">
-                <label htmlFor="variant-select" className="text-sm sm:text-base font-medium text-gray-900 mb-2 block">
-                  Select Variant
-                </label>
-                <select
-                  id="variant-select"
-                  value={selectedVariant?._id || ''}
-                  onChange={(e) => handleVariantSelect(e.target.value)}
-                  className="w-full sm:w-64 border border-gray-300 rounded-md px-3 py-2 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-red-600"
-                  aria-label="Select product variant"
-                >
-                  <option value="">Select a variant</option>
-                  {product.variants.map((variant, index) => (
-                    <option key={variant._id || index} value={variant._id}>
-                      {getVariantLabel(variant, index)} - {formatPrice(variant.discountPrice ?? variant.price)}
-                      {variant.stock <= 0 && ' (Out of stock)'}
-                    </option>
-                  ))}
-                </select>
-
-                {/* Variant Summary */}
-                {selectedVariant && (
-                  <div className="mt-2 p-3 bg-gray-50 rounded-md text-sm text-gray-600">
-                    <p>
-                      <span className="font-medium">Selected:</span> {getVariantLabel(selectedVariant, product.variants.indexOf(selectedVariant))}
-                    </p>
-                    <p>
-                      <span className="font-medium">Price:</span> {formatPrice(selectedVariant.discountPrice ?? selectedVariant.price)}
-                      {selectedVariant.discountPrice && (
-                        <span className="text-gray-500 line-through ml-2">{formatPrice(selectedVariant.price)}</span>
-                      )}
-                    </p>
-                    <p>
-                      <span className="font-medium">Stock:</span>{' '}
-                      {selectedVariant.stock > 0 ? (
-                        <span className="text-green-600">{selectedVariant.stock} in stock</span>
-                      ) : (
-                        <span className="text-red-600">Out of stock</span>
-                      )}
-                    </p>
-                    {selectedVariant.attributes?.length > 0 && (
-                      <p>
-                        <span className="font-medium">Attributes:</span>{' '}
-                        {selectedVariant.attributes.map((a) => `${a.key}: ${a.value}`).join(', ')}
-                      </p>
-                    )}
-                  </div>
+            {/* Current Selection Info */}
+            {selectedVariant ? (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                <p className="text-sm text-blue-800 font-medium">
+                  Selected Variant: {getVariantLabel(selectedVariant, product.variants.indexOf(selectedVariant))}
+                </p>
+                {selectedVariant.attributes?.length > 0 && (
+                  <p className="text-sm text-blue-600 mt-1">
+                    {selectedVariant.attributes.map((a) => `${a.key}: ${a.value}`).join(', ')}
+                  </p>
                 )}
+              </div>
+            ) : (
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-md">
+                <p className="text-sm text-gray-600 font-medium">Base Product Selected</p>
+                <p className="text-xs text-gray-500 mt-1">Click on variant images (marked with 'V') to view variant details</p>
               </div>
             )}
 

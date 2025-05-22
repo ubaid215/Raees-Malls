@@ -3,9 +3,13 @@ const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const AuditLog = require('../models/AuditLog');
 
-// Create a new discount (Admin only)
 exports.createDiscount = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     const { code, description, type, value, applicableTo, productIds, categoryIds, minOrderAmount, startDate, endDate, usageLimit, isActive } = req.body;
 
     const discount = new Discount({
@@ -25,9 +29,8 @@ exports.createDiscount = async (req, res, next) => {
 
     await discount.save();
 
-    // Log the action
     await AuditLog.create({
-      userId: req.user._id,
+      userId,
       action: 'DISCOUNT_CREATE',
       details: `Discount created: ${discount._id}`,
       ipAddress: req.ip,
@@ -43,7 +46,6 @@ exports.createDiscount = async (req, res, next) => {
   }
 };
 
-// Get all discounts (Admin only)
 exports.getAllDiscounts = async (req, res, next) => {
   try {
     const { page = 1, limit = 10, isActive } = req.query;
@@ -76,7 +78,6 @@ exports.getAllDiscounts = async (req, res, next) => {
   }
 };
 
-// Get a single discount by ID (Admin only)
 exports.getDiscountById = async (req, res, next) => {
   try {
     const discount = await Discount.findById(req.params.id)
@@ -93,9 +94,13 @@ exports.getDiscountById = async (req, res, next) => {
   }
 };
 
-// Update a discount (Admin only)
 exports.updateDiscount = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     const discount = await Discount.findById(req.params.id);
     if (!discount) {
       throw new ApiError(404, 'Discount not found');
@@ -118,9 +123,8 @@ exports.updateDiscount = async (req, res, next) => {
 
     await discount.save();
 
-    // Log the action
     await AuditLog.create({
-      userId: req.user._id,
+      userId,
       action: 'DISCOUNT_UPDATE',
       details: `Discount updated: ${discount._id}`,
       ipAddress: req.ip,
@@ -136,9 +140,13 @@ exports.updateDiscount = async (req, res, next) => {
   }
 };
 
-// Delete a discount (Admin only)
 exports.deleteDiscount = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     const discount = await Discount.findById(req.params.id);
     if (!discount) {
       throw new ApiError(404, 'Discount not found');
@@ -146,9 +154,8 @@ exports.deleteDiscount = async (req, res, next) => {
 
     await discount.deleteOne();
 
-    // Log the action
     await AuditLog.create({
-      userId: req.user._id,
+      userId,
       action: 'DISCOUNT_DELETE',
       details: `Discount deleted: ${discount._id}`,
       ipAddress: req.ip,
@@ -161,7 +168,6 @@ exports.deleteDiscount = async (req, res, next) => {
   }
 };
 
-// Apply discount code (Public)
 exports.applyDiscount = async (req, res, next) => {
   try {
     const { code, orderTotal, productIds } = req.body;

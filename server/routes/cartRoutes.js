@@ -1,46 +1,51 @@
 const express = require('express');
 const router = express.Router();
 const cartController = require('../controllers/cartController');
-const { ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
+const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
 const { addToCartValidator, removeFromCartValidator, placeOrderFromCartValidator } = require('../validation/cartValidators');
 
 // Cart routes (under /api/cart)
-router.post('/',
-  ensureAuthenticated,
+router.post(
+  '/',
+  authenticateJWT,
   authorizeRoles('user'),
   addToCartValidator,
   cartController.addToCart
 );
 
-router.get('/',
-  ensureAuthenticated,
+router.get(
+  '/',
+  authenticateJWT,
   authorizeRoles('user'),
   cartController.getCart
 );
 
-// Split the delete route to avoid optional parameter
-router.delete('/:productId',
-  ensureAuthenticated,
+router.delete(
+  '/:productId',
+  authenticateJWT,
   authorizeRoles('user'),
   removeFromCartValidator,
   cartController.removeFromCart
 );
 
-router.delete('/:productId/:variantId',
-  ensureAuthenticated,
+router.delete(
+  '/:productId/:variantId',
+  authenticateJWT,
   authorizeRoles('user'),
   removeFromCartValidator,
   cartController.removeFromCart
 );
 
-router.delete('/',
-  ensureAuthenticated,
+router.delete(
+  '/',
+  authenticateJWT,
   authorizeRoles('user'),
   cartController.clearCart
 );
 
-router.post('/order',
-  ensureAuthenticated,
+router.post(
+  '/order',
+  authenticateJWT,
   authorizeRoles('user'),
   placeOrderFromCartValidator,
   cartController.placeOrderFromCart

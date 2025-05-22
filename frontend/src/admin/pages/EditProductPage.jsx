@@ -58,7 +58,10 @@ const EditProductPage = () => {
 
     try {
       console.log('Submitting product update:', {
-        productData: formData,
+        productData: {
+          ...formData,
+          shippingCost: formData.shippingCost,
+        },
         baseImagesCount: media.baseImages?.length || 0,
         baseVideosCount: media.baseVideos?.length || 0,
         variantImagesCount: media.variantImages?.map(v => v?.length || 0) || [],

@@ -1,52 +1,53 @@
 const express = require('express');
 const router = express.Router();
 const discountController = require('../controllers/discountController');
-const { ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
+const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
 const { createDiscountValidator, discountIdValidator, getDiscountsValidator, applyDiscountValidator } = require('../validation/discountValidators');
 const { apiLimiter } = require('../middleware/rateLimiter');
 
 // Admin routes (under /api/admin/discounts)
-router.post('/', 
-  ensureAuthenticated, 
-  authorizeRoles('admin'), 
-  createDiscountValidator, 
+router.post(
+  '/',
+  authenticateJWT,
+  authorizeRoles('admin'),
+  createDiscountValidator,
   discountController.createDiscount
 );
 
-router.get('/', 
-  ensureAuthenticated, 
-  authorizeRoles('admin'), 
-  getDiscountsValidator, 
+router.get(
+  '/',
+  authenticateJWT,
+  authorizeRoles('admin'),
+  getDiscountsValidator,
   discountController.getAllDiscounts
 );
 
-router.get('/:id', 
-  ensureAuthenticated, 
-  authorizeRoles('admin'), 
-  discountIdValidator, 
+router.get(
+  '/:id',
+  authenticateJWT,
+  authorizeRoles('admin'),
+  discountIdValidator,
   discountController.getDiscountById
 );
 
-router.put('/:id', 
-  ensureAuthenticated, 
-  authorizeRoles('admin'), 
-  createDiscountValidator, 
-  discountIdValidator, 
+router.put(
+  '/:id',
+  authenticateJWT,
+  authorizeRoles('admin'),
+  createDiscountValidator,
+  discountIdValidator,
   discountController.updateDiscount
 );
 
-router.delete('/:id', 
-  ensureAuthenticated, 
-  authorizeRoles('admin'), 
-  discountIdValidator, 
+router.delete(
+  '/:id',
+  authenticateJWT,
+  authorizeRoles('admin'),
+  discountIdValidator,
   discountController.deleteDiscount
 );
 
 // Public route (under /api/discounts)
-router.post('/apply', 
-  apiLimiter, 
-  applyDiscountValidator, 
-  discountController.applyDiscount
-);
+router.post('/apply', apiLimiter, applyDiscountValidator, discountController.applyDiscount);
 
 module.exports = router;

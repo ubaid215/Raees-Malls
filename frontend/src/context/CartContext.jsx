@@ -24,12 +24,20 @@ const CartProvider = ({ children }) => {
     setError(null);
     try {
       const result = await cartService.getCart();
-      // console.log('fetchCart: Result:', result);
+      console.log('fetchCart: Result:', result);
       if (result.success) {
         const cartData = result.cart || { items: [], totalPrice: 0, itemCount: 0 };
-        setCart(cartData);
-        // console.log('fetchCart: Updated cart state:', cartData);
-        if (cartData.items.some(item => item.isUnavailable || item.isVariantUnavailable)) {
+        // Ensure cartItems include shippingCost
+        const updatedCartData = {
+          ...cartData,
+          items: cartData.items.map(item => ({
+            ...item,
+            shippingCost: item.productId?.shippingCost || 0,
+          })),
+        };
+        setCart(updatedCartData);
+        console.log('fetchCart: Updated cart state:', updatedCartData);
+        if (updatedCartData.items.some(item => item.isUnavailable || item.isVariantUnavailable)) {
           toast.warn('Some items in your cart are unavailable');
         }
       } else {
@@ -54,10 +62,6 @@ const CartProvider = ({ children }) => {
       setLoading(false);
     }
   }, [user]);
-
-  // useEffect(() => {
-  //   console.log('CartContext: Cart state changed:', cart);
-  // }, [cart]);
 
   const addItemToCart = useCallback(async (productId, variantId = null, quantity = 1) => {
     if (!user) {

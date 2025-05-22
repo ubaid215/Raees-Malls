@@ -1,86 +1,51 @@
 const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
-const { ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
 const upload = require('../middleware/upload');
-const {
-  createProductValidator,
-  updateProductValidator,
-  productIdValidator,
-  getProductsValidator,
-  getProductsForCustomersValidator,
-} = require('../validation/productValidators');
+const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
 
-// Dynamic upload configuration for images and videos (supports up to 10 variants)
-const createUploadFields = (variantCount = 10) => {
-  const fields = [
-    { name: 'baseImages', maxCount: 5 },
-    { name: 'baseVideos', maxCount: 3 }
-  ];
-  
-  for (let i = 0; i < variantCount; i++) {
-    fields.push({ name: `variantImages[${i}]`, maxCount: 15 }); // Match your 15 image limit
-    fields.push({ name: `variantVideos[${i}]`, maxCount: 3 }); // Match your 3 video limit
-  }
-  
-  return upload.fields(fields);
-};
+// Public routes
+router.get('/public', productController.getAllProductsForCustomers);
+router.get('/public/:id', productController.getProductDetailsForCustomers);
+router.get('/public/featured', productController.getFeaturedProducts);
 
-// Public product routes
-router.get(
-  '/public', 
-  getProductsForCustomersValidator, 
-  productController.getAllProductsForCustomers
-);
-
-router.get(
-  '/public/:id', 
-  productIdValidator, 
-  productController.getProductDetailsForCustomers
-);
-
-// Admin product management routes
+// Admin routes
 router.post(
   '/',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('admin'),
-  createUploadFields(), // Use dynamic upload configuration
-  createProductValidator,
+  upload.fields([
+    { name: 'baseImages', maxCount: 10 },
+    { name: 'baseVideos', maxCount: 5 },
+    { name: 'variantImages[0]', maxCount: 10 },
+    { name: 'variantImages[1]', maxCount: 10 },
+    { name: 'variantImages[2]', maxCount: 10 },
+    { name: 'variantVideos[0]', maxCount: 5 },
+    { name: 'variantVideos[1]', maxCount: 5 },
+    { name: 'variantVideos[2]', maxCount: 5 }
+  ]),
   productController.createProduct
 );
 
-router.get(
-  '/', 
-  ensureAuthenticated, 
-  authorizeRoles('admin'), 
-  getProductsValidator, 
-  productController.getAllProducts
-);
-
-router.get(
-  '/:id', 
-  ensureAuthenticated,
-  authorizeRoles('admin'),
-  productIdValidator,
-  productController.getProductById
-);
-
+// Other routes remain the same...
+router.get('/', authenticateJWT, authorizeRoles('admin'), productController.getAllProducts);
+router.get('/:id', authenticateJWT, authorizeRoles('admin'), productController.getProductById);
 router.put(
   '/:id',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('admin'),
-  createUploadFields(),
-  productIdValidator,
-  updateProductValidator,
+  upload.fields([
+    { name: 'baseImages', maxCount: 10 },
+    { name: 'baseVideos', maxCount: 5 },
+    { name: 'variantImages[0]', maxCount: 10 },
+    { name: 'variantImages[1]', maxCount: 10 },
+    { name: 'variantImages[2]', maxCount: 10 },
+    { name: 'variantVideos[0]', maxCount: 5 },
+    { name: 'variantVideos[1]', maxCount: 5 },
+    { name: 'variantVideos[2]', maxCount: 5 }
+  ]),
   productController.updateProduct
 );
-
-router.delete(
-  '/:id',
-  ensureAuthenticated,
-  authorizeRoles('admin'),
-  productIdValidator,
-  productController.deleteProduct
-);
+router.delete('/:id', authenticateJWT, authorizeRoles('admin'), productController.deleteProduct);
 
 module.exports = router;

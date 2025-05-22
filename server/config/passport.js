@@ -1,12 +1,10 @@
-// Fixed passport.js configuration with dynamic URL handling
+const LocalStrategy = require('passport-local').Strategy;
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const authService = require('../services/authServices');
 
 module.exports = function (passport) {
-  const LocalStrategy = require('passport-local').Strategy;
-  const GoogleStrategy = require('passport-google-oauth20').Strategy;
-  const User = require('../models/User');
-  const bcrypt = require('bcryptjs');
-  const authService = require('../services/authServices');
-
   // Local Strategy
   passport.use(
     new LocalStrategy(
@@ -45,14 +43,15 @@ module.exports = function (passport) {
   );
 
   // Determine correct callback URL based on environment
-  const googleCallbackURL = process.env.NODE_ENV === 'production'
-    ? `${process.env.BACKEND_PROD_URL}/api/auth/google/callback`
-    : `${process.env.BACKEND_DEV_URL}/api/auth/google/callback`;
-  
+  const googleCallbackURL =
+    process.env.NODE_ENV === 'production'
+      ? `${process.env.BACKEND_PROD_URL}/api/auth/google/callback`
+      : `${process.env.BACKEND_DEV_URL}/api/auth/google/callback`;
+
   console.log('NODE_ENV:', process.env.NODE_ENV);
   console.log('Google Callback URL:', googleCallbackURL);
-  
-  // Google Strategy with dynamic callback URL
+
+  // Google Strategy
   passport.use(
     new GoogleStrategy(
       {
@@ -73,6 +72,7 @@ module.exports = function (passport) {
               // Update existing user with Google ID
               user.googleId = profile.id;
               user.provider = 'google';
+              user.isVerified = true; // Google users are verified by default
               await user.save();
             } else {
               // Create new user
@@ -87,7 +87,7 @@ module.exports = function (passport) {
             }
           }
 
-          console.log('Google user authenticated:', user.email);
+          console.log('Google user authenticated:', user.email, 'ID:', user._id);
           return done(null, user);
         } catch (err) {
           console.error('Google auth error:', err.message);
@@ -99,8 +99,8 @@ module.exports = function (passport) {
 
   // Serialization
   passport.serializeUser((user, done) => {
-    console.log('Serializing user:', user.id);
-    done(null, user.id);
+    console.log('Serializing user:', user._id.toString());
+    done(null, user._id.toString());
   });
 
   // Deserialization with caching

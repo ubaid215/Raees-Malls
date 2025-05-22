@@ -5,7 +5,6 @@ const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const cloudinary = require('../config/cloudinary');
 
-// Create a new category (Admin only)
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, slug, description, parentId } = req.body;
@@ -20,7 +19,6 @@ exports.createCategory = async (req, res, next) => {
     });
     await category.save();
 
-    // Emit Socket.IO event for category creation
     const io = req.app.get('socketio');
     io.to('adminRoom').emit('categoryCreated', {
       category: {
@@ -43,13 +41,12 @@ exports.createCategory = async (req, res, next) => {
       },
     });
 
-    res.status(201).json({ message: 'Category created', category });
-  } catch (err) {
-    next(new ApiError(500, err.message || 'Failed to create category'));
+    ApiResponse.success(res, 201, 'Category created successfully', { category });
+  } catch (error) {
+    next(new ApiError(500, error.message || 'Failed to create category'));
   }
 };
 
-// Get all categories for admin with pagination, sorting, and filtering (Admin only)
 exports.getAllCategories = async (req, res, next) => {
   try {
     const { page = 1, limit = 10, sort, parentId } = req.query;
@@ -82,7 +79,6 @@ exports.getAllCategories = async (req, res, next) => {
   }
 };
 
-// Get a single category by ID (Admin only)
 exports.getCategoryById = async (req, res, next) => {
   try {
     const category = await Category.findById(req.params.id).populate(
@@ -102,9 +98,13 @@ exports.getCategoryById = async (req, res, next) => {
   }
 };
 
-// Update a category (Admin only)
 exports.updateCategory = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     const category = await Category.findById(req.params.id);
     if (!category) {
       throw new ApiError(404, 'Category not found');
@@ -112,19 +112,12 @@ exports.updateCategory = async (req, res, next) => {
 
     const { name, slug, description, parentId } = req.body;
 
-    // Handle image update
     if (req.file) {
-      // Delete old image if exists
       if (category.imagePublicId) {
         await cloudinary.uploader.destroy(category.imagePublicId);
       }
-
-      // Upload new image
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'categories',
-      });
-      category.image = result.secure_url;
-      category.imagePublicId = result.public_id;
+      category.image = req.file.path;
+      category.imagePublicId = req.file.filename;
     }
 
     category.name = name || category.name;
@@ -139,16 +132,14 @@ exports.updateCategory = async (req, res, next) => {
 
     await category.save();
 
-    // Log the action
     await AuditLog.create({
-      userId: req.user._id,
+      userId,
       action: 'CATEGORY_UPDATE',
       details: `Category updated: ${category._id}`,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
 
-    // Emit Socket.IO event for category update
     const io = req.app.get('socketio');
     io.to('adminRoom').emit('categoryUpdated', {
       category: {
@@ -179,75 +170,60 @@ exports.updateCategory = async (req, res, next) => {
   }
 };
 
-// Delete a category (Admin only)
- 
 exports.deleteCategory = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     const category = await Category.findById(req.params.id);
     if (!category) {
       throw new ApiError(404, 'Category not found');
     }
 
-    // Track deleted category IDs for Socket.IO event
     const deletedCategoryIds = [];
 
-    // Recursively delete products in category and subcategories
     async function deleteProductsInCategory(categoryId) {
-      // Delete products in the current category
       const products = await Product.find({ categoryId });
       for (const product of products) {
-        // Delete product images from Cloudinary if they exist
-        if (product.images && product.images.length > 0) {
+        if (product.images?.length > 0) {
           for (const image of product.images) {
             if (image.public_id) {
               await cloudinary.uploader.destroy(image.public_id);
             }
           }
         }
-
         await product.deleteOne();
-
-        // Log product deletion
         await AuditLog.create({
-          userId: req.user._id,
+          userId,
           action: 'PRODUCT_DELETE',
           details: `Product deleted due to category deletion: ${product._id}`,
           ipAddress: req.ip,
           userAgent: req.headers['user-agent'],
         });
       }
-
-      // Recursively delete products in subcategories
       const subcategories = await Category.find({ parentId: categoryId });
       for (const subcategory of subcategories) {
         await deleteProductsInCategory(subcategory._id);
       }
     }
 
-    // Recursively delete category and subcategories
     async function deleteCategoryAndSubcategories(categoryId) {
-      // Delete products first
       await deleteProductsInCategory(categoryId);
-
-      // Delete subcategories
       const subcategories = await Category.find({ parentId: categoryId });
       for (const subcategory of subcategories) {
         await deleteCategoryAndSubcategories(subcategory._id);
       }
-
       const cat = await Category.findById(categoryId);
       if (cat) {
-        // Delete category image from Cloudinary if exists
         if (cat.imagePublicId) {
           await cloudinary.uploader.destroy(cat.imagePublicId);
         }
-
         await cat.deleteOne();
         deletedCategoryIds.push(categoryId.toString());
-
-        // Log category deletion
         await AuditLog.create({
-          userId: req.user._id,
+          userId,
           action: 'CATEGORY_DELETE',
           details: `Category deleted: ${cat._id}`,
           ipAddress: req.ip,
@@ -258,7 +234,6 @@ exports.deleteCategory = async (req, res, next) => {
 
     await deleteCategoryAndSubcategories(category._id);
 
-    // Emit Socket.IO event for category deletion
     const io = req.app.get('socketio');
     io.to('adminRoom').emit('categoryDeleted', {
       categoryIds: deletedCategoryIds,
@@ -277,7 +252,6 @@ exports.deleteCategory = async (req, res, next) => {
   }
 };
 
-// Get all categories for customers (Public)
 exports.getAllCategoriesForCustomers = async (req, res, next) => {
   try {
     const { page = 1, limit = 10, sort, parentId } = req.query;
@@ -291,7 +265,7 @@ exports.getAllCategoriesForCustomers = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     const categories = await Category.find(query)
-      .select('-__v') // Exclude version field
+      .select('-__v')
       .populate('parentId', 'name slug')
       .sort(sortOption)
       .skip(skip)
@@ -311,11 +285,10 @@ exports.getAllCategoriesForCustomers = async (req, res, next) => {
   }
 };
 
-// Get a single category by ID for customers (Public)
 exports.getCategoryByIdForCustomers = async (req, res, next) => {
   try {
     const category = await Category.findById(req.params.id)
-      .select('-__v') // Exclude version field
+      .select('-__v')
       .populate('parentId', 'name slug');
 
     if (!category) {
@@ -330,23 +303,19 @@ exports.getCategoryByIdForCustomers = async (req, res, next) => {
   }
 };
 
-// Get products in a specific category for customers (Public)
 exports.getCategoryProductsForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, minPrice, maxPrice, search } =
-      req.query;
+    const { page = 1, limit = 10, sort, minPrice, maxPrice, search } = req.query;
     const categoryId = req.params.id;
 
-    // Verify category exists
     const category = await Category.findById(categoryId);
     if (!category) {
       throw new ApiError(404, 'Category not found');
     }
 
-    // Build query for products
     const query = {
       categoryId: categoryId,
-      stock: { $gt: 0 }, // Only show products in stock
+      stock: { $gt: 0 },
     };
 
     if (minPrice || maxPrice) {
@@ -365,9 +334,8 @@ exports.getCategoryProductsForCustomers = async (req, res, next) => {
     const sortOption = sort || '-createdAt';
     const skip = (page - 1) * limit;
 
-    // Fetch products in the category
     const products = await Product.find(query)
-      .select('-__v') // Exclude version field
+      .select('-__v')
       .populate('categoryId', 'name slug')
       .sort(sortOption)
       .skip(skip)

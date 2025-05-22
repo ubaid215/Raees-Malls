@@ -6,16 +6,15 @@ const attributeSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Attribute key is required'],
     trim: true,
-    enum: ['size', 'color', 'material', 'style', 'ram'],
   },
   value: {
     type: String,
     required: [true, 'Attribute value is required'],
-    trim: true
-  }
+    trim: true,
+  },
 });
 
-attributeSchema.pre('validate', function(next) {
+attributeSchema.pre('validate', function (next) {
   if (this.key) {
     this.key = this.key.toLowerCase();
   }
@@ -27,12 +26,12 @@ const variantSchema = new mongoose.Schema({
     type: String,
     unique: true,
     trim: true,
-    uppercase: true
+    uppercase: true,
   },
   price: {
     type: Number,
     required: [true, 'Variant price is required'],
-    min: [0, 'Variant price cannot be negative']
+    min: [0, 'Variant price cannot be negative'],
   },
   discountPrice: {
     type: Number,
@@ -41,41 +40,45 @@ const variantSchema = new mongoose.Schema({
       validator: function (value) {
         return value < this.price;
       },
-      message: 'Variant discount price must be less than the variant price'
-    }
+      message: 'Variant discount price must be less than the variant price',
+    },
   },
   stock: {
     type: Number,
     required: [true, 'Variant stock quantity is required'],
-    min: [0, 'Variant stock cannot be negative']
+    min: [0, 'Variant stock cannot be negative'],
   },
   attributes: [attributeSchema],
-  images: [{
-    url: {
-      type: String,
-      required: true
+  images: [
+    {
+      url: {
+        type: String,
+        required: true,
+      },
+      public_id: {
+        type: String,
+        required: true,
+      },
+      alt: {
+        type: String,
+      },
     },
-    public_id: {
-      type: String,
-      required: true
+  ],
+  videos: [
+    {
+      url: {
+        type: String,
+        required: true,
+      },
+      public_id: {
+        type: String,
+        required: true,
+      },
+      alt: {
+        type: String,
+      },
     },
-    alt: {
-      type: String
-    }
-  }],
-  videos: [{
-    url: {
-      type: String,
-      required: true
-    },
-    public_id: {
-      type: String,
-      required: true
-    },
-    alt: {
-      type: String
-    }
-  }]
+  ],
 });
 
 const productSchema = new mongoose.Schema({
@@ -84,19 +87,19 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Product title is required'],
     trim: true,
     minlength: [3, 'Title must be at least 3 characters'],
-    maxlength: [100, 'Title cannot exceed 100 characters']
+    maxlength: [100, 'Title cannot exceed 100 characters'],
   },
   description: {
     type: String,
     required: [true, 'Product description is required'],
     trim: true,
     minlength: [10, 'Description must be at least 10 characters'],
-    maxlength: [3000, 'Description cannot exceed 3000 characters']
+    maxlength: [3000, 'Description cannot exceed 3000 characters'],
   },
   price: {
     type: Number,
     required: [true, 'Product base price is required'],
-    min: [0, 'Price cannot be negative']
+    min: [0, 'Price cannot be negative'],
   },
   discountPrice: {
     type: Number,
@@ -105,115 +108,128 @@ const productSchema = new mongoose.Schema({
       validator: function (value) {
         return value < this.price;
       },
-      message: 'Discount price must be less than the base price'
-    }
+      message: 'Discount price must be less than the base price',
+    },
   },
-  images: [{
-    url: {
-      type: String,
-      required: true
+  shippingCost: {
+    type: Number,
+    default: 0,
+    min: [0, 'Shipping cost cannot be negative'],
+  },
+  images: [
+    {
+      url: {
+        type: String,
+        required: true,
+      },
+      public_id: {
+        type: String,
+        required: true,
+      },
+      alt: {
+        type: String,
+      },
     },
-    public_id: {
-      type: String,
-      required: true
+  ],
+  videos: [
+    {
+      url: {
+        type: String,
+        required: true,
+      },
+      public_id: {
+        type: String,
+        required: true,
+      },
+      alt: {
+        type: String,
+      },
     },
-    alt: {
-      type: String
-    }
-  }],
-  videos: [{
-    url: {
-      type: String,
-      required: true
-    },
-    public_id: {
-      type: String,
-      required: true
-    },
-    alt: {
-      type: String
-    }
-  }],
+  ],
   categoryId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Category',
-    required: [true, 'Category is required']
+    required: [true, 'Category is required'],
   },
   stock: {
     type: Number,
     required: [true, 'Base stock quantity is required'],
-    min: [0, 'Stock cannot be negative']
+    min: [0, 'Stock cannot be negative'],
   },
   brand: {
     type: String,
     trim: true,
     minlength: [2, 'Brand must be at least 2 characters'],
-    maxlength: [50, 'Brand cannot exceed 50 characters']
+    maxlength: [50, 'Brand cannot exceed 50 characters'],
   },
   sku: {
     type: String,
     unique: true,
     trim: true,
-    uppercase: true
+    uppercase: true,
   },
   variants: [variantSchema],
-  specifications: [{
-    key: {
-      type: String,
-      required: true
+  specifications: [
+    {
+      key: {
+        type: String,
+        required: true,
+      },
+      value: {
+        type: String,
+        required: true,
+      },
     },
-    value: {
+  ],
+  features: [
+    {
       type: String,
-      required: true
-    }
-  }],
-  features: [{
-    type: String,
-    trim: true,
-    required: [true, 'Feature cannot be empty'],
-    minlength: [1, 'Feature must be at least 1 character'],
-    maxlength: [200, 'Feature cannot exceed 200 characters']
-  }],
+      trim: true,
+      required: [true, 'Feature cannot be empty'],
+      minlength: [1, 'Feature must be at least 1 character'],
+      maxlength: [200, 'Feature cannot exceed 200 characters'],
+    },
+  ],
   seo: {
     title: {
       type: String,
       trim: true,
-      maxlength: [60, 'SEO title cannot exceed 60 characters']
+      maxlength: [60, 'SEO title cannot exceed 60 characters'],
     },
     description: {
       type: String,
       trim: true,
-      maxlength: [3000, 'SEO description cannot exceed 3000 characters']
+      maxlength: [3000, 'SEO description cannot exceed 3000 characters'],
     },
     slug: {
       type: String,
       unique: true,
       lowercase: true,
-      trim: true
-    }
+      trim: true,
+    },
   },
   averageRating: {
     type: Number,
     default: 0,
     min: [0, 'Rating cannot be less than 0'],
-    max: [5, 'Rating cannot be more than 5']
+    max: [5, 'Rating cannot be more than 5'],
   },
   numReviews: {
     type: Number,
-    default: 0
+    default: 0,
   },
   isFeatured: {
     type: Boolean,
-    default: false
+    default: false,
   },
   createdAt: {
     type: Date,
-    default: Date.now
+    default: Date.now,
   },
   updatedAt: {
     type: Date,
-    default: Date.now
-  }
+    default: Date.now,
+  },
 });
 
 const generateSKU = (brand, title, attributes = []) => {
@@ -254,12 +270,14 @@ productSchema.pre('save', async function (next) {
       let variantSku = generateSKU(this.brand, this.title, variant.attributes);
       let counter = 1;
 
-      while (await mongoose.models.Product.findOne({
-        $or: [
-          { sku: variantSku, _id: { $ne: this._id } },
-          { 'variants.sku': variantSku, _id: { $ne: this._id } }
-        ]
-      })) {
+      while (
+        await mongoose.models.Product.findOne({
+          $or: [
+            { sku: variantSku, _id: { $ne: this._id } },
+            { 'variants.sku': variantSku, _id: { $ne: this._id } },
+          ],
+        })
+      ) {
         variantSku = generateSKU(this.brand, this.title, variant.attributes) + `-${counter}`;
         counter++;
       }

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const categoryController = require('../controllers/categoryController');
-const { ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
+const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
 const upload = require('../middleware/upload');
 const {
   createCategoryValidator,
@@ -15,7 +15,7 @@ const { getProductsForCustomersValidator } = require('../validation/productValid
 // Admin category management routes (under /api/admin/categories)
 router.post(
   '/',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('admin'),
   upload.single('image'),
   createCategoryValidator,
@@ -24,7 +24,7 @@ router.post(
 
 router.get(
   '/',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('admin'),
   getCategoriesValidator,
   categoryController.getAllCategories
@@ -32,7 +32,7 @@ router.get(
 
 router.put(
   '/:id',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('admin'),
   upload.single('image'),
   categoryIdValidator,
@@ -42,7 +42,7 @@ router.put(
 
 router.delete(
   '/:id',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('admin'),
   categoryIdValidator,
   categoryController.deleteCategory

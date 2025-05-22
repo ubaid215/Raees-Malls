@@ -25,6 +25,7 @@ const ProductForm = ({
       description: product?.description || '',
       price: product?.price || 0,
       discountPrice: product?.discountPrice || undefined,
+      shippingCost: product?.shippingCost || 0,
       categoryId: product?.categoryId?._id || product?.categoryId || '',
       brand: product?.brand || '',
       stock: product?.stock || 0,
@@ -442,6 +443,7 @@ const ProductForm = ({
       ...data,
       price: parseFloat(data.price),
       discountPrice: data.discountPrice ? parseFloat(data.discountPrice) : undefined,
+      shippingCost: parseFloat(data.shippingCost) || 0,
       stock: parseInt(data.stock),
       specifications: specifications.filter(s => s.key.trim() && s.value.trim()),
       features: features.filter(f => f.trim()),
@@ -522,6 +524,16 @@ const ProductForm = ({
             })}
             error={errors.discountPrice?.message}
           />
+          <Input
+            label="Shipping Cost"
+            type="number"
+            step="0.01"
+            min="0"
+            {...register("shippingCost", {
+              min: { value: 0, message: "Must be non-negative" }
+            })}
+            error={errors.shippingCost?.message}
+          />
           <Select
             label="Category"
             {...register("categoryId", { required: "Category is required" })}
@@ -564,7 +576,7 @@ const ProductForm = ({
             {...register("description", {
               required: "Description is required",
               minLength: { value: 10, message: "Minimum 10 characters" },
-              maxLength: { value: 1000, message: "Maximum 1000 characters" }
+              maxLength: { value: 3000, message: "Maximum 3000 characters" }
             })}
             error={errors.description?.message}
           />

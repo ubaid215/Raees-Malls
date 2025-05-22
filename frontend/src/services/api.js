@@ -20,29 +20,16 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    if (config.skipAuth) return config;
-
-    // Get the appropriate token based on route
-    const token = config.url.includes('/admin') 
-      ? localStorage.getItem('adminToken')
-      : localStorage.getItem('token');
-    
-    // Get refresh token if available
-    const refreshToken = localStorage.getItem('refreshToken');
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    if (!config.skipAuth) {
+      const token = localStorage.getItem('token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
-
-    // Add refresh token to body for refresh endpoint
-    if (config.url.includes('/refresh-token') && refreshToken) {
-      config.data = { ...config.data, refreshToken };
-    }
-
+    // Remove Content-Type for multipart/form-data to let the browser set it with the boundary
     if (config.isMultipart) {
-      config.headers['Content-Type'] = 'multipart/form-data';
+      delete config.headers['Content-Type'];
     }
-
     return config;
   },
   (error) => Promise.reject(error)

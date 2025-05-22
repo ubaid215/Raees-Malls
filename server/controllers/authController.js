@@ -1,5 +1,3 @@
-// Fixed authController.js with proper URL handling
-
 const { validationResult } = require('express-validator');
 const passport = require('passport');
 const User = require('../models/User');
@@ -23,7 +21,7 @@ exports.register = async (req, res, next) => {
     // Store refresh token
     await Token.create({ userId: user._id, token: tokens.refreshToken });
 
-    // Log the user in automatically to create a session
+    // Log the user in for session-based auth (for local only)
     req.login(user, (err) => {
       if (err) {
         return next(new ApiError(500, 'Failed to log in user after registration', [err.message]));
@@ -34,7 +32,6 @@ exports.register = async (req, res, next) => {
         refreshToken: tokens.refreshToken,
       });
     });
-
   } catch (error) {
     next(error);
   }
@@ -49,19 +46,14 @@ exports.login = async (req, res, next) => {
 
     const { email, password } = req.body;
 
-    // Use Passport to authenticate and create a session
     passport.authenticate('local', async (err, user, info) => {
       if (err) return next(err);
       if (!user) return next(new ApiError(401, info.message || 'Invalid credentials'));
 
-      // Log the user in to create a session
       req.login(user, async (err) => {
         if (err) return next(err);
 
-        // Generate JWT tokens
         const tokens = jwtService.generateTokens(user);
-
-        // Store refresh token
         await Token.create({ userId: user._id, token: tokens.refreshToken });
 
         ApiResponse.success(res, 200, 'Logged in successfully', {
@@ -71,44 +63,42 @@ exports.login = async (req, res, next) => {
         });
       });
     })(req, res, next);
-
   } catch (error) {
     next(error);
   }
 };
 
 exports.googleAuth = passport.authenticate('google', {
-  scope: ['profile', 'email']
+  scope: ['profile', 'email'],
+  session: false, // Disable session for Google auth
 });
 
 exports.googleAuthCallback = (req, res, next) => {
-  passport.authenticate('google', async (err, user, info) => {
-    if (err) return next(err);
+  passport.authenticate('google', { session: false }, async (err, user, info) => {
+    if (err) return next(new ApiError(500, 'Google authentication error', [err.message]));
     if (!user) return next(new ApiError(401, info?.message || 'Google authentication failed'));
 
     try {
-      // Log the user in to create a session
-      req.login(user, async (err) => {
-        if (err) return next(err);
+      // Generate JWT tokens
+      const tokens = jwtService.generateTokens(user);
 
-        // Generate JWT tokens
-        const tokens = jwtService.generateTokens(user);
+      // Store refresh token
+      await Token.create({ userId: user._id, token: tokens.refreshToken });
 
-        // Store refresh token
-        await Token.create({ userId: user._id, token: tokens.refreshToken });
-
-        // Determine the frontend callback URL based on environment
-        const frontendUrl = process.env.NODE_ENV === 'production'
+      // Determine frontend callback URL
+      const frontendUrl =
+        process.env.NODE_ENV === 'production'
           ? process.env.FRONTEND_PROD_URL
           : process.env.FRONTEND_DEV_URL;
-        
-        const frontendCallbackUrl = `${frontendUrl}/callback?token=${tokens.accessToken}&refreshToken=${tokens.refreshToken}&userId=${user._id}`;
-        
-        console.log('Redirecting to:', frontendCallbackUrl);
-        res.redirect(frontendCallbackUrl);
-      });
+
+      const frontendCallbackUrl = `${frontendUrl}/callback?token=${encodeURIComponent(
+        tokens.accessToken
+      )}&refreshToken=${encodeURIComponent(tokens.refreshToken)}&userId=${user._id.toString()}`;
+
+      console.log('Redirecting to:', frontendCallbackUrl);
+      res.redirect(frontendCallbackUrl);
     } catch (error) {
-      next(error);
+      next(new ApiError(500, 'Error processing Google auth callback', [error.message]));
     }
   })(req, res, next);
 };
@@ -116,11 +106,11 @@ exports.googleAuthCallback = (req, res, next) => {
 exports.refreshToken = async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
-    if (!refreshToken || refreshToken === 'undefined') {
-      throw new ApiError(400, 'Refresh token is required');
+    if (!refreshToken || typeof refreshToken !== 'string') {
+      throw new ApiError(400, 'Valid refresh token is required');
     }
 
-    // Verify and find token
+    // Verify refresh token
     const decoded = jwtService.verifyRefreshToken(refreshToken);
     const storedToken = await Token.findOne({
       token: refreshToken,
@@ -128,15 +118,16 @@ exports.refreshToken = async (req, res, next) => {
     });
 
     if (!storedToken) {
-      throw new ApiError(403, 'Invalid refresh token');
+      throw new ApiError(403, 'Invalid or expired refresh token');
     }
 
-    // Get user and generate new tokens
-    const user = await User.findById(decoded.userId);
+    // Get user
+    const user = await User.findById(decoded.userId).select('-password');
     if (!user) {
       throw new ApiError(404, 'User not found');
     }
 
+    // Generate new tokens
     const tokens = jwtService.generateTokens(user);
 
     // Replace old refresh token
@@ -148,7 +139,6 @@ exports.refreshToken = async (req, res, next) => {
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     });
-
   } catch (error) {
     console.error('Refresh token error:', error.message);
     next(error);
@@ -178,14 +168,8 @@ exports.getMe = async (req, res, next) => {
       throw new ApiError(401, 'User not authenticated');
     }
 
-    let userId;
-    if (req.user._id) {
-      // Session-based: req.user is the full user object
-      userId = req.user._id;
-    } else if (req.user.userId) {
-      // JWT-based: req.user is the decoded JWT payload
-      userId = req.user.userId;
-    } else {
+    let userId = req.user.userId || req.user._id?.toString();
+    if (!userId) {
       throw new ApiError(401, 'Invalid user data');
     }
 
@@ -197,7 +181,6 @@ exports.getMe = async (req, res, next) => {
     ApiResponse.success(res, 200, 'User data retrieved', {
       user: authService.sanitizeUser(user),
     });
-
   } catch (error) {
     next(error);
   }
@@ -215,7 +198,7 @@ exports.updateProfile = async (req, res, next) => {
     }
 
     const { name, email, addresses } = req.body;
-    const userId = req.user.userId || req.user._id.toString();
+    const userId = req.user.userId || req.user._id?.toString();
 
     const existingUser = await User.findOne({ email, _id: { $ne: userId } });
     if (existingUser) {
@@ -235,7 +218,6 @@ exports.updateProfile = async (req, res, next) => {
     ApiResponse.success(res, 200, 'Profile updated successfully', {
       user: authService.sanitizeUser(updatedUser),
     });
-
   } catch (error) {
     next(error);
   }

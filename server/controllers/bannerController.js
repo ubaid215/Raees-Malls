@@ -22,8 +22,8 @@ exports.uploadBanner = async (req, res, next) => {
       isActive: isActive !== undefined ? isActive : true,
       position,
       image: {
-        url: req.file.path, // Cloudinary URL provided by multer-storage-cloudinary
-        public_id: req.file.filename, // Public ID provided by multer-storage-cloudinary
+        url: req.file.path,
+        public_id: req.file.filename,
         alt: title
       }
     });
@@ -47,7 +47,6 @@ exports.updateBanner = async (req, res, next) => {
       throw new ApiError(404, 'Banner not found');
     }
 
-    // Update fields
     banner.title = title || banner.title;
     banner.description = description || banner.description;
     banner.targetUrl = targetUrl || banner.targetUrl;
@@ -55,14 +54,9 @@ exports.updateBanner = async (req, res, next) => {
     banner.isActive = isActive !== undefined ? isActive : banner.isActive;
     banner.position = position || banner.position;
 
-    // Update image if provided
     if (req.file) {
-      console.log('Updating file metadata:', req.file); // Debugging log
-
-      // Delete old image from Cloudinary
+      console.log('Updating file metadata:', req.file);
       await cloudinary.uploader.destroy(banner.image.public_id);
-
-      // Use the new image data from multer-storage-cloudinary
       banner.image = {
         url: req.file.path,
         public_id: req.file.filename,
@@ -88,10 +82,7 @@ exports.deleteBanner = async (req, res, next) => {
       throw new ApiError(404, 'Banner not found');
     }
 
-    // Delete image from Cloudinary
     await cloudinary.uploader.destroy(banner.image.public_id);
-
-    // Delete banner from database
     await banner.deleteOne();
 
     ApiResponse.success(res, 200, 'Banner deleted successfully');
@@ -104,7 +95,6 @@ exports.deleteBanner = async (req, res, next) => {
 exports.getAllBanners = async (req, res, next) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-
     const skip = (page - 1) * limit;
 
     const banners = await Banner.find()

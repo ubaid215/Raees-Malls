@@ -8,20 +8,23 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 
-// Place a new order (User only)
 exports.placeOrder = async (req, res, next) => {
   try {
-    const { items, shippingAddress, discountCode } = req.body;
-    const userId = req.user._id;
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
 
-    // Validate items
+    const { items, shippingAddress, discountCode } = req.body;
+
     if (!items || items.length === 0) {
       throw new ApiError(400, 'Order must contain at least one item');
     }
 
-    // Calculate total price and verify stock
     let totalPrice = 0;
+    let totalShippingCost = 0;
     const orderItems = [];
+    const uniqueProducts = new Set();
 
     for (const item of items) {
       const product = await Product.findById(item.productId);
@@ -49,16 +52,20 @@ exports.placeOrder = async (req, res, next) => {
       }
 
       totalPrice += price * item.quantity;
+      if (!uniqueProducts.has(product._id.toString())) {
+        totalShippingCost += product.shippingCost || 0;
+        uniqueProducts.add(product._id.toString());
+      }
+
       orderItems.push({
         productId: product._id,
         variantId: item.variantId,
         quantity: item.quantity,
         price,
-        sku
+        sku,
       });
     }
 
-    // Apply discount if provided
     let discountAmount = 0;
     let discountId = null;
     if (discountCode) {
@@ -70,8 +77,8 @@ exports.placeOrder = async (req, res, next) => {
         $or: [
           { applicableTo: 'all' },
           { applicableTo: 'products', productIds: { $in: items.map(item => item.productId) } },
-          { applicableTo: 'orders' }
-        ]
+          { applicableTo: 'orders' },
+        ],
       });
 
       if (!discount) {
@@ -95,21 +102,23 @@ exports.placeOrder = async (req, res, next) => {
       await discount.save();
     }
 
-    // Create order
+    const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
+    totalShippingCost = totalPrice >= 25000 || totalItems >= 25000 ? 0 : totalShippingCost;
+
     const order = new Order({
       orderId: `ORD-${uuidv4().split('-')[0]}`,
       userId,
       items: orderItems,
       totalPrice: totalPrice - discountAmount,
+      totalShippingCost,
       discountId,
       discountAmount,
       shippingAddress,
-      status: 'pending'
+      status: 'pending',
     });
 
     await order.save();
 
-    // Decrease stock
     for (const item of orderItems) {
       const product = await Product.findById(item.productId);
       if (item.variantId) {
@@ -121,13 +130,12 @@ exports.placeOrder = async (req, res, next) => {
       await product.save();
     }
 
-    // Emit Socket.IO event for admin and user notification
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku')
+      .populate('items.productId', 'title brand sku shippingCost')
       .populate('discountId', 'code value type');
-    
+
     io.to('adminRoom').emit('orderCreated', populatedOrder);
     io.to(`user_${userId}`).emit('orderCreated', populatedOrder);
 
@@ -137,32 +145,38 @@ exports.placeOrder = async (req, res, next) => {
   }
 };
 
-// Get user's order history (User only)
 exports.getUserOrders = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     const { page = 1, limit = 10, status } = req.query;
-    const userId = req.user._id;
-    const query = { userId: userId.toString() };
+    const query = { userId };
     if (status) query.status = status;
     const skip = (page - 1) * limit;
+
     const orders = await Order.find(query)
       .populate({
         path: 'items.productId',
-        select: 'title brand sku',
-        match: { _id: { $exists: true } }
+        select: 'title brand sku shippingCost',
+        match: { _id: { $exists: true } },
       })
       .populate('discountId', 'code value type')
       .populate('userId', 'name email')
       .sort('-createdAt')
       .skip(skip)
       .limit(parseInt(limit));
+
     const total = await Order.countDocuments(query);
+
     ApiResponse.success(res, 200, 'Orders retrieved successfully', {
       orders: orders.filter(order => order.items.every(item => item.productId)),
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     console.error('Error in getUserOrders:', error);
@@ -170,7 +184,6 @@ exports.getUserOrders = async (req, res, next) => {
   }
 };
 
-// Get all orders (Admin only)
 exports.getAllOrders = async (req, res, next) => {
   try {
     const { page = 1, limit = 10, status, userId } = req.query;
@@ -183,7 +196,7 @@ exports.getAllOrders = async (req, res, next) => {
 
     const orders = await Order.find(query)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku')
+      .populate('items.productId', 'title brand sku shippingCost')
       .populate('discountId', 'code value type')
       .sort('-createdAt')
       .skip(skip)
@@ -196,14 +209,13 @@ exports.getAllOrders = async (req, res, next) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);
   }
 };
 
-// Update order status (Admin only)
 exports.updateOrderStatus = async (req, res, next) => {
   try {
     const { orderId } = req.params;
@@ -217,13 +229,12 @@ exports.updateOrderStatus = async (req, res, next) => {
     order.status = status;
     await order.save();
 
-    // Emit Socket.IO event for user and admin
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku')
+      .populate('items.productId', 'title brand sku shippingCost')
       .populate('discountId', 'code value type');
-    
+
     io.to(`user_${order.userId}`).emit('orderStatusUpdated', populatedOrder);
     io.to('adminRoom').emit('orderStatusUpdated', populatedOrder);
 
@@ -233,11 +244,14 @@ exports.updateOrderStatus = async (req, res, next) => {
   }
 };
 
-// Cancel order (User only, before processing)
 exports.cancelOrder = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     const { orderId } = req.params;
-    const userId = req.user._id;
 
     const order = await Order.findOne({ orderId, userId });
     if (!order) {
@@ -248,15 +262,13 @@ exports.cancelOrder = async (req, res, next) => {
       throw new ApiError(400, 'Order can only be canceled while in pending status');
     }
 
-    // Restock products
     for (const item of order.items) {
       const product = await Product.findById(item.productId);
       if (!product) {
         throw new ApiError(404, `Product not found: ${item.productId}`);
       }
       if (item.variantId) {
-        const variant = product.variants.idadásul
-
+        const variant = product.variants.id(item.variantId);
         if (!variant) {
           throw new ApiError(404, `Variant not found for product: ${product.title}`);
         }
@@ -267,17 +279,15 @@ exports.cancelOrder = async (req, res, next) => {
       await product.save();
     }
 
-    // Update order status to cancelled
     order.status = 'cancelled';
     await order.save();
 
-    // Emit Socket.IO event for user and admin
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku')
+      .populate('items.productId', 'title brand sku shippingCost')
       .populate('discountId', 'code value type');
-    
+
     io.to(`user_${userId}`).emit('orderStatusUpdated', populatedOrder);
     io.to('adminRoom').emit('orderStatusUpdated', populatedOrder);
 
@@ -287,26 +297,23 @@ exports.cancelOrder = async (req, res, next) => {
   }
 };
 
-// Generate and download invoice (Admin only)
 exports.downloadInvoice = async (req, res, next) => {
   try {
     const { orderId } = req.params;
 
     const order = await Order.findOne({ orderId })
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku')
+      .populate('items.productId', 'title brand sku shippingCost')
       .populate('discountId', 'code value type');
 
     if (!order) {
       throw new ApiError(404, 'Order not found');
     }
 
-    // Create PDF
     const doc = new PDFDocument({ margin: 50 });
     const fileName = `invoice-${order.orderId}.pdf`;
     const filePath = path.join(__dirname, '../invoices', fileName);
 
-    // Ensure invoices directory exists
     if (!fs.existsSync(path.join(__dirname, '../invoices'))) {
       fs.mkdirSync(path.join(__dirname, '../invoices'), { recursive: true });
     }
@@ -314,7 +321,6 @@ exports.downloadInvoice = async (req, res, next) => {
     doc.pipe(fs.createWriteStream(filePath));
     doc.pipe(res);
 
-    // PDF Header
     doc.fontSize(20).text('Raees Malls - Invoice', { align: 'center' });
     doc.moveDown();
     doc.fontSize(12).text(`Order ID: ${order.orderId}`);
@@ -322,7 +328,6 @@ exports.downloadInvoice = async (req, res, next) => {
     doc.text(`Customer: ${order.userId.name} (${order.userId.email})`);
     doc.moveDown();
 
-    // Shipping Address
     doc.fontSize(14).text('Shipping Address', { underline: true });
     doc.fontSize(12).text(`${order.shippingAddress.fullName}`);
     doc.text(`${order.shippingAddress.addressLine1}`);
@@ -334,11 +339,9 @@ exports.downloadInvoice = async (req, res, next) => {
     doc.text(`Phone: ${order.shippingAddress.phone}`);
     doc.moveDown();
 
-    // Items Table
     doc.fontSize(14).text('Items', { underline: true });
     doc.moveDown(0.5);
 
-    // Table Header
     const tableTop = doc.y;
     const itemWidth = 150;
     const skuWidth = 100;
@@ -352,7 +355,6 @@ exports.downloadInvoice = async (req, res, next) => {
     doc.text('Price', 350, tableTop, { width: priceWidth, align: 'right' });
     doc.moveDown(0.5);
 
-    // Table Rows
     let y = doc.y;
     doc.font('Helvetica');
     order.items.forEach(item => {
@@ -366,17 +368,14 @@ exports.downloadInvoice = async (req, res, next) => {
       y += 15;
     });
 
-    // Discount
-    if (order.discountId) {
-      doc.moveDown();
-      doc.font('Helvetica').text(`Discount (${order.discountId.code}): -$${order.discountAmount.toFixed(2)}`, { align: 'right' });
-    }
-
-    // Total
     doc.moveDown();
-    doc.font('Helvetica-Bold').text(`Total: PKR ${order.totalPrice.toFixed(2)}`, { align: 'right' });
+    doc.font('Helvetica').text(`Subtotal: PKR ${(order.totalPrice + (order.discountAmount || 0)).toFixed(2)}`, { align: 'right' });
+    if (order.discountId) {
+      doc.text(`Discount (${order.discountId.code}): -PKR ${order.discountAmount.toFixed(2)}`, { align: 'right' });
+    }
+    doc.text(`Shipping: PKR ${order.totalShippingCost.toFixed(2)}`, { align: 'right' });
+    doc.font('Helvetica-Bold').text(`Total: PKR ${(order.totalPrice + order.totalShippingCost).toFixed(2)}`, { align: 'right' });
 
-    // Footer
     doc.moveDown(2);
     doc.fontSize(10).text('Thank you for shopping with Raees Malls!', { align: 'center' });
 

@@ -7,57 +7,38 @@ const cloudinary = require('../config/cloudinary');
 
 exports.createProduct = async (req, res, next) => {
   try {
-    console.log('Request body:', req.body);
-    console.log('Request files:', req.files);
-    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('Request files:', JSON.stringify(req.files, null, 2));
+
+    if (!req.body || Object.keys(req.body).length === 0) {
+      throw new ApiError(400, 'Request body is missing or empty');
+    }
+
+    const { title, description, price, categoryId, stock, discountPrice, shippingCost, brand, specifications, features, variants, seo, isFeatured } = req.body;
+
+    if (!title || !description || !price || !categoryId || !stock) {
+      throw new ApiError(400, 'Title, description, price, categoryId, and stock are required');
+    }
 
     if (discountPrice !== undefined && discountPrice >= price) {
       throw new ApiError(400, 'Discount price must be less than the base price');
     }
 
-    if (req.files) {
-  // Process variant images and videos
-  const variantImages = {};
-  const variantVideos = {};
-  
-  Object.keys(req.files).forEach(key => {
-    if (key.startsWith('variantImages[')) {
-      const index = key.match(/\[(\d+)\]/)[1];
-      variantImages[index] = req.files[key].map(file => ({
-        url: file.path,
-        public_id: file.filename,
-        alt: file.originalname
-      }));
-    } else if (key.startsWith('variantVideos[')) {
-      const index = key.match(/\[(\d+)\]/)[1];
-      variantVideos[index] = req.files[key].map(file => ({
-        url: file.path,
-        public_id: file.filename,
-        alt: file.originalname
-      }));
-    }
-  });
-
-  // Update variants with new media
-  if (parsedVariants) {
-    product.variants = parsedVariants.map((variant, index) => ({
-      ...variant,
-      images: variantImages[index] || variant.images || [],
-      videos: variantVideos[index] || variant.videos || []
-    }));
-  }
-}
-
-    const images = req.files.baseImages.map(file => ({
+    const images = req.files?.baseImages?.map(file => ({
       url: file.path,
       public_id: file.filename,
-      alt: file.originalname
-    }));
+      alt: file.originalname,
+    })) || [];
 
     const videos = req.files?.baseVideos?.map(file => ({
       url: file.path,
       public_id: file.filename,
-      alt: file.originalname
+      alt: file.originalname,
     })) || [];
 
     const variantImages = {};
@@ -69,14 +50,14 @@ exports.createProduct = async (req, res, next) => {
           variantImages[index] = req.files[key].map(file => ({
             url: file.path,
             public_id: file.filename,
-            alt: file.originalname
+            alt: file.originalname,
           }));
         } else if (key.startsWith('variantVideos[')) {
           const index = key.match(/\[(\d+)\]/)[1];
           variantVideos[index] = req.files[key].map(file => ({
             url: file.path,
             public_id: file.filename,
-            alt: file.originalname
+            alt: file.originalname,
           }));
         }
       });
@@ -98,7 +79,7 @@ exports.createProduct = async (req, res, next) => {
       return {
         ...variant,
         images: variantImages[index] || [],
-        videos: variantVideos[index] || []
+        videos: variantVideos[index] || [],
       };
     }) || [];
 
@@ -109,6 +90,8 @@ exports.createProduct = async (req, res, next) => {
       } catch (error) {
         throw new ApiError(400, 'Invalid SEO format');
       }
+    } else if (typeof seo === 'object') {
+      parsedSeo = seo;
     }
 
     let parsedSpecifications = specifications;
@@ -132,34 +115,35 @@ exports.createProduct = async (req, res, next) => {
     const product = new Product({
       title,
       description,
-      price,
-      discountPrice,
+      price: parseFloat(price),
+      discountPrice: discountPrice ? parseFloat(discountPrice) : undefined,
+      shippingCost: shippingCost ? parseFloat(shippingCost) : 0,
       images,
       videos,
       categoryId,
       brand,
-      stock,
+      stock: parseInt(stock),
       specifications: parsedSpecifications,
       features: parsedFeatures || [],
       variants: processedVariants,
       seo: parsedSeo,
-      isFeatured: isFeatured || false
+      isFeatured: isFeatured === 'true' || isFeatured === true,
     });
 
     await product.save();
 
     await AuditLog.create({
-      userId: req.user._id,
+      userId,
       action: 'PRODUCT_CREATE',
       details: `Product created: ${product._id}`,
       ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
+      userAgent: req.headers['user-agent'],
     });
 
     if (req.io) {
       req.io.emit('productCreated', {
         product: product.toObject(),
-        displayPrice: product.discountPrice || product.price
+        displayPrice: product.discountPrice || product.price,
       });
     }
 
@@ -171,7 +155,7 @@ exports.createProduct = async (req, res, next) => {
       Object.keys(error.errors).forEach(key => {
         errors[key] = {
           message: error.errors[key].message,
-          path: key
+          path: key,
         };
       });
       return res.status(400).json({ message: 'Validation failed', errors });
@@ -202,7 +186,7 @@ exports.getAllProducts = async (req, res, next) => {
         { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
         { brand: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } }
+        { sku: { $regex: search, $options: 'i' } },
       ];
     }
     if (isFeatured !== undefined) {
@@ -225,7 +209,7 @@ exports.getAllProducts = async (req, res, next) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);
@@ -253,6 +237,11 @@ exports.getProductById = async (req, res, next) => {
 
 exports.updateProduct = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       throw new ApiError(400, 'Invalid product ID');
     }
@@ -262,7 +251,7 @@ exports.updateProduct = async (req, res, next) => {
       throw new ApiError(404, 'Product not found');
     }
 
-    const { title, description, price, discountPrice, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
+    const { title, description, price, discountPrice, shippingCost, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
 
     if (discountPrice !== undefined) {
       const basePrice = price || product.price;
@@ -278,7 +267,7 @@ exports.updateProduct = async (req, res, next) => {
       product.images = req.files.baseImages.map(file => ({
         url: file.path,
         public_id: file.filename,
-        alt: file.originalname
+        alt: file.originalname,
       }));
     }
 
@@ -289,7 +278,7 @@ exports.updateProduct = async (req, res, next) => {
       product.videos = req.files.baseVideos.map(file => ({
         url: file.path,
         public_id: file.filename,
-        alt: file.originalname
+        alt: file.originalname,
       }));
     } else {
       product.videos = product.videos || [];
@@ -304,14 +293,14 @@ exports.updateProduct = async (req, res, next) => {
           variantImages[index] = req.files[key].map(file => ({
             url: file.path,
             public_id: file.filename,
-            alt: file.originalname
+            alt: file.originalname,
           }));
         } else if (key.startsWith('variantVideos[')) {
           const index = key.match(/\[(\d+)\]/)[1];
           variantVideos[index] = req.files[key].map(file => ({
             url: file.path,
             public_id: file.filename,
-            alt: file.originalname
+            alt: file.originalname,
           }));
         }
       });
@@ -343,7 +332,7 @@ exports.updateProduct = async (req, res, next) => {
         return {
           ...variant,
           images: variantImages[index] || variant.images || [],
-          videos: variantVideos[index] || variant.videos || []
+          videos: variantVideos[index] || variant.videos || [],
         };
       });
     }
@@ -379,6 +368,7 @@ exports.updateProduct = async (req, res, next) => {
     product.description = description || product.description;
     product.price = price || product.price;
     product.discountPrice = discountPrice !== undefined ? discountPrice : product.discountPrice;
+    product.shippingCost = shippingCost !== undefined ? parseFloat(shippingCost) : product.shippingCost;
     product.categoryId = categoryId || product.categoryId;
     product.brand = brand || product.brand;
     product.stock = stock !== undefined ? stock : product.stock;
@@ -390,17 +380,17 @@ exports.updateProduct = async (req, res, next) => {
     await product.save();
 
     await AuditLog.create({
-      userId: req.user._id,
+      userId,
       action: 'PRODUCT_UPDATE',
       details: `Product updated: ${product._id}`,
       ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
+      userAgent: req.headers['user-agent'],
     });
 
     if (req.io) {
       req.io.emit('productUpdated', {
         product: product.toObject(),
-        displayPrice: product.discountPrice || product.price
+        displayPrice: product.discountPrice || product.price,
       });
     }
 
@@ -411,7 +401,7 @@ exports.updateProduct = async (req, res, next) => {
       Object.keys(error.errors).forEach(key => {
         errors[key] = {
           message: error.errors[key].message,
-          path: key
+          path: key,
         };
       });
       return res.status(400).json({ message: 'Validation failed', errors });
@@ -425,6 +415,11 @@ exports.updateProduct = async (req, res, next) => {
 
 exports.deleteProduct = async (req, res, next) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       throw new ApiError(400, 'Invalid product ID');
     }
@@ -453,11 +448,11 @@ exports.deleteProduct = async (req, res, next) => {
     await product.deleteOne();
 
     await AuditLog.create({
-      userId: req.user._id,
+      userId,
       action: 'PRODUCT_DELETE',
       details: `Product deleted: ${product._id}`,
       ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
+      userAgent: req.headers['user-agent'],
     });
 
     if (req.io) {
@@ -481,23 +476,23 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
         { 
           price: {
             ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
-            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {})
+            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
           },
-          discountPrice: null
+          discountPrice: null,
         },
         {
           discountPrice: {
             ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
-            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {})
-          }
-        }
+            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+          },
+        },
       ];
     }
     if (search) {
       query.$or = [
         { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
-        { brand: { $regex: search, $options: 'i' } }
+        { brand: { $regex: search, $options: 'i' } },
       ];
     }
     if (attributeKey && attributeValue) {
@@ -519,7 +514,7 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
 
     const productsWithDisplayPrice = products.map(product => ({
       ...product.toObject(),
-      displayPrice: product.discountPrice || product.price
+      displayPrice: product.discountPrice || product.price,
     }));
 
     const total = await Product.countDocuments(query);
@@ -529,7 +524,7 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);
@@ -559,12 +554,12 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       displayPrice: product.discountPrice || product.price,
       variants: product.variants.map(variant => ({
         ...variant,
-        displayPrice: variant.discountPrice || variant.price
-      }))
+        displayPrice: variant.discountPrice || variant.price,
+      })),
     };
 
     ApiResponse.success(res, 200, 'Product details retrieved successfully', { 
-      product: productWithDisplayPrice 
+      product: productWithDisplayPrice,
     });
   } catch (error) {
     next(error);
@@ -588,7 +583,7 @@ exports.getFeaturedProducts = async (req, res, next) => {
 
     const productsWithDisplayPrice = products.map(product => ({
       ...product.toObject(),
-      displayPrice: product.discountPrice || product.price
+      displayPrice: product.discountPrice || product.price,
     }));
 
     const total = await Product.countDocuments(query);
@@ -598,7 +593,7 @@ exports.getFeaturedProducts = async (req, res, next) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit)
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
     next(error);

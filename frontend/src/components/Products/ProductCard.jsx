@@ -264,14 +264,14 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
           )}
         </div>
 
-        <div className="flex items-center gap-1 text-xs mt-auto">
+        {/* <div className="flex items-center gap-1 text-xs mt-auto">
           {renderStars(product.averageRating || 0)}
           {product.numReviews ? (
             <span className="text-gray-500 ml-1">({product.numReviews})</span>
           ) : (
             <span className="text-gray-500 ml-1">No reviews</span>
           )}
-        </div>
+        </div> */}
 
         <Button
           onClick={handleAddToCartClick}

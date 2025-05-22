@@ -34,6 +34,9 @@ export const OrderProvider = ({ children }) => {
         if (!item.quantity || item.quantity < 1 || !Number.isInteger(item.quantity)) {
           errors.push(`Item ${index + 1}: Quantity must be a positive integer`);
         }
+        if (typeof item.shippingCost !== 'number' || item.shippingCost < 0) {
+          errors.push(`Item ${index + 1}: Shipping cost must be a non-negative number`);
+        }
       });
     }
     
@@ -56,6 +59,10 @@ export const OrderProvider = ({ children }) => {
     
     if (orderData.discountCode && !/^[A-Z0-9-]+$/i.test(orderData.discountCode)) {
       errors.push('Discount code can only contain letters, numbers, and hyphens');
+    }
+    
+    if (typeof orderData.totalShippingCost !== 'number' || orderData.totalShippingCost < 0) {
+      errors.push('Total shipping cost must be a non-negative number');
     }
     
     return errors;
@@ -215,7 +222,9 @@ export const OrderProvider = ({ children }) => {
         items: orderData.items.map(item => ({
           ...item,
           productId: String(item.productId),
-        }))
+          shippingCost: item.shippingCost || 0,
+        })),
+        totalShippingCost: orderData.totalShippingCost || 0,
       });
 
       if (isAdmin) {

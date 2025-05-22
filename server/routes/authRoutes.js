@@ -8,13 +8,11 @@ const { authLimiter, apiLimiter } = require('../middleware/rateLimiter');
 // Apply rate limiting
 router.use(apiLimiter);
 
-// Public routes with validation and stricter rate limiting
+// Public routes
 router.post('/register', authLimiter, registerValidator, validate, authController.register);
 router.post('/login', authLimiter, loginValidator, validate, authController.login);
 router.get('/google', authLimiter, authController.googleAuth);
 router.get('/google/callback', authLimiter, authController.googleAuthCallback);
-
-// Public refresh token route (no JWT auth)
 router.post('/refresh-token', authController.refreshToken);
 
 // Protected routes (JWT only)

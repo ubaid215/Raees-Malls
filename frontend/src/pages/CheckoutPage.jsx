@@ -64,7 +64,22 @@ const CheckoutPage = () => {
       (sum, item) => sum + item.price * item.quantity,
       0
     );
-    const shipping = 250;
+    const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    // Calculate shipping cost for unique products
+    const uniqueProducts = new Set();
+    let shipping = 0;
+    for (const item of cartItems) {
+      const productId =
+        typeof item.productId === "object"
+          ? item.productId._id
+          : item.productId || item._id;
+      if (!uniqueProducts.has(productId)) {
+        shipping += item.shippingCost || 0;
+        uniqueProducts.add(productId);
+      }
+    }
+    // Apply free shipping if subtotal or totalItems >= 25,000
+    shipping = subtotal >= 25000 || totalItems >= 25000 ? 0 : shipping;
     const tax = 0;
     return { subtotal, shipping, tax, total: subtotal + shipping + tax };
   };
@@ -78,30 +93,36 @@ const CheckoutPage = () => {
     setIsSubmitting(true);
     try {
       const fullPhoneNumber = `${data.countryCode} ${data.phone}`;
-      
+
       // Extract the actual ID from the product object
       const validatedItems = cartItems.map((item) => {
-        // Handle case when productId is an object containing _id
         let validProductId;
-        if (item.productId && typeof item.productId === 'object' && item.productId._id) {
+        if (
+          item.productId &&
+          typeof item.productId === "object" &&
+          item.productId._id
+        ) {
           validProductId = item.productId._id;
-        } else if (item.productId && typeof item.productId === 'string') {
+        } else if (item.productId && typeof item.productId === "string") {
           validProductId = item.productId;
         } else if (item._id) {
           validProductId = item._id;
         } else {
           validProductId = String(Math.random()).substring(2); // Last resort fallback
         }
-        
+
         return {
           productId: validProductId,
           quantity: item.quantity,
           sku: item.sku || "UNKNOWN_SKU",
           price: item.price,
           title: item.title,
+          shippingCost: item.shippingCost || 0,
         };
       });
-      
+
+      const { shipping } = calculateTotal();
+
       const order = {
         items: validatedItems,
         shippingAddress: {
@@ -114,30 +135,30 @@ const CheckoutPage = () => {
           country: data.country,
           phone: fullPhoneNumber,
         },
+        totalShippingCost: shipping,
       };
 
-      // Log the order before sending to help with debugging
       console.log("Submitting order:", JSON.stringify(order));
 
       const result = await placeNewOrder(order);
       setOrderDetails({
         ...order,
         orderId:
-          result.orderId ||
+          result.order?.orderId ||
           `ORD-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
         total: calculateTotal().total,
+        totalShippingCost: result.order?.totalShippingCost || shipping,
       });
-      // Try to clear the cart using whatever method is available
-      if (typeof clearCart === 'function') {
+
+      if (typeof clearCart === "function") {
         clearCart();
-      } else if (typeof removeAllFromCart === 'function') {
+      } else if (typeof removeAllFromCart === "function") {
         removeAllFromCart();
       } else {
         console.warn("No cart clearing function available");
-        // Attempt to clear through context if methods aren't directly available
         try {
-          cartItems.forEach(item => {
-            if (typeof removeFromCart === 'function') {
+          cartItems.forEach((item) => {
+            if (typeof removeFromCart === "function") {
               removeFromCart(item.productId);
             }
           });
@@ -145,57 +166,32 @@ const CheckoutPage = () => {
           console.warn("Could not clear cart items individually:", e);
         }
       }
-      
+
       setOrderSuccess(true);
       toast.success("Order placed successfully!");
     } catch (error) {
       console.error("Order placement error:", error);
-      // Add more detailed error handling
       let errorMessage = "Order submission failed. Please try again.";
-      
+
       if (error.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
         console.error("Error response data:", error.response.data);
         console.error("Error response status:", error.response.status);
-        
         if (error.response.data && error.response.data.message) {
           errorMessage = error.response.data.message;
-        } else if (error.response.data && typeof error.response.data === 'string') {
+        } else if (
+          error.response.data &&
+          typeof error.response.data === "string"
+        ) {
           errorMessage = error.response.data;
         }
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const shareOnWhatsApp = () => {
-    if (!orderDetails) return;
-
-    const { shippingAddress, items, orderId, total } = orderDetails;
-    const message = `Hi, I just placed an order (${orderId}) with the following details:
-    
-*Order Summary:*
-${items.map((item) => `- ${item.title} (Qty: ${item.quantity}) - ${formatPrice(item.price * item.quantity)}`).join("\n")}
-
-*Total:* ${formatPrice(total)}
-
-*Shipping Address:*
-${shippingAddress.fullName}
-${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? `, ${shippingAddress.addressLine2}` : ""}
-${shippingAddress.city}, ${shippingAddress.state}, ${shippingAddress.country}
-${shippingAddress.postalCode}
-Phone: ${shippingAddress.phone}
-
-Please confirm my order. Thank you!`;
-
-    const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/?text=${encodedMessage}`, "_blank");
   };
 
   if (orderSuccess) {
@@ -220,13 +216,20 @@ Please confirm my order. Thank you!`;
             {orderDetails && (
               <Button
                 onClick={() => {
-                  const { shippingAddress, items, orderId, total } =
-                    orderDetails;
+                  const {
+                    shippingAddress,
+                    items,
+                    orderId,
+                    total,
+                    totalShippingCost,
+                  } = orderDetails;
                   const message = `Hi, I just placed an order (${orderId}) with the following details:
-      
+    
 *Order Summary:*
-${items.map((item) => `- ${item.title} (Qty: ${item.quantity}) - ${formatPrice(item.price * item.quantity)}`).join("\n")}
+${items.map((item) => `- ${item.title} (Qty: ${item.quantity}, Shipping: ${formatPrice(item.shippingCost)}) - ${formatPrice(item.price * item.quantity)}`).join("\n")}
 
+*Subtotal:* ${formatPrice(total - totalShippingCost)}
+*Total Shipping:* ${formatPrice(totalShippingCost)}
 *Total:* ${formatPrice(total)}
 
 *Shipping Address:*
@@ -462,12 +465,13 @@ Please confirm my order. Thank you!`;
                   >
                     <div className="flex items-center gap-3">
                       <img
-                        src={item.image || "/placeholder-product.png"}
+                        src={item.image}
                         alt={item.title || "Product"}
                         className="w-12 h-12 object-cover rounded-md border border-gray-200"
-                        onError={(e) =>
-                          (e.currentTarget.src = "/placeholder-product.png")
-                        }
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder-product.png";
+                          e.currentTarget.onerror = null;
+                        }}
                       />
                       <div className="flex-1">
                         <p className="text-sm font-medium text-gray-900 line-clamp-2">
@@ -475,6 +479,9 @@ Please confirm my order. Thank you!`;
                         </p>
                         <p className="text-xs text-gray-600">
                           Qty: {item.quantity}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          Shipping: {formatPrice(item.shippingCost || 0)}
                         </p>
                       </div>
                     </div>
@@ -499,6 +506,11 @@ Please confirm my order. Thank you!`;
                   <span className="text-gray-600">Shipping</span>
                   <span>{formatPrice(shipping)}</span>
                 </div>
+                {shipping === 0 && (
+                  <p className="text-xs text-green-600">
+                    Free shipping applied (Order above PKR 25,000)
+                  </p>
+                )}
                 <div className="flex justify-between font-bold text-base pt-2">
                   <span>Total</span>
                   <span>{formatPrice(total)}</span>
@@ -523,12 +535,14 @@ Please confirm my order. Thank you!`;
                 onClick={() => {
                   const message = `Hi, I need help with my order. Here are my cart details:
                   
-${cartItems.map((item) => `- ${item.title || "Product"} (Qty: ${item.quantity}) - ${formatPrice(item.price * item.quantity)}`).join("\n")}
+${cartItems.map((item) => `- ${item.title || "Product"} (Qty: ${item.quantity}, Shipping: ${formatPrice(item.shippingCost || 0)}) - ${formatPrice(item.price * item.quantity)}`).join("\n")}
 
+Subtotal: ${formatPrice(subtotal)}
+Total Shipping: ${formatPrice(shipping)}
 Total: ${formatPrice(total)}
 
 Can you assist me?`;
-                  const phoneNumber = "923006530063"; // Remove the '+' for WhatsApp URL
+                  const phoneNumber = "923006530063";
                   window.open(
                     `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`,
                     "_blank"
