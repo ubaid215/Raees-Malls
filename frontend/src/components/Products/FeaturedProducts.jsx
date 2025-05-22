@@ -178,21 +178,19 @@ function FeaturedProducts() {
               <LoadingSpinner size="lg" />
             </div>
           ) : (
-            <>
+            <Link to="/products">
               <img
                 src={featuredBanner ? featuredBanner.image.url : Sidebanner}
                 alt={featuredBanner ? featuredBanner.image.alt || featuredBanner.title : 'Promotional banner for up to 50% off sale'}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-center object-cover"
                 loading="lazy"
               />
               <h5 className="uppercase absolute top-10 left-7 text-white">{featuredBanner ? featuredBanner.title : 'Upto 50% off'}</h5>
               <h1 className="absolute top-20 left-7 text-white text-3xl font-semibold">
                 {featuredBanner ? featuredBanner.description : 'Limited '}<span className="text-red-600">{featuredBanner ? '' : 'Stock'}</span>, <br />{featuredBanner ? '' : 'Huge Saving'}
               </h1>
-              <Link to={featuredBanner ? featuredBanner.targetUrl || '/products/sale' : '/products/sale'}>
-                <Button className="absolute top-44 left-7 text-white">Shop Now</Button>
-              </Link>
-            </>
+              
+            </Link>
           )}
         </div>
 

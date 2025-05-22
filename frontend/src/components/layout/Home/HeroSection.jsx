@@ -23,14 +23,14 @@ function HeroSection() {
       alt: banner.image.alt || banner.title,
       title: banner.title,
       subtitle: banner.description || '',
-      link: banner.targetUrl || '#',
+      link: '/products', // Updated to redirect to products page
     }));
 
   // Fallback slider banners if none exist
   const fallbackSliderBanners = [
-    { src: Airpods, alt: 'Summer Collection', title: 'Summer Collection', subtitle: 'Up to 50% off', link: '#' },
-    { src: banner1, alt: 'New Arrivals', title: 'New Arrivals', subtitle: 'Discover the latest trends', link: '#' },
-    { src: banner2, alt: 'Limited Offer', title: 'Limited Time Offer', subtitle: 'Do not miss out', link: '#' },
+    { src: Airpods, alt: 'Summer Collection', title: 'Summer Collection', subtitle: 'Up to 50% off', link: '/products' },
+    { src: banner1, alt: 'New Arrivals', title: 'New Arrivals', subtitle: 'Discover the latest trends', link: '/products' },
+    { src: banner2, alt: 'Limited Offer', title: 'Limited Time Offer', subtitle: 'Do not miss out', link: '/products' },
   ];
 
   const activeSliderBanners = sliderBanners.length > 0 ? sliderBanners : fallbackSliderBanners;
@@ -38,7 +38,7 @@ function HeroSection() {
   // Get banner by position for side banners
   const getBannerByPosition = (position) => {
     const banner = banners.find((banner) => banner.position === position && banner.isActive);
-    return banner;
+    return banner ? { ...banner, targetUrl: '/products' } : { ...defaultImages[position], link: '/products' };
   };
 
   // Auto slide change
@@ -53,7 +53,6 @@ function HeroSection() {
     <section className="lg:px-4 md:px-2 sm:px-0 mb-3 pb-5 pt-7 w-full flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-5">
       {/* Main Slider Section - Always visible */}
       <div className="w-full md:w-[65%] h-[30vh] sm:h-[50vh] md:h-[80vh] relative rounded-none md:rounded-md lg:rounded-xl overflow-hidden">
-
         <div className="relative w-full h-full">
           {bannersLoading ? (
             <div className="w-full h-full flex items-center justify-center bg-gray-200">
@@ -61,21 +60,28 @@ function HeroSection() {
             </div>
           ) : (
             <>
-              {activeSliderBanners.map((slide, index) => (
+              <div className="relative w-full h-full overflow-hidden">
                 <div
-                  key={index}
-                  className={`absolute inset-0 transition-opacity duration-1000 ${
-                    index === currentSlide ? 'opacity-100' : 'opacity-0'
-                  }`}
+                  className="flex transition-transform duration-500 ease-in-out"
+                  style={{ transform: `translateX(-${currentSlide * 100}%)` }}
                 >
-                  <img src={slide.src} alt={slide.alt} className="w-full h-full object-cover" />
-                  <div className="absolute bottom-6 sm:bottom-10 left-4 sm:left-10">
-                    <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-red-500">{slide.title}</h2>
-                    {slide.subtitle && <p className="text-lg sm:text-xl mb-3 sm:mb-4 text-blue-500">{slide.subtitle}</p>}
-                    
-                  </div>
+                  {activeSliderBanners.map((slide, index) => (
+                    <div key={index} className="w-full flex-shrink-0">
+                      <a href={slide.link} className="block w-full h-full">
+                        <img
+                          src={slide.src}
+                          alt={slide.alt}
+                          className="w-full h-full object-contain"
+                        />
+                        <div className="absolute bottom-6 sm:bottom-10 left-4 sm:left-10">
+                          <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-red-500">{slide.title}</h2>
+                          {slide.subtitle && <p className="text-lg sm:text-xl mb-3 sm:mb-4 text-blue-500">{slide.subtitle}</p>}
+                        </div>
+                      </a>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
               {/* Slider indicators */}
               <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2">
                 {activeSliderBanners.map((_, index) => (
@@ -106,29 +112,21 @@ function HeroSection() {
             <>
               {(() => {
                 const banner = getBannerByPosition('hero-side-top');
-                const fallback = defaultImages['hero-side-top'];
                 return (
-                  <>
+                  <a href="/products" className="block w-full h-full">
                     <img
-                      src={banner ? banner.image.url : fallback.src}
-                      alt={banner ? banner.image.alt || banner.title : fallback.alt}
-                      className="w-full h-full object-cover"
+                      src={banner.image?.url || banner.src}
+                      alt={banner.image?.alt || banner.title}
+                      className="w-full h-full object-contain"
                     />
                     <div className="absolute bottom-4 left-4">
-                      <h3 className="text-xl font-bold text-yellow-500">{banner ? banner.title : fallback.title}</h3>
-                      {banner?.description || fallback.subtitle ? (
-                        <p className="text-sm text-green-500">{banner ? banner.description : fallback.subtitle}</p>
+                      <h3 className="text-xl font-bold text-yellow-500">{banner.title}</h3>
+                      {banner.description || banner.subtitle ? (
+                        <p className="text-sm text-green-500">{banner.description || banner.subtitle}</p>
                       ) : null}
-                      {(banner?.targetUrl || fallback.link) && (
-                        <a
-                          href={banner ? banner.targetUrl : fallback.link}
-                          className="mt-2 inline-block text-sm px-3 py-1 bg-white text-gray-900 rounded hover:bg-opacity-90"
-                        >
-                          Shop Now
-                        </a>
-                      )}
+                      
                     </div>
-                  </>
+                  </a>
                 );
               })()}
             </>
@@ -147,29 +145,21 @@ function HeroSection() {
               <>
                 {(() => {
                   const banner = getBannerByPosition('hero-side-bottom-left');
-                  const fallback = defaultImages['hero-side-bottom-left'];
                   return (
-                    <>
+                    <a href="/products" className="block w-full h-full">
                       <img
-                        src={banner ? banner.image.url : fallback.src}
-                        alt={banner ? banner.image.alt || banner.title : fallback.alt}
-                        className="w-full h-full object-cover"
+                        src={banner.image?.url || banner.src}
+                        alt={banner.image?.alt || banner.title}
+                        className="w-full h-full object-contain"
                       />
                       <div className="absolute bottom-2 left-2">
-                        <p className="text-sm font-medium text-orange-500">{banner ? banner.title : fallback.title}</p>
-                        {banner?.description || fallback.subtitle ? (
-                          <p className="text-xs text-purple-500">{banner ? banner.description : fallback.subtitle}</p>
+                        <p className="text-sm font-medium text-orange-500">{banner.title}</p>
+                        {banner.description || banner.subtitle ? (
+                          <p className="text-xs text-purple-500">{banner.description || banner.subtitle}</p>
                         ) : null}
-                        {(banner?.targetUrl || fallback.link) && (
-                          <a
-                            href={banner ? banner.targetUrl : fallback.link}
-                            className="mt-1 inline-block text-xs px-2 py-0.5 bg-white text-gray-900 rounded hover:bg-opacity-90"
-                          >
-                            View
-                          </a>
-                        )}
+                        
                       </div>
-                    </>
+                    </a>
                   );
                 })()}
               </>
@@ -186,29 +176,21 @@ function HeroSection() {
               <>
                 {(() => {
                   const banner = getBannerByPosition('hero-side-bottom-right');
-                  const fallback = defaultImages['hero-side-bottom-right'];
                   return (
-                    <>
+                    <a href="/products" className="block w-full h-full">
                       <img
-                        src={banner ? banner.image.url : fallback.src}
-                        alt={banner ? banner.image.alt || banner.title : fallback.alt}
-                        className="w-full h-full object-cover"
+                        src={banner.image?.url || banner.src}
+                        alt={banner.image?.alt || banner.title}
+                        className="w-full h-full object-contain"
                       />
                       <div className="absolute bottom-2 left-2">
-                        <p className="text-sm font-medium text-orange-500">{banner ? banner.title : fallback.title}</p>
-                        {banner?.description || fallback.subtitle ? (
-                          <p className="text-xs text-purple-500">{banner ? banner.description : fallback.subtitle}</p>
+                        <p className="text-sm font-medium text-orange-500">{banner.title}</p>
+                        {banner.description || banner.subtitle ? (
+                          <p className="text-xs text-purple-500">{banner.description || banner.subtitle}</p>
                         ) : null}
-                        {(banner?.targetUrl || fallback.link) && (
-                          <a
-                            href={banner ? banner.targetUrl : fallback.link}
-                            className="mt-1 inline-block text-xs px-2 py-0.5 bg-white text-gray-900 rounded hover:bg-opacity-90"
-                          >
-                            View
-                          </a>
-                        )}
+                        
                       </div>
-                    </>
+                    </a>
                   );
                 })()}
               </>
