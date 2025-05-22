@@ -71,7 +71,7 @@ function HeroSection() {
                         <img
                           src={slide.src}
                           alt={slide.alt}
-                          className="w-full h-full object-contain"
+                          className="w-full h-full object-center object-cover"
                         />
                         <div className="absolute bottom-6 sm:bottom-10 left-4 sm:left-10">
                           <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-red-500">{slide.title}</h2>
@@ -117,7 +117,7 @@ function HeroSection() {
                     <img
                       src={banner.image?.url || banner.src}
                       alt={banner.image?.alt || banner.title}
-                      className="w-full h-full object-contain"
+                      className="w-full h-full object-cover object-center"
                     />
                     <div className="absolute bottom-4 left-4">
                       <h3 className="text-xl font-bold text-yellow-500">{banner.title}</h3>
@@ -150,7 +150,7 @@ function HeroSection() {
                       <img
                         src={banner.image?.url || banner.src}
                         alt={banner.image?.alt || banner.title}
-                        className="w-full h-full object-contain"
+                        className="w-full h-full object-center object-cover"
                       />
                       <div className="absolute bottom-2 left-2">
                         <p className="text-sm font-medium text-orange-500">{banner.title}</p>
@@ -181,7 +181,7 @@ function HeroSection() {
                       <img
                         src={banner.image?.url || banner.src}
                         alt={banner.image?.alt || banner.title}
-                        className="w-full h-full object-contain"
+                        className="w-full h-full object-cover object-center"
                       />
                       <div className="absolute bottom-2 left-2">
                         <p className="text-sm font-medium text-orange-500">{banner.title}</p>
