@@ -230,7 +230,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
           {product.title}
         </h2>
         <p className="text-xs text-gray-500 hidden sm:block">
-          SKU: <span className="text-gray-700 font-medium">{product.sku || 'N/A'}</span>
+          {/* SKU: <span className="text-gray-700 font-medium">{product.sku || 'N/A'}</span> */}
         </p>
         <p className="text-xs text-gray-500 line-clamp-1 hidden sm:block">
           Category: <span className="text-gray-700">{categoryNames}</span>

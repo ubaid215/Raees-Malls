@@ -104,16 +104,14 @@ function FeaturedProducts() {
       return {
         _id: product._id,
         title: product.title || product.name || 'Untitled Product',
-        price: product.discountPrice || product.price || 0,
-        originalPrice: product.price || 0,
+        price: product.price || 0, // Original price
+        discountPrice: product.discountPrice || null, // Discounted price (if any)
         images,
         averageRating: product.averageRating || product.rating || 0,
         numReviews: product.numReviews || 0,
         stock: product.stock || 0,
-        isOnSale: !!product.discountPrice && product.discountPrice < product.price,
         categoryId: product.categoryId,
         sku: product.sku,
-        displayPrice: product.displayPrice,
         isFeatured: product.isFeatured || false
       };
     }).filter(product => product.isFeatured);
