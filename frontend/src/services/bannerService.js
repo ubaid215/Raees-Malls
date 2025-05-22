@@ -6,7 +6,7 @@ const bannerSchema = yup.object().shape({
   title: yup
     .string()
     .trim()
-    .required('Title is required'),
+    .optional(), // Make title optional
   description: yup
     .string()
     .trim()
@@ -60,7 +60,16 @@ export const createBanner = async (bannerData, image) => {
     Object.entries(validatedData).forEach(([key, value]) => {
       formData.append(key, value);
     });
-    if (image) formData.append('image', image);
+    if (image) {
+      console.log('Image to upload:', { name: image.name, type: image.type, size: image.size }); // Debug log
+      formData.append('image', image);
+    } else {
+      console.log('No image provided'); // Debug log
+    }
+    // Debug FormData content
+    for (let [key, value] of formData.entries()) {
+      console.log(`FormData entry: ${key}=${value}`);
+    }
     const response = await api.post('/admin/banners', formData, { isMultipart: true });
     console.log('CreateBanner response:', response.data);
     if (!response.data.success || !response.data.data.banner) {
@@ -94,7 +103,16 @@ export const updateBanner = async (id, bannerData, image) => {
     Object.entries(validatedData).forEach(([key, value]) => {
       formData.append(key, value);
     });
-    if (image) formData.append('image', image);
+    if (image) {
+      console.log('Image to upload:', { name: image.name, type: image.type, size: image.size }); // Debug log
+      formData.append('image', image);
+    } else {
+      console.log('No image provided'); // Debug log
+    }
+    // Debug FormData content
+    for (let [key, value] of formData.entries()) {
+      console.log(`FormData entry: ${key}=${value}`);
+    }
     const response = await api.put(`/admin/banners/${id}`, formData, { isMultipart: true });
     console.log('UpdateBanner response:', response.data);
     if (!response.data.success || !response.data.data.banner) {
