@@ -4,8 +4,16 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const authService = require('../services/authServices');
 
+// Helper function to determine callback URL
+const getGoogleCallbackUrl = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return process.env.GOOGLE_CALLBACK_URL || 'https://api.raeesmalls.com/api/auth/google/callback';
+  }
+  return process.env.GOOGLE_CALLBACK_URL_DEV || 'http://localhost:5000/api/auth/google/callback';
+};
+
 module.exports = function (passport) {
-  // Local Strategy
+  // Local Strategy (unchanged)
   passport.use(
     new LocalStrategy(
       {
@@ -42,20 +50,17 @@ module.exports = function (passport) {
     )
   );
 
-  // Use GOOGLE_CALLBACK_URL from environment variables
-  const googleCallbackURL = process.env.GOOGLE_CALLBACK_URL || 'https://api.raeesmalls.com/api/auth/google/callback';
-  console.log('NODE_ENV:', process.env.NODE_ENV);
-  console.log('Google Callback URL:', googleCallbackURL);
-
-  // Google Strategy
+  // Google Strategy with improved callback URL handling
   passport.use(
     new GoogleStrategy(
       {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: googleCallbackURL,
+        callbackURL: getGoogleCallbackUrl(),
+        proxy: true, // Important for production behind proxy
+        passReqToCallback: true // Optional: if you need access to req object
       },
-      async (accessToken, refreshToken, profile, done) => {
+      async (req, accessToken, refreshToken, profile, done) => {
         try {
           // Find user by Google ID
           let user = await User.findOne({ googleId: profile.id });
@@ -68,7 +73,7 @@ module.exports = function (passport) {
               // Update existing user with Google ID
               user.googleId = profile.id;
               user.provider = 'google';
-              user.isVerified = true; // Google users are verified by default
+              user.isVerified = true;
               await user.save();
             } else {
               // Create new user
@@ -93,18 +98,17 @@ module.exports = function (passport) {
     )
   );
 
-  // Serialization
+  // Serialization (unchanged)
   passport.serializeUser((user, done) => {
     console.log('Serializing user:', user._id.toString());
     done(null, user._id.toString());
   });
 
-  // Deserialization with caching
+  // Deserialization with caching (unchanged)
   const userCache = new Map();
 
   passport.deserializeUser(async (id, done) => {
     try {
-      // Check cache first
       if (userCache.has(id)) {
         console.log('Returning cached user for ID:', id);
         return done(null, userCache.get(id));
@@ -116,7 +120,6 @@ module.exports = function (passport) {
         return done(null, false);
       }
 
-      // Cache for 5 minutes
       userCache.set(id, user);
       setTimeout(() => userCache.delete(id), 300000);
 

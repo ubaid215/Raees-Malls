@@ -62,6 +62,17 @@ const updateProfileSchema = yup.object().shape({
     .optional(),
 });
 
+
+const getBaseUrl = () => {
+  // Robust environment detection
+  const isProduction = window.location.hostname !== 'localhost' && 
+                      window.location.hostname !== '127.0.0.1';
+  
+  return isProduction
+    ? (import.meta.env.VITE_API_BASE_PROD_URL || 'https://api.raeesmalls.com')
+    : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
+};
+
 export const login = async (email, password) => {
   try {
     const credentials = await loginSchema.validate(
@@ -111,15 +122,15 @@ export const login = async (email, password) => {
 
 export const googleLogin = async (authCode = null) => {
   try {
-    // Determine the base URL based on the environment
-    const baseUrl = import.meta.env.VITE_ENV === 'production'
-      ? import.meta.env.VITE_API_BASE_PROD_URL
-      : import.meta.env.VITE_API_BASE_URL;
+    const baseUrl = getBaseUrl();
 
     // If authCode is provided, we're handling a redirect
     if (authCode) {
       console.log('GoogleLogin: Processing auth code from redirect');
-      const response = await api.post('/auth/google/callback', { code: authCode });
+      const response = await api.post('/auth/google/callback', { 
+        code: authCode,
+        redirect_uri: window.location.origin // Send current origin for validation
+      });
       
       if (!response.data.success) {
         throw new Error(response.data.message || 'Google authentication failed');
@@ -133,8 +144,8 @@ export const googleLogin = async (authCode = null) => {
       
       return user;
     } else {
-      // Initiate Google OAuth flow
-      const redirectUrl = `${baseUrl}/api/auth/google`;
+      // Initiate Google OAuth flow with proper redirect URI
+      const redirectUrl = `${baseUrl}/api/auth/google?redirect_uri=${encodeURIComponent(window.location.origin)}`;
       console.log('GoogleLogin: Redirecting to', redirectUrl);
       window.location.href = redirectUrl;
       return null;
@@ -152,6 +163,7 @@ export const handleGoogleRedirect = async () => {
   const urlParams = new URLSearchParams(window.location.search);
   const code = urlParams.get('code');
   const error = urlParams.get('error');
+  const state = urlParams.get('state');
   
   if (error) {
     console.error('Google OAuth error:', error);
