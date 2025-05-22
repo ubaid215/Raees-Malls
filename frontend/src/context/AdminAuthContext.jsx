@@ -19,12 +19,9 @@ const AdminAuthProvider = ({ children }) => {
   useEffect(() => {
     const initializeAuth = async () => {
       const token = localStorage.getItem('adminToken');
-      if (token) {
-        setAuthState(prev => ({ 
-          ...prev, 
-          loading: true
-        }));
-        
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (token && refreshToken) {
+        setAuthState(prev => ({ ...prev, loading: true }));
         try {
           await refreshAdminToken();
         } catch (err) {
@@ -33,14 +30,16 @@ const AdminAuthProvider = ({ children }) => {
         } finally {
           setAuthState(prev => ({ ...prev, loading: false }));
         }
+      } else {
+        setAuthState(prev => ({ ...prev, loading: false }));
       }
     };
-    
+
     initializeAuth();
   }, []);
 
   const setupSocketConnection = (admin) => {
-    const adminId = admin?._id || admin?.id;
+    const adminId = admin?._id || admin?.userId;
     if (adminId) {
       try {
         socketService.connect(adminId, 'admin');
@@ -57,9 +56,9 @@ const AdminAuthProvider = ({ children }) => {
 
   const handleAuthError = (error) => {
     console.error('Admin auth error:', error);
-    const isRateLimitError = error.message.includes('Too many requests');
-    const retryAfter = error.message.match(/try again in (\d+)/)?.[1] || null;
-    
+    const isRateLimitError = error.status === 429 || error.message.includes('Too many requests');
+    const retryAfter = error.retryAfter || null;
+
     setAuthState(prev => ({
       ...prev,
       error: error.message,
@@ -67,7 +66,7 @@ const AdminAuthProvider = ({ children }) => {
       isRateLimited: isRateLimitError,
       retryAfter: isRateLimitError ? retryAfter : null,
     }));
-    
+
     if (!isRateLimitError) {
       resetAuthState();
     }
@@ -94,23 +93,9 @@ const AdminAuthProvider = ({ children }) => {
   };
 
   const loginAdmin = async (credentials) => {
-    setAuthState(prev => ({ 
-      ...prev, 
-      loading: true, 
-      error: null, 
-      errors: [] 
-    }));
-    
+    setAuthState(prev => ({ ...prev, loading: true, error: null, errors: [] }));
     try {
       const adminData = await AdminAuthService.login(credentials);
-      
-      if (adminData.token) {
-        localStorage.setItem('adminToken', adminData.token);
-      }
-      if (adminData.refreshToken) {
-        localStorage.setItem('refreshToken', adminData.refreshToken);
-      }
-
       setAuthState({
         admin: adminData.user,
         loading: false,
@@ -121,7 +106,6 @@ const AdminAuthProvider = ({ children }) => {
         isRefreshingToken: false,
         isAdminAuthenticated: true,
       });
-      
       setupSocketConnection(adminData.user);
       return adminData;
     } catch (err) {
@@ -147,17 +131,8 @@ const AdminAuthProvider = ({ children }) => {
 
   const refreshAdminToken = async () => {
     setAuthState(prev => ({ ...prev, isRefreshingToken: true, loading: true }));
-    
     try {
       const adminData = await AdminAuthService.refreshToken();
-      
-      if (adminData.token) {
-        localStorage.setItem('adminToken', adminData.token);
-      }
-      if (adminData.refreshToken) {
-        localStorage.setItem('refreshToken', adminData.refreshToken);
-      }
-
       setAuthState(prev => ({
         ...prev,
         admin: adminData.user,
@@ -169,24 +144,18 @@ const AdminAuthProvider = ({ children }) => {
         retryAfter: null,
         isAdminAuthenticated: true,
       }));
-      
+      setupSocketConnection(adminData.user);
       return adminData;
     } catch (err) {
-      console.error('Token refresh failed:', err);
       handleAuthError(err);
       throw err;
     } finally {
-      setAuthState(prev => ({ 
-        ...prev, 
-        isRefreshingToken: false,
-        loading: false
-      }));
+      setAuthState(prev => ({ isRefreshingToken: false, loading: false }));
     }
   };
 
   const changeAdminPassword = async (currentPassword, newPassword, confirmPassword) => {
     setAuthState(prev => ({ ...prev, loading: true, error: null, errors: [] }));
-    
     try {
       const result = await AdminAuthService.changeAdminPassword(currentPassword, newPassword, confirmPassword);
       setAuthState(prev => ({ ...prev, loading: false }));

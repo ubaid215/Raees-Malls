@@ -5,12 +5,12 @@ const authService = require('../services/authServices');
 const jwtService = require('../services/jwtService');
 const AuditLog = require('../models/AuditLog');
 const User = require('../models/User');
+const Token = require('../models/Token');
 
 exports.login = (req, res, next) => {
   console.log('Admin login attempt:', req.body.email);
   passport.authenticate('local', async (err, user, info) => {
     try {
-      console.log('Passport auth result:', { err, user: user ? user.email : null, info });
       if (err) throw new ApiError(500, 'Authentication error', err);
       if (!user) throw new ApiError(401, info.message || 'Invalid credentials');
 
@@ -21,7 +21,15 @@ exports.login = (req, res, next) => {
 
       req.logIn(user, async (err) => {
         if (err) throw new ApiError(500, 'Session error', err);
-        
+
+        const { accessToken, refreshToken } = jwtService.generateTokens({
+          userId: user._id.toString(),
+          role: user.role
+        });
+
+        await Token.findOneAndDelete({ userId: user._id });
+        await Token.create({ userId: user._id, token: refreshToken });
+
         await AuditLog.create({
           userId: user._id,
           action: 'ADMIN_LOGIN',
@@ -29,9 +37,16 @@ exports.login = (req, res, next) => {
           userAgent: req.headers['user-agent']
         });
 
-        const { accessToken, refreshToken } = jwtService.generateTokens({
-          id: user._id,
-          role: user.role
+        // Set HTTP-only cookies
+        res.cookie('adminToken', accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 15 * 60 * 1000 // 15 minutes
+        });
+        res.cookie('refreshToken', refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
         });
 
         console.log('Admin logged in:', user.email);
@@ -47,53 +62,54 @@ exports.login = (req, res, next) => {
   })(req, res, next);
 };
 
-exports.logout = async (req, res) => {
+exports.logout = async (req, res, next) => {
   try {
-    if (req.user) {
-      console.log('Admin logout:', req.user.email);
-      await AuditLog.create({
-        userId: req.user._id,
-        action: 'ADMIN_LOGOUT',
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
+    if (!req.user) throw new ApiError(401, 'Not authenticated');
+
+    console.log('Admin logout:', req.user.email || req.user.userId);
+    await Token.findOneAndDelete({ userId: req.user.userId });
+
+    await AuditLog.create({
+      userId: req.user.userId,
+      action: 'ADMIN_LOGOUT',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    // Clear session if it exists
+    if (req.session) {
+      req.logout(() => {
+        req.session.destroy();
       });
     }
 
-    req.logout(() => {
-      req.session.destroy();
-      ApiResponse.success(res, 200, 'Logged out successfully');
-    });
+    ApiResponse.success(res, 200, 'Logged out successfully');
   } catch (error) {
-    ApiResponse.error(res, 500, 'Logout failed', error);
+    next(error);
   }
 };
 
-exports.getSessionUser = (req, res) => {
-  if (!req.isAuthenticated()) {
-    console.log('Session not authenticated');
-    return ApiResponse.error(res, 401, 'Not authenticated');
-  }
-  
-  if (req.user.role !== 'admin') {
-    console.log('Session user not an admin:', req.user.email, 'Role:', req.user.role);
-    return ApiResponse.error(res, 403, 'Access restricted');
-  }
+exports.getSessionUser = async (req, res, next) => {
+  try {
+    if (!req.user) throw new ApiError(401, 'Not authenticated');
 
-  console.log('Session user retrieved:', req.user.email);
-  ApiResponse.success(res, 200, 'Session Blondie-style user', authService.sanitizeUser(req.user));
+    const user = await User.findById(req.user.userId).select('-password');
+    if (!user) throw new ApiError(404, 'User not found');
+    if (user.role !== 'admin') {
+      console.log('Session user not an admin:', user.email, 'Role:', user.role);
+      throw new ApiError(403, 'Access restricted');
+    }
+
+    console.log('Session user retrieved:', user.email);
+    ApiResponse.success(res, 200, 'Session user', authService.sanitizeUser(user));
+  } catch (error) {
+    next(error);
+  }
 };
 
 exports.changePassword = async (req, res, next) => {
   try {
-    if (!req.isAuthenticated()) {
-      console.log('Change password attempt: Not authenticated');
-      throw new ApiError(401, 'Not authenticated');
-    }
-
-    if (req.user.role !== 'admin') {
-      console.log('Change password attempt: User not an admin:', req.user.email, 'Role:', req.user.role);
-      throw new ApiError(403, 'Access restricted to admins');
-    }
+    if (!req.user) throw new ApiError(401, 'Not authenticated');
 
     const { currentPassword, newPassword, confirmPassword } = req.body;
 
@@ -105,9 +121,11 @@ exports.changePassword = async (req, res, next) => {
       throw new ApiError(400, 'New password and confirm password do not match');
     }
 
-    const user = await User.findById(req.user._id);
-    if (!user) {
-      throw new ApiError(404, 'User not found');
+    const user = await User.findById(req.user.userId);
+    if (!user) throw new ApiError(404, 'User not found');
+    if (user.role !== 'admin') {
+      console.log('Change password attempt: User not an admin:', user.email, 'Role:', user.role);
+      throw new ApiError(403, 'Access restricted to admins');
     }
 
     const isMatch = await user.comparePassword(currentPassword);
@@ -134,29 +152,28 @@ exports.changePassword = async (req, res, next) => {
   }
 };
 
-exports.verifyToken = (req, res, next) => {
+exports.verifyToken = async (req, res, next) => {
   try {
-    if (!req.isAuthenticated()) {
-      console.log('Token verification: Not authenticated');
-      throw new ApiError(401, 'Not authenticated');
-    }
-    
-    if (req.user.role !== 'admin') {
-      console.log('Token verification: User not an admin:', req.user.email, 'Role:', req.user.role);
+    if (!req.user) throw new ApiError(401, 'Not authenticated');
+
+    const user = await User.findById(req.user.userId).select('-password');
+    if (!user) throw new ApiError(404, 'User not found');
+    if (user.role !== 'admin') {
+      console.log('Token verification: User not an admin:', user.email, 'Role:', user.role);
       throw new ApiError(403, 'Access restricted to admins');
     }
 
-    console.log('Token verified for admin:', req.user.email);
-    
-    AuditLog.create({
-      userId: req.user._id,
+    console.log('Token verified for admin:', user.email);
+
+    await AuditLog.create({
+      userId: user._id,
       action: 'ADMIN_TOKEN_VERIFY',
       ipAddress: req.ip,
       userAgent: req.headers['user-agent']
-    }).catch(err => console.error('Failed to log token verification:', err));
+    });
 
     ApiResponse.success(res, 200, 'Token is valid', {
-      user: authService.sanitizeUser(req.user)
+      user: authService.sanitizeUser(user)
     });
   } catch (error) {
     next(error);
@@ -165,52 +182,45 @@ exports.verifyToken = (req, res, next) => {
 
 exports.refreshToken = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) {
-      throw new ApiError(400, 'Refresh token is required');
-    }
+    const { refreshToken } = req.body || req.cookies.refreshToken;
+    if (!refreshToken) throw new ApiError(400, 'Refresh token is required');
 
     let decoded;
     try {
       decoded = jwtService.verifyRefreshToken(refreshToken);
-      console.log('Refresh token decoded:', { userId: decoded.userId, role: decoded.role });
+      console.log('Admin refresh token decoded:', { userId: decoded.userId, role: decoded.role });
     } catch (jwtError) {
-      console.error('JWT verification failed:', jwtError.message);
+      console.error('Admin JWT verification failed:', jwtError.message);
       throw new ApiError(403, 'Invalid or expired refresh token', [jwtError.message]);
     }
 
-    // Verify refresh token in database (align with authController.js)
     const storedToken = await Token.findOne({
       token: refreshToken,
       userId: decoded.userId,
     });
     if (!storedToken) {
-      console.error('Refresh token not found in database:', { userId: decoded.userId, refreshToken });
+      console.error('Admin refresh token not found in database:', { userId: decoded.userId, refreshToken });
       throw new ApiError(403, 'Refresh token not found or expired');
     }
 
-    // Get user
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) {
-      console.error('User not found for ID:', decoded.userId);
+      console.error('Admin user not found for ID:', decoded.userId);
       throw new ApiError(404, 'User not found');
     }
     if (user.role !== 'admin') {
-      console.error('User is not an admin:', { userId: user._id, email: user.email, role: user.role });
+      console.error('Admin user is not an admin:', { userId: user._id, email: user.email, role: user.role });
       throw new ApiError(403, 'User is not an admin');
     }
 
-    // Generate new tokens
     const { accessToken, refreshToken: newRefreshToken } = jwtService.generateTokens({
-      id: user._id,
+      userId: user._id.toString(),
       role: user.role
     });
 
-    // Replace old refresh token
     await Token.findOneAndDelete({ token: refreshToken });
     await Token.create({ userId: user._id, token: newRefreshToken });
 
-    // Log refresh action
     await AuditLog.create({
       userId: user._id,
       action: 'ADMIN_TOKEN_REFRESH',
@@ -218,15 +228,26 @@ exports.refreshToken = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
-    console.log('Token refreshed for admin:', user.email);
-    
+    // Update cookies
+    res.cookie('adminToken', accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 15 * 60 * 1000
+    });
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    console.log('Admin token refreshed for:', user.email);
     ApiResponse.success(res, 200, 'Token refreshed successfully', {
       user: authService.sanitizeUser(user),
       token: accessToken,
       refreshToken: newRefreshToken
     });
   } catch (error) {
-    console.error('Refresh token error:', error.message);
+    console.error('Admin refresh token error:', error.message);
     next(error);
   }
 };

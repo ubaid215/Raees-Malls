@@ -1,53 +1,58 @@
 const express = require('express');
 const router = express.Router();
 const adminAuthController = require('../controllers/adminAuthController');
-const { ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
+const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
 const { loginValidator, changePasswordValidator } = require('../validation/authValidators');
 const { authLimiter } = require('../middleware/rateLimiter');
 
 // Admin authentication routes
-router.post('/login', 
-  authLimiter, // Stricter rate limiting for admin login
+router.post('/login',
+  authLimiter,
   loginValidator,
   adminAuthController.login
 );
 
-router.post('/logout', 
-  ensureAuthenticated,
+router.post('/logout',
+  authenticateJWT, // Use JWT for stateless logout
   authorizeRoles('admin'),
   adminAuthController.logout
 );
 
-router.get('/session', 
-  ensureAuthenticated,
+router.get('/session',
+  // Keep session-based auth for CMS compatibility
+  (req, res, next) => {
+    if (req.isAuthenticated()) {
+      return next();
+    }
+    return authenticateJWT(req, res, next); // Fallback to JWT
+  },
   authorizeRoles('admin'),
   adminAuthController.getSessionUser
 );
 
 router.post('/change-password',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('admin'),
   changePasswordValidator,
   adminAuthController.changePassword
 );
 
-router.get('/verify-token', 
-  ensureAuthenticated,
+router.get('/verify-token',
+  authenticateJWT,
   authorizeRoles('admin'),
   adminAuthController.verifyToken
 );
 
 router.post('/refresh-token',
-  ensureAuthenticated,
-  authorizeRoles('admin'),
-  adminAuthController.refreshToken
+  adminAuthController.refreshToken // No JWT/auth check here, as it validates the refresh token
 );
 
 // Protected admin routes
-router.get('/dashboard', 
-  ensureAuthenticated, 
+router.get('/dashboard',
+  authenticateJWT,
   authorizeRoles('admin'),
   (req, res) => {
+    const ApiResponse = require('../utils/apiResponse');
     ApiResponse.success(res, 200, 'Admin dashboard accessed', {
       user: req.user,
       dashboardData: {} // Add actual dashboard data here

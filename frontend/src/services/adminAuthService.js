@@ -2,7 +2,6 @@ import API from './api';
 
 const AdminAuthService = {
   login: async (credentials) => {
-    // Client-side validation
     if (!credentials.email || !credentials.password) {
       throw { message: 'Email and password are required', status: 400 };
     }
@@ -16,11 +15,9 @@ const AdminAuthService = {
       if (!token || !refreshToken) {
         throw { message: 'Invalid response from server: Missing tokens', status: 500 };
       }
-      
-      localStorage.setItem('adminToken', token);
-      localStorage.setItem('refreshToken', refreshToken);
-      
-      return response.data.data;
+
+      // Tokens are set as HTTP-only cookies by backend
+      return { user, token, refreshToken };
     } catch (error) {
       const errorObj = {
         message: error.response?.data?.message || 'Login failed. Please check your credentials or contact support.',
@@ -35,16 +32,13 @@ const AdminAuthService = {
 
   logout: async () => {
     try {
-      const response = await API.post('/admin/logout');
-      
-      localStorage.removeItem('adminToken');
-      localStorage.removeItem('refreshToken');
-      
+      const response = await API.post('/admin/logout', {}, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('adminToken')}` },
+        withCredentials: true // Include cookies
+      });
+
       return response.data;
     } catch (error) {
-      localStorage.removeItem('adminToken');
-      localStorage.removeItem('refreshToken');
-      
       const errorObj = {
         message: error.response?.data?.message || 'Logout failed',
         status: error.response?.status || 500,
@@ -58,19 +52,17 @@ const AdminAuthService = {
 
   refreshToken: async () => {
     try {
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (!refreshToken) throw new Error('No refresh token available');
-      
-      const response = await API.post('/admin/refresh-token', { refreshToken });
-      
+      const response = await API.post('/admin/refresh-token', {}, {
+        withCredentials: true // Send refreshToken cookie
+      });
+
       const { token: accessToken, refreshToken: newRefreshToken, user } = response.data.data;
       if (!accessToken || !newRefreshToken) {
         throw { message: 'Invalid refresh response: Missing tokens', status: 500 };
       }
-      localStorage.setItem('adminToken', accessToken);
-      localStorage.setItem('refreshToken', newRefreshToken);
-      
-      return response.data.data;
+
+      // Tokens are updated as HTTP-only cookies by backend
+      return { user, token: accessToken, refreshToken: newRefreshToken };
     } catch (error) {
       const errorObj = {
         message: error.response?.data?.message || 'Token refresh failed. Please log in again.',
@@ -85,7 +77,6 @@ const AdminAuthService = {
   },
 
   changeAdminPassword: async (currentPassword, newPassword, confirmPassword) => {
-    // Client-side validation
     if (!currentPassword || !newPassword || !confirmPassword) {
       throw { message: 'All password fields are required', status: 400 };
     }
@@ -101,15 +92,17 @@ const AdminAuthService = {
         status: 400,
       };
     }
-  
+
     try {
       const response = await API.post('/admin/change-password', {
         currentPassword,
         newPassword,
         confirmPassword,
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('adminToken')}` },
+        withCredentials: true
       });
-  
-      // Backend returns { success: true, message: string }
+
       return {
         message: response.data.message || 'Password changed successfully',
       };
