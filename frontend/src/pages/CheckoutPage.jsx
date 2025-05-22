@@ -79,7 +79,7 @@ const CheckoutPage = () => {
       }
     }
     // Apply free shipping if subtotal or totalItems >= 25,000
-    shipping = subtotal >= 25000 || totalItems >= 25000 ? 0 : shipping;
+    shipping = subtotal >= 2500 || totalItems >= 2500 ? 0 : shipping;
     const tax = 0;
     return { subtotal, shipping, tax, total: subtotal + shipping + tax };
   };
@@ -508,7 +508,7 @@ Please confirm my order. Thank you!`;
                 </div>
                 {shipping === 0 && (
                   <p className="text-xs text-green-600">
-                    Free shipping applied (Order above PKR 25,000)
+                    Free shipping applied (Order above PKR 2,500)
                   </p>
                 )}
                 <div className="flex justify-between font-bold text-base pt-2">

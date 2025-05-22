@@ -42,12 +42,8 @@ module.exports = function (passport) {
     )
   );
 
-  // Determine correct callback URL based on environment
-  const googleCallbackURL =
-    process.env.NODE_ENV === 'production'
-      ? `${process.env.BACKEND_PROD_URL}/api/auth/google/callback`
-      : `${process.env.BACKEND_DEV_URL}/api/auth/google/callback`;
-
+  // Use GOOGLE_CALLBACK_URL from environment variables
+  const googleCallbackURL = process.env.GOOGLE_CALLBACK_URL || 'https://api.raeesmalls.com/api/auth/google/callback';
   console.log('NODE_ENV:', process.env.NODE_ENV);
   console.log('Google Callback URL:', googleCallbackURL);
 

@@ -6,7 +6,7 @@ import { getProductById } from '../../services/productService';
 import { useCart } from '../../context/CartContext';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
-import { FaStar, FaStarHalfAlt, FaRegStar } from 'react-icons/fa';
+import { FaStar, FaStarHalfAlt, FaRegStar, FaWhatsapp } from 'react-icons/fa';
 
 const ProductDetails = memo(() => {
   const { productId } = useParams();
@@ -84,26 +84,43 @@ const ProductDetails = memo(() => {
     }
   };
 
-  const handleOrderNow = async () => {
-    const currentStock = selectedVariant ? selectedVariant.stock : product?.stock;
-    const price = selectedVariant ? (selectedVariant.discountPrice ?? selectedVariant.price) : (product.discountPrice ?? product.price);
+  const handleWhatsAppInquiry = () => {
+    if (!product) return;
 
-    if (!product || currentStock <= 0) {
-      toast.error('Product is out of stock');
-      return;
-    }
+    const currentPrice = selectedVariant
+      ? selectedVariant.discountPrice ?? selectedVariant.price
+      : product.discountPrice ?? product.price;
+    const originalPrice = selectedVariant ? selectedVariant.price : product.price;
+    const currentStock = selectedVariant ? selectedVariant.stock : product.stock;
+    const hasDiscount = Number.isFinite(currentPrice) && Number.isFinite(originalPrice) && currentPrice < originalPrice;
 
-    try {
-      await addItemToCart(
-        product._id, 
-        selectedVariant?._id || null, 
-        1,
-        price  // Pass the price explicitly
-      );
-      navigate('/checkout');
-    } catch (err) {
-      toast.error(err.message || 'Failed to proceed to checkout');
-    }
+    // Create WhatsApp message
+    const productName = product.title || 'Product';
+    const variantInfo = selectedVariant 
+      ? ` (${getVariantLabel(selectedVariant, product.variants.indexOf(selectedVariant))})` 
+      : '';
+    const priceInfo = formatPrice(currentPrice);
+    const originalPriceInfo = hasDiscount ? ` (Original: ${formatPrice(originalPrice)})` : '';
+    const stockInfo = currentStock > 0 ? `${currentStock} available` : 'Out of stock';
+    const sku = selectedVariant?.sku || product.sku || 'N/A';
+    
+    const message = `Hi! I'm interested in this product:
+
+*${productName}${variantInfo}*
+📦 SKU: ${sku}
+💰 Price: ${priceInfo}${originalPriceInfo}
+📋 Stock: ${stockInfo}
+
+${product.description ? `📝 Description: ${product.description}` : ''}
+
+Please provide more details and availability.`;
+
+    const whatsappNumber = '923007246696'; // Pakistani format without +
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodedMessage}`;
+    
+    // Open WhatsApp in new tab
+    window.open(whatsappUrl, '_blank');
   };
 
   const handleRetry = () => {
@@ -425,16 +442,12 @@ const ProductDetails = memo(() => {
                 {cartLoading ? 'Adding...' : 'Add to Cart'}
               </Button>
               <Button
-                onClick={handleOrderNow}
-                className={`flex-1 py-3 px-4 rounded-md text-sm sm:text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-red-600 ${
-                  currentStock > 0 && !cartLoading
-                    ? 'bg-gray-900 text-white hover:bg-gray-800'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-                disabled={currentStock <= 0 || cartLoading}
-                aria-label="Order now"
+                onClick={handleWhatsAppInquiry}
+                className="flex-1 py-3 px-4 rounded-md text-sm sm:text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 bg-green-600 text-white hover:bg-green-700 flex items-center justify-center gap-2"
+                aria-label="Get details on WhatsApp"
               >
-                {cartLoading ? 'Processing...' : 'Order Now'}
+                <FaWhatsapp className="text-lg" />
+                Get Details
               </Button>
             </div>
 

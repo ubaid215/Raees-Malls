@@ -13,7 +13,7 @@ const GoogleCallback = () => {
 
     const handleCallback = async () => {
       try {
-        console.log('GoogleCallback: Processing callback', location.search);
+        // console.log('GoogleCallback: Processing callback', location.search);
         const params = new URLSearchParams(location.search);
         const token = params.get('token');
         const refreshToken = params.get('refreshToken');
@@ -32,7 +32,7 @@ const GoogleCallback = () => {
 
         // Check if tokens are already stored
         if (localStorage.getItem('token')) {
-          console.log('GoogleCallback: Tokens already exist, navigating to /account');
+          // console.log('GoogleCallback: Tokens already exist, navigating to /account');
           navigate('/account', { replace: true });
           return;
         }
@@ -40,9 +40,9 @@ const GoogleCallback = () => {
         localStorage.setItem('token', token);
         localStorage.setItem('refreshToken', refreshToken);
         localStorage.setItem('userId', userId);
-        console.log('GoogleCallback: Tokens stored, fetching user...');
+        // console.log('GoogleCallback: Tokens stored, fetching user...');
         await fetchUser();
-        console.log('GoogleCallback: User fetched, navigating to /account');
+        // console.log('GoogleCallback: User fetched, navigating to /account');
         hasProcessed.current = true; // Mark as processed
         navigate('/account', { replace: true });
       } catch (err) {

@@ -148,7 +148,7 @@ exports.getCart = async (req, res, next) => {
       ...cart.toObject(),
       items: populatedItems,
       totalPrice,
-      totalShippingCost: totalPrice >= 25000 || totalItems >= 25000 ? 0 : totalShippingCost,
+      totalShippingCost: totalPrice >= 2500 || totalItems >= 2500 ? 0 : totalShippingCost,
       itemCount: totalItems,
     };
 
@@ -272,7 +272,7 @@ exports.placeOrderFromCart = async (req, res, next) => {
     }
 
     const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
-    totalShippingCost = totalPrice >= 25000 || totalItems >= 25000 ? 0 : totalShippingCost;
+    totalShippingCost = totalPrice >= 2500 || totalItems >= 2500 ? 0 : totalShippingCost;
 
     const order = new Order({
       orderId: `ORD-${uuidv4().split('-')[0]}`,

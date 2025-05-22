@@ -112,7 +112,7 @@ export const login = async (email, password) => {
 export const googleLogin = async (authCode = null) => {
   try {
     // Determine the base URL based on the environment
-    const baseUrl = import.meta.env.NODE_ENV === 'production'
+    const baseUrl = import.meta.env.VITE_ENV === 'production'
       ? import.meta.env.VITE_API_BASE_PROD_URL
       : import.meta.env.VITE_API_BASE_URL;
 
@@ -134,7 +134,7 @@ export const googleLogin = async (authCode = null) => {
       return user;
     } else {
       // Initiate Google OAuth flow
-      const redirectUrl = `${baseUrl}/api/auth/google`; // Added /api prefix
+      const redirectUrl = `${baseUrl}/api/auth/google`;
       console.log('GoogleLogin: Redirecting to', redirectUrl);
       window.location.href = redirectUrl;
       return null;
