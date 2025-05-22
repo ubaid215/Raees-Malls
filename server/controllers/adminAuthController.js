@@ -170,12 +170,34 @@ exports.refreshToken = async (req, res, next) => {
       throw new ApiError(400, 'Refresh token is required');
     }
 
-    // Verify refresh token
-    const decoded = jwtService.verifyRefreshToken(refreshToken);
-    const user = await User.findById(decoded.userId);
-    if (!user || user.role !== 'admin') {
-      console.log('Token refresh: Invalid user or not an admin:', decoded.userId);
-      throw new ApiError(403, 'Invalid refresh token or unauthorized');
+    let decoded;
+    try {
+      decoded = jwtService.verifyRefreshToken(refreshToken);
+      console.log('Refresh token decoded:', { userId: decoded.userId, role: decoded.role });
+    } catch (jwtError) {
+      console.error('JWT verification failed:', jwtError.message);
+      throw new ApiError(403, 'Invalid or expired refresh token', [jwtError.message]);
+    }
+
+    // Verify refresh token in database (align with authController.js)
+    const storedToken = await Token.findOne({
+      token: refreshToken,
+      userId: decoded.userId,
+    });
+    if (!storedToken) {
+      console.error('Refresh token not found in database:', { userId: decoded.userId, refreshToken });
+      throw new ApiError(403, 'Refresh token not found or expired');
+    }
+
+    // Get user
+    const user = await User.findById(decoded.userId).select('-password');
+    if (!user) {
+      console.error('User not found for ID:', decoded.userId);
+      throw new ApiError(404, 'User not found');
+    }
+    if (user.role !== 'admin') {
+      console.error('User is not an admin:', { userId: user._id, email: user.email, role: user.role });
+      throw new ApiError(403, 'User is not an admin');
     }
 
     // Generate new tokens
@@ -183,6 +205,10 @@ exports.refreshToken = async (req, res, next) => {
       id: user._id,
       role: user.role
     });
+
+    // Replace old refresh token
+    await Token.findOneAndDelete({ token: refreshToken });
+    await Token.create({ userId: user._id, token: newRefreshToken });
 
     // Log refresh action
     await AuditLog.create({
