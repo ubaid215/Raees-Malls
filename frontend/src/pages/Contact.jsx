@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Loader2, MapPin, Phone, Clock, Mail, MessageCircle } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 // Your Button component (from April 15, 2025)
 const Button = ({
@@ -46,7 +45,7 @@ const Button = ({
       {isLoading ? (
         <>
           <Loader2 className="animate-spin h-5 w-5" />
-          <span>Loading...</span>
+          <span>Redirecting to WhatsApp...</span>
         </>
       ) : (
         <>
@@ -115,19 +114,52 @@ const Contact = () => {
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // WhatsApp number (without + sign, with country code)
+  const whatsappNumber = '923006530063';
+
+  const handleSubmit = async () => {
+    // Validate required fields
+    if (!formData.name.trim() || !formData.email.trim() || !formData.message.trim()) {
+      alert('Please fill in all required fields (Name, Email, and Message)');
+      return;
+    }
+
     setIsLoading(true);
+
     try {
-      // Placeholder for backend API call (e.g., POST /api/contact)
-      console.log('Form submitted:', formData);
-      // Simulate API call
+      // Create WhatsApp message
+      const whatsappMessage = `Hello Raees Malls!
+
+*New Contact Form Submission*
+
+*Name:* ${formData.name}
+*Email:* ${formData.email}
+${formData.phone ? `*Phone:* ${formData.phone}` : ''}
+
+*Message:*
+${formData.message}
+
+---
+Sent via Raees Malls Contact Form`;
+
+      // Encode the message for URL
+      const encodedMessage = encodeURIComponent(whatsappMessage);
+      
+      // Create WhatsApp URL
+      const whatsappURL = `https://wa.me/${whatsappNumber}?text=${encodedMessage}`;
+      
+      // Small delay to show loading state
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      alert('Thank you for your message! We will contact you soon.');
+      
+      // Open WhatsApp
+      window.open(whatsappURL, '_blank');
+      
+      // Clear form after successful redirect
       setFormData({ name: '', email: '', phone: '', message: '' });
+      
     } catch (error) {
-      console.error('Submission failed:', error);
-      alert('Failed to send message. Please try again.');
+      console.error('Failed to redirect to WhatsApp:', error);
+      alert('Failed to open WhatsApp. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -138,75 +170,45 @@ const Contact = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Animation variants
-  const fadeInUp = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.6 } },
-  };
-
-  const staggerChildren = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren: 0.2 },
-    },
-  };
-
   return (
     <div className="bg-gray-50">
       {/* Hero Section */}
-      <motion.section
-        className="relative bg-gradient-to-r from-red-600 to-red-800 py-20 overflow-hidden"
-        initial="hidden"
-        animate="visible"
-        variants={staggerChildren}
-      >
+      <section className="relative bg-gradient-to-r from-red-600 to-red-800 py-20 overflow-hidden">
         <div className="absolute inset-0 bg-pattern opacity-10" style={{ backgroundImage: 'url(/pattern.png)' }} />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <motion.h1
-            className="text-4xl sm:text-5xl font-extrabold text-white mb-4"
-            variants={fadeInUp}
-          >
+          <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4">
             Contact Raees Malls
-          </motion.h1>
-          <motion.p
-            className="text-lg sm:text-xl text-red-100 max-w-3xl mx-auto mb-8"
-            variants={fadeInUp}
-          >
+          </h1>
+          <p className="text-lg sm:text-xl text-red-100 max-w-3xl mx-auto mb-8">
             We're here to assist with all your mobile accessory needs
-          </motion.p>
-          <motion.div variants={fadeInUp}>
-            <Button
-              variant="secondary"
-              size="large"
-              className="bg-white text-red-600 hover:bg-red-50 absolute bottom-2 left-[50%] transform -translate-x-[50%] -translate-y-[50%]"
-              as="a"
-              href="#contact-form"
-            >
-              Get in Touch
-            </Button>
-          </motion.div>
+          </p>
+          <Button
+            variant="secondary"
+            size="large"
+            className="bg-white text-red-600 hover:bg-red-50 absolute bottom-3 left-[50%] transform -translate-x-[50%] -translate-y-[50%]"
+            onClick={() => document.getElementById('contact-form').scrollIntoView({ behavior: 'smooth' })}
+          >
+            Get in Touch
+          </Button>
         </div>
-      </motion.section>
+      </section>
 
       {/* Contact Content */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <motion.div
-          className="grid lg:grid-cols-2 gap-12"
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-          variants={staggerChildren}
-        >
+        <div className="grid lg:grid-cols-2 gap-12">
           {/* Contact Form */}
-          <motion.div
-            variants={fadeInUp}
-            className="lg:sticky lg:top-4"
-            id="contact-form"
-          >
+          <div className="lg:sticky lg:top-4" id="contact-form">
             <Card className="p-8">
               <h2 className="text-3xl font-bold text-gray-900 mb-6">Send Us a Message</h2>
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex items-center">
+                  <MessageCircle className="text-green-600 mr-2" size={20} />
+                  <p className="text-green-800 text-sm">
+                    Your message will be sent directly to our WhatsApp for faster response!
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-6">
                 <Input
                   label="Your Name"
                   name="name"
@@ -223,7 +225,7 @@ const Contact = () => {
                   required
                 />
                 <Input
-                  label="Phone Number"
+                  label="Phone Number (Optional)"
                   name="phone"
                   type="tel"
                   value={formData.phone}
@@ -238,73 +240,56 @@ const Contact = () => {
                   onChange={handleChange}
                   required
                 />
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                <Button
+                  onClick={handleSubmit}
+                  variant="primary"
+                  size="large"
+                  fullWidth
+                  isLoading={isLoading}
+                  icon={MessageCircle}
                 >
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    size="large"
-                    fullWidth
-                    isLoading={isLoading}
-                  >
-                    Send Message
-                  </Button>
-                </motion.div>
-              </form>
+                  Send via WhatsApp
+                </Button>
+              </div>
             </Card>
-          </motion.div>
+          </div>
 
           {/* Contact Info */}
-          <motion.div variants={fadeInUp} className="space-y-6">
+          <div className="space-y-6">
             <h2 className="text-3xl font-bold text-gray-900 mb-6">Contact Information</h2>
             <Card className="p-6">
-              <motion.div
-                className="flex items-start"
-                whileHover={{ x: 5 }}
-                transition={{ duration: 0.2 }}
-              >
+              <div className="flex items-start">
                 <MapPin className="text-red-600 mr-4 mt-1" size={24} />
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">Address</h3>
                   <p className="text-gray-600">
-                    Masjid Bazar, Opposite Jamia Masjid<br />
-                    Jaranwala, Pakistan
+                    <span className='font-semibold italic text-red-600'>Head Office</span> <br />
+                    <span className='text-xl font-mono font-bold'>Raees Traders</span><br />
+                    Opposite Ayesha Masjid Motor Market Jhang Road Faisalabad
                   </p>
                 </div>
-              </motion.div>
+              </div>
             </Card>
             <Card className="p-6">
-              <motion.div
-                className="flex items-start"
-                whileHover={{ x: 5 }}
-                transition={{ duration: 0.2 }}
-              >
+              <div className="flex items-start">
                 <Phone className="text-red-600 mr-4 mt-1" size={24} />
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">Phone Numbers</h3>
                   <p className="text-gray-600 mb-1">
-                    Khalid Rehman Raees:{' '}
                     <a href="tel:03007246696" className="hover:text-red-600">
                       0300-7246696
                     </a>
                   </p>
                   <p className="text-gray-600">
-                    Mian Abdul Waheed:{' '}
                     <a href="tel:03006530063" className="hover:text-red-600">
                       0300-6530063
                     </a>
                   </p>
                 </div>
-              </motion.div>
+              </div>
             </Card>
             <Card className="p-6">
-              <motion.div
-                className="flex items-start"
-                whileHover={{ x: 5 }}
-                transition={{ duration: 0.2 }}
-              >
+              <div className="flex items-start">
                 <MessageCircle className="text-red-600 mr-4 mt-1" size={24} />
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">WhatsApp</h3>
@@ -312,7 +297,7 @@ const Contact = () => {
                     Reach us on WhatsApp:{' '}
                     <a
                       href="https://wa.me/923006530063"
-                      className="hover:text-red-600"
+                      className="hover:text-red-600 font-semibold"
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -320,14 +305,10 @@ const Contact = () => {
                     </a>
                   </p>
                 </div>
-              </motion.div>
+              </div>
             </Card>
             <Card className="p-6">
-              <motion.div
-                className="flex items-start"
-                whileHover={{ x: 5 }}
-                transition={{ duration: 0.2 }}
-              >
+              <div className="flex items-start">
                 <Mail className="text-red-600 mr-4 mt-1" size={24} />
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">Email</h3>
@@ -337,30 +318,24 @@ const Contact = () => {
                     </a>
                   </p>
                 </div>
-              </motion.div>
+              </div>
             </Card>
             <Card className="p-6">
-              <motion.div
-                className="flex items-start"
-                whileHover={{ x: 5 }}
-                transition={{ duration: 0.2 }}
-              >
+              <div className="flex items-start">
                 <Clock className="text-red-600 mr-4 mt-1" size={24} />
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">Business Hours</h3>
                   <p className="text-gray-600 mb-1">Monday - Saturday: 9:00 AM - 9:00 PM</p>
                   <p className="text-gray-600">Sunday: 9:00 AM - 10:00 PM</p>
                 </div>
-              </motion.div>
+              </div>
             </Card>
             <div className="mt-8">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Follow Us</h3>
               <div className="flex space-x-4">
-                <motion.a
+                <a
                   href="https://facebook.com/raeesmalls"
-                  className="text-gray-600 hover:text-red-600"
-                  whileHover={{ scale: 1.2 }}
-                  whileTap={{ scale: 0.9 }}
+                  className="text-gray-600 hover:text-red-600 transition-colors"
                 >
                   <span className="sr-only">Facebook</span>
                   <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -370,12 +345,10 @@ const Contact = () => {
                       clipRule="evenodd"
                     />
                   </svg>
-                </motion.a>
-                <motion.a
+                </a>
+                <a
                   href="https://instagram.com/raeesmalls"
-                  className="text-gray-600 hover:text-red-600"
-                  whileHover={{ scale: 1.2 }}
-                  whileTap={{ scale: 0.9 }}
+                  className="text-gray-600 hover:text-red-600 transition-colors"
                 >
                   <span className="sr-only">Instagram</span>
                   <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -385,22 +358,20 @@ const Contact = () => {
                       clipRule="evenodd"
                     />
                   </svg>
-                </motion.a>
-                <motion.a
+                </a>
+                <a
                   href="https://wa.me/923006530063"
-                  className="text-gray-600 hover:text-red-600"
-                  whileHover={{ scale: 1.2 }}
-                  whileTap={{ scale: 0.9 }}
+                  className="text-gray-600 hover:text-red-600 transition-colors"
                 >
                   <span className="sr-only">WhatsApp</span>
                   <svg className="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-6.29 3.01c-.173.246-.5.409-.928.409-.108 0-.215-.008-.322-.025-.173-.017-.406-.066-.585-.281-.173-.212-.692-.733-.941-.992-.247-.26-.413-.306-.578-.306-.148 0-.297.025-.421.074-.124.05-.272.125-.396.181-.124.057-.248.074-.372.074-.124 0-.248-.033-.347-.148-.099-.116-.396-.446-.396-.843 0-.397.198-.76.446-1.02.247-.26.545-.446.842-.595.297-.149.545-.223.793-.223.248 0 .396.025.545.124.149.099.297.264.421.43.124.166.248.347.347.446.099.099.198.124.347.074.149-.05.793-.306 1.188-.446.396-.14.693-.083.892.05.198.132.793.694.892.843.099.149.173.231.074.446-.099.214-.198.314-.347.463-.149.149-.297.306-.446.512zM12 2a10 10 0 00-8.617 15.06L2 22l4.94-1.383A10 10 0 1012 2z" />
                   </svg>
-                </motion.a>
+                </a>
               </div>
             </div>
-          </motion.div>
-        </motion.div>
+          </div>
+        </div>
       </section>
     </div>
   );

@@ -192,11 +192,10 @@ const ProductDetails = memo(() => {
 💰 Price: ${priceInfo}${originalPriceInfo}
 📋 Stock: ${stockInfo}
 
-${product.description ? `📝 Description: ${product.description}` : ''}
 
 Please provide more details and availability.`;
 
-    const whatsappNumber = '923007246696';
+    const whatsappNumber = '923006530063';
     const encodedMessage = encodeURIComponent(message);
     const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodedMessage}`;
 
