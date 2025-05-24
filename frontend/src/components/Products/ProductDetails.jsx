@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, memo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import { toast } from 'react-toastify';
@@ -7,6 +7,90 @@ import { useCart } from '../../context/CartContext';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
 import { FaStar, FaStarHalfAlt, FaRegStar, FaWhatsapp } from 'react-icons/fa';
+
+// Magnifier Component
+const Magnifier = ({ src, alt, className }) => {
+  const [showMagnifier, setShowMagnifier] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  const [backgroundPosition, setBackgroundPosition] = useState({ x: 0, y: 0 });
+  const imageRef = useRef(null);
+
+  const magnifierSize = 200; // Increased size for better visibility
+  const zoomLevel = 2.5;
+
+  const handleMouseMove = (e) => {
+    if (!imageRef.current) return;
+
+    const { left, top, width, height } = imageRef.current.getBoundingClientRect();
+    const x = e.clientX - left;
+    const y = e.clientY - top;
+
+    if (x < 0 || x > width || y < 0 || y > height) {
+      setShowMagnifier(false);
+      return;
+    }
+
+    setShowMagnifier(true);
+    setCursorPosition({ x, y });
+
+    // Calculate background position for zoomed image
+    const bgX = -(x * zoomLevel - magnifierSize / 2);
+    const bgY = -(y * zoomLevel - magnifierSize / 2);
+    setBackgroundPosition({ x: bgX, y: bgY });
+  };
+
+  const handleMouseLeave = () => {
+    setShowMagnifier(false);
+  };
+
+  return (
+    <div 
+      className="relative w-full h-full" 
+      onMouseMove={handleMouseMove} 
+      onMouseLeave={handleMouseLeave}
+    >
+      <img
+        ref={imageRef}
+        src={src}
+        alt={alt}
+        className={className}
+        loading="lazy"
+      />
+      
+      {showMagnifier && (
+        <div
+          className="absolute rounded-full border-2 border-white shadow-lg overflow-hidden pointer-events-none"
+          style={{
+            width: `${magnifierSize}px`,
+            height: `${magnifierSize}px`,
+            left: `${cursorPosition.x - magnifierSize / 2}px`,
+            top: `${cursorPosition.y - magnifierSize / 2}px`,
+            backgroundImage: `url(${src})`,
+            backgroundSize: `${imageRef.current?.width * zoomLevel}px ${imageRef.current?.height * zoomLevel}px`,
+            backgroundPosition: `${backgroundPosition.x}px ${backgroundPosition.y}px`,
+            backgroundRepeat: 'no-repeat',
+            transform: 'translateZ(0)', // Hardware acceleration
+            zIndex: 10,
+            boxShadow: '0 0 10px rgba(0,0,0,0.3)',
+            // Circular mask effect
+            maskImage: 'radial-gradient(circle, white 0%, white 70%, transparent 71%)',
+            WebkitMaskImage: 'radial-gradient(circle, white 0%, white 70%, transparent 71%)'
+          }}
+        >
+          {/* Optional: Add a crosshair or indicator in the center */}
+          <div 
+            className="absolute top-1/2 left-1/2 w-4 h-4 transform -translate-x-1/2 -translate-y-1/2"
+            style={{
+              border: '2px solid rgba(255,255,255,0.8)',
+              borderRadius: '50%',
+              pointerEvents: 'none'
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
 
 const ProductDetails = memo(() => {
   const { productId } = useParams();
@@ -25,7 +109,7 @@ const ProductDetails = memo(() => {
       setError(null);
       try {
         const fetchedProduct = await getProductById(productId, { isPublic: true });
-        console.log('Fetched Product:', JSON.stringify(fetchedProduct, null, 2)); // Debug log
+        console.log('Fetched Product:', JSON.stringify(fetchedProduct, null, 2));
 
         if (!fetchedProduct) {
           throw new Error('Product not found');
@@ -33,20 +117,18 @@ const ProductDetails = memo(() => {
 
         setProduct(fetchedProduct);
 
-        // Set initial media from base product
         const initialMedia = fetchedProduct.videos?.[0]
           ? { type: 'video', url: fetchedProduct.videos[0].url }
           : fetchedProduct.images?.[0]
             ? { type: 'image', url: fetchedProduct.images[0].url }
             : { type: 'image', url: '/images/placeholder-product.png' };
-        console.log('Initial Media:', initialMedia); // Debug log
+        console.log('Initial Media:', initialMedia);
         setActiveMedia(initialMedia);
 
-        // Reset selected variant to null (base product)
         setSelectedVariant(null);
-        console.log('Variants available:', fetchedProduct.variants?.length || 0); // Debug log
+        console.log('Variants available:', fetchedProduct.variants?.length || 0);
       } catch (err) {
-        console.error('Fetch error:', err); // Debug log
+        console.error('Fetch error:', err);
         setError(err.message || 'Failed to load product details');
         toast.error(err.message || 'Failed to load product details');
       } finally {
@@ -73,10 +155,10 @@ const ProductDetails = memo(() => {
 
     try {
       await addItemToCart(
-        product._id, 
-        selectedVariant?._id || null, 
+        product._id,
+        selectedVariant?._id || null,
         1,
-        price  // Pass the price explicitly
+        price
       );
       toast.success('Added to cart');
     } catch (err) {
@@ -94,16 +176,15 @@ const ProductDetails = memo(() => {
     const currentStock = selectedVariant ? selectedVariant.stock : product.stock;
     const hasDiscount = Number.isFinite(currentPrice) && Number.isFinite(originalPrice) && currentPrice < originalPrice;
 
-    // Create WhatsApp message
     const productName = product.title || 'Product';
-    const variantInfo = selectedVariant 
-      ? ` (${getVariantLabel(selectedVariant, product.variants.indexOf(selectedVariant))})` 
+    const variantInfo = selectedVariant
+      ? ` (${getVariantLabel(selectedVariant, product.variants.indexOf(selectedVariant))})`
       : '';
     const priceInfo = formatPrice(currentPrice);
     const originalPriceInfo = hasDiscount ? ` (Original: ${formatPrice(originalPrice)})` : '';
     const stockInfo = currentStock > 0 ? `${currentStock} available` : 'Out of stock';
     const sku = selectedVariant?.sku || product.sku || 'N/A';
-    
+
     const message = `Hi! I'm interested in this product:
 
 *${productName}${variantInfo}*
@@ -115,11 +196,10 @@ ${product.description ? `📝 Description: ${product.description}` : ''}
 
 Please provide more details and availability.`;
 
-    const whatsappNumber = '923007246696'; // Pakistani format without +
+    const whatsappNumber = '923007246696';
     const encodedMessage = encodeURIComponent(message);
     const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodedMessage}`;
-    
-    // Open WhatsApp in new tab
+
     window.open(whatsappUrl, '_blank');
   };
 
@@ -130,21 +210,19 @@ Please provide more details and availability.`;
   };
 
   const handleMediaClick = (media, type = 'image', variantId = null) => {
-    console.log('Media Clicked:', { media, type, variantId }); // Debug log
+    console.log('Media Clicked:', { media, type, variantId });
     setActiveMedia({ type, url: media.url });
-    
-    // If clicking on variant media, select that variant
+
     if (variantId) {
       const variant = product.variants.find(v => v._id === variantId);
       setSelectedVariant(variant);
     } else {
-      // If clicking on base product media, deselect variant
       setSelectedVariant(null);
     }
   };
 
   const handleMediaError = (e) => {
-    console.warn('Media failed to load:', e.target.src); // Debug log
+    console.warn('Media failed to load:', e.target.src);
     e.target.src = '/images/placeholder-product.png';
     e.target.onerror = null;
     if (e.target.tagName === 'VIDEO') {
@@ -158,9 +236,9 @@ Please provide more details and availability.`;
   };
 
   const formatPrice = (price) => {
-    console.log('Formatting Price:', price); // Debug log
+    console.log('Formatting Price:', price);
     if (!Number.isFinite(price)) {
-      console.warn('Invalid price:', price); // Debug log
+      console.warn('Invalid price:', price);
       return 'Price unavailable';
     }
     return new Intl.NumberFormat('en-PK', {
@@ -230,7 +308,7 @@ Please provide more details and availability.`;
     : product.discountPrice ?? product.price;
   const originalPrice = selectedVariant ? selectedVariant.price : product.price;
   const currentStock = selectedVariant ? selectedVariant.stock : product.stock;
-  console.log('Price and Stock:', { currentPrice, originalPrice, currentStock }); // Debug log
+  console.log('Price and Stock:', { currentPrice, originalPrice, currentStock });
 
   const hasDiscount = Number.isFinite(currentPrice) && Number.isFinite(originalPrice) && currentPrice < originalPrice;
   const discountPercentage = hasDiscount
@@ -243,7 +321,7 @@ Please provide more details and availability.`;
         <div className="flex flex-col lg:flex-row gap-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
           {/* Media section */}
           <div className="w-full lg:w-1/2 flex flex-col gap-4">
-            <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-center h-96">
+            <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-center h-96 relative">
               {activeMedia.type === 'video' ? (
                 <video
                   src={activeMedia.url}
@@ -254,12 +332,10 @@ Please provide more details and availability.`;
                   onError={handleMediaError}
                 />
               ) : (
-                <img
+                <Magnifier
                   src={activeMedia.url}
                   alt={product.title || 'Product image'}
                   className="w-full h-full object-contain rounded-lg"
-                  loading="lazy"
-                  onError={handleMediaError}
                 />
               )}
             </div>
@@ -333,7 +409,6 @@ Please provide more details and availability.`;
                       loading="lazy"
                       onError={handleMediaError}
                     />
-                    {/* Variant indicator */}
                     <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
                       V
                     </div>
@@ -365,7 +440,6 @@ Please provide more details and availability.`;
                         <path d="M8 5v14l11-7z" />
                       </svg>
                     </div>
-                    {/* Variant indicator */}
                     <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
                       V
                     </div>
@@ -409,7 +483,6 @@ Please provide more details and availability.`;
               {currentStock > 0 ? `${currentStock} in stock` : 'Out of stock'}
             </p>
 
-            {/* Current Selection Info */}
             {selectedVariant ? (
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                 <p className="text-sm text-blue-800 font-medium">
