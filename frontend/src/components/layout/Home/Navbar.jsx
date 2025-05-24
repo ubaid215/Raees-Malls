@@ -29,15 +29,21 @@ function Navbar() {
   const [expandedCategories, setExpandedCategories] = useState({});
   const navigate = useNavigate();
 
-  // Cart context
-  const { cart } = useCart();
+  // Cart context - FIXED: Use cartItems instead of cart.items
+  const { cartItems } = useCart();
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
   const { products, fetchProducts } = useContext(ProductContext);
 
-  // Safely calculate cart count
-  const cartCount = Array.isArray(cart?.items)
-    ? cart.items.reduce((count, item) => count + (item.quantity || 0), 0)
+  // FIXED: Calculate cart count from cartItems array
+  const cartCount = Array.isArray(cartItems)
+    ? cartItems.reduce((count, item) => count + (item.quantity || 0), 0)
     : 0;
+
+  // Debug logging to help troubleshoot
+  useEffect(() => {
+    console.log('Navbar: cartItems:', cartItems);
+    console.log('Navbar: cartCount:', cartCount);
+  }, [cartItems, cartCount]);
 
   // Create hierarchical category structure
   const categoriesWithSubcategories = React.useMemo(() => {
@@ -175,13 +181,13 @@ function Navbar() {
   };
 
   const handleCategorySelect = (category) => {
-  console.log('Navbar: Selected category:', category);
-  setSelectedCategory(category.name);
-  setShowDropdown(false);
-  setShowMobileMenu(false);
-  // Simply navigate to products page with category as query param
-  navigate(`/products?category=${category.slug}`);
-};
+    console.log('Navbar: Selected category:', category);
+    setSelectedCategory(category.name);
+    setShowDropdown(false);
+    setShowMobileMenu(false);
+    // Simply navigate to products page with category as query param
+    navigate(`/products?category=${category.slug}`);
+  };
 
   const toggleSubcategory = (categoryId) => {
     console.log('Navbar: Toggling subcategory:', categoryId);

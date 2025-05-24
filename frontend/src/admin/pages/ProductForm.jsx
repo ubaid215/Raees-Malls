@@ -8,6 +8,7 @@ import Input from '../../components/core/Input';
 import Textarea from '../../components/core/TextArea';
 import Select from '../../components/core/Select';
 import LoadingSpinner from '../../components/core/LoadingSpinner';
+import imageCompression from 'browser-image-compression';
 
 // Define allowed attribute keys (must match backend enum)
 const ALLOWED_ATTRIBUTE_KEYS = ['size', 'color', 'material', 'style', 'ram'];
@@ -56,6 +57,7 @@ const ProductForm = ({
   );
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [currentStage, setCurrentStage] = useState('');
 
   const skuValidation = skuOptional ? {
     pattern: {
@@ -90,35 +92,51 @@ const ProductForm = ({
   const handleImageChange = async (e) => {
     const files = Array.from(e.target.files);
     const validFiles = [];
+    setCurrentStage('Compressing images...');
 
     for (const file of files) {
-      if (!['image/jpeg', 'image/png'].includes(file.type)) {
-        toast.error(`Invalid file type: ${file.name}. Use JPEG or PNG.`);
-        continue;
+      try {
+        // Skip compression for non-image files
+        if (!file.type.startsWith('image/')) {
+          toast.error(`Invalid file type: ${file.name}. Only JPEG and PNG allowed.`);
+          continue;
+        }
+
+        // Compress images before upload
+        const compressedFile = await imageCompression(file, {
+          maxSizeMB: 0.5, // Reduced to 0.5MB to minimize backend load
+          maxWidthOrHeight: 1280, // Reduced resolution for faster uploads
+          useWebWorker: true,
+          fileType: file.type, // Preserve original MIME type
+        });
+
+        if (compressedFile.size > 5 * 1024 * 1024) {
+          toast.error(`File still too large after compression: ${file.name}`);
+          setCurrentStage('');
+          continue;
+        }
+
+        // Ensure correct MIME type and extension
+        const fileExtension = file.name.split('.').pop().toLowerCase();
+        const mimeType = fileExtension === 'png' ? 'image/png' : 'image/jpeg';
+        const fileName = `${file.name.split('.')[0]}-compressed.${fileExtension}`;
+        const correctedFile = new File([compressedFile], fileName, { type: mimeType });
+
+        validFiles.push(correctedFile);
+      } catch (error) {
+        console.error('Compression error:', error);
+        toast.error(`Failed to process file: ${file.name}`);
       }
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error(`File too large: ${file.name}. Max 5MB.`);
-        continue;
-      }
-      const isValid = await new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve(true);
-        img.onerror = () => resolve(false);
-        img.src = URL.createObjectURL(file);
-      });
-      if (!isValid) {
-        toast.error(`Invalid image: ${file.name}. File may be corrupted.`);
-        continue;
-      }
-      validFiles.push(file);
     }
 
-    if (existingImages.length + newImageFiles.length + validFiles.length > 5) {
-      toast.error('Maximum 5 images allowed');
+    if (existingImages.length + newImageFiles.length + validFiles.length > 10) {
+      toast.error('Maximum 10 images allowed');
+      setCurrentStage('');
       return;
     }
 
     setNewImageFiles(prev => [...prev, ...validFiles]);
+    setCurrentStage('');
   };
 
   const handleVideoChange = async (e) => {
@@ -148,27 +166,38 @@ const ProductForm = ({
   const handleVariantImageChange = async (variantIndex, e) => {
     const files = Array.from(e.target.files);
     const validFiles = [];
+    setCurrentStage('Compressing variant images...');
 
     for (const file of files) {
-      if (!['image/jpeg', 'image/png'].includes(file.type)) {
-        toast.error(`Invalid file type: ${file.name}. Use JPEG or PNG.`);
-        continue;
+      try {
+        if (!file.type.startsWith('image/')) {
+          toast.error(`Invalid file type: ${file.name}. Only JPEG and PNG allowed.`);
+          continue;
+        }
+
+        const compressedFile = await imageCompression(file, {
+          maxSizeMB: 0.5,
+          maxWidthOrHeight: 1280,
+          useWebWorker: true,
+          fileType: file.type,
+        });
+
+        if (compressedFile.size > 5 * 1024 * 1024) {
+          toast.error(`File still too large after compression: ${file.name}`);
+          continue;
+        }
+
+        // Ensure correct MIME type and extension
+        const fileExtension = file.name.split('.').pop().toLowerCase();
+        const mimeType = fileExtension === 'png' ? 'image/png' : 'image/jpeg';
+        const fileName = `${file.name.split('.')[0]}-compressed.${fileExtension}`;
+        const correctedFile = new File([compressedFile], fileName, { type: mimeType });
+
+        validFiles.push(correctedFile);
+      } catch (error) {
+        console.error('Compression error:', error);
+        toast.error(`Failed to process file: ${file.name}`);
       }
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error(`File too large: ${file.name}. Max 5MB.`);
-        continue;
-      }
-      const isValid = await new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve(true);
-        img.onerror = () => resolve(false);
-        img.src = URL.createObjectURL(file);
-      });
-      if (!isValid) {
-        toast.error(`Invalid image: ${file.name}. File may be corrupted.`);
-        continue;
-      }
-      validFiles.push(file);
     }
 
     const maxImages = variantIndex < 2 ? 15 : 5;
@@ -177,6 +206,7 @@ const ProductForm = ({
 
     if (currentImages + currentNewImages + validFiles.length > maxImages) {
       toast.error(`Maximum ${maxImages} images allowed for this variant`);
+      setCurrentStage('');
       return;
     }
 
@@ -187,6 +217,7 @@ const ProductForm = ({
           : v
       )
     );
+    setCurrentStage('');
   };
 
   const handleVariantVideoChange = async (variantIndex, e) => {
@@ -584,9 +615,12 @@ const ProductForm = ({
       </div>
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <h2 className="text-lg font-semibold mb-4">Media</h2>
+        {currentStage && (
+          <div className="mb-4 text-sm text-gray-600">{currentStage}</div>
+        )}
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Main Product Images (Max 5, At least 1 required)
+            Main Product Images (Max 10, At least 1 required)
           </label>
           <input
             type="file"

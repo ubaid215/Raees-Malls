@@ -12,7 +12,8 @@ const getStorage = (folder) => new CloudinaryStorage({
     allowed_formats: file.fieldname.includes('Videos') 
       ? ['mp4', 'webm', 'mov'] 
       : ['jpg', 'jpeg', 'png', 'webp'],
-    public_id: `${file.fieldname}-${Date.now()}`
+    // FIX: Generate truly unique public_id using timestamp + random string + original name
+    public_id: `${file.fieldname}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${file.originalname.split('.')[0]}`
   })
 });
 
@@ -49,28 +50,28 @@ const upload = {
   single: (fieldName, folder = 'misc') => multer({
     storage: getStorage(folder),
     fileFilter: fileFilter,
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+    limits: { fileSize: 30 * 1024 * 1024 } // INCREASED: 30MB 
   }).single(fieldName),
 
   // For single video uploads
   singleVideo: (fieldName, folder = 'videos') => multer({
     storage: getStorage(folder),
     fileFilter: videoFileFilter,
-    limits: { fileSize: 50 * 1024 * 1024 } // 50MB limit
+    limits: { fileSize: 100 * 1024 * 1024 } // INCREASED: 100MB limit (was 50MB)
   }).single(fieldName),
 
   // For multiple image uploads (e.g., products with baseImages)
   array: (fieldName, maxCount, folder = 'products') => multer({
     storage: getStorage(folder),
     fileFilter: fileFilter,
-    limits: { fileSize: 5 * 1024 * 1024 }
+    limits: { fileSize: 30 * 1024 * 1024 } // INCREASED: 30MB limit (was 5MB)
   }).array(fieldName, maxCount),
 
   // For multiple video uploads (e.g., products with baseVideos)
   arrayVideos: (fieldName, maxCount, folder = 'videos') => multer({
     storage: getStorage(folder),
     fileFilter: videoFileFilter,
-    limits: { fileSize: 50 * 1024 * 1024 }
+    limits: { fileSize: 100 * 1024 * 1024 } // INCREASED: 100MB limit (was 50MB)
   }).array(fieldName, maxCount),
 
   // For multiple fields (e.g., products with baseImages, baseVideos, variantImages, variantVideos)
@@ -86,7 +87,7 @@ const upload = {
       }
     },
     limits: {
-      fileSize: 50 * 1024 * 1024 // 50MB limit to support videos
+      fileSize: 100 * 1024 * 1024 // INCREASED: 100MB limit to support larger videos (was 50MB)
     }
   }).fields(fields)
 };
