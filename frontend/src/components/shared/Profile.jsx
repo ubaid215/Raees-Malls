@@ -54,14 +54,14 @@ const Profile = () => {
 
   useEffect(() => {
     if (user) {
-      console.log('Profile: Fetching orders for user:', user._id);
+      // console.log('Profile: Fetching orders for user:', user._id);
       fetchUserOrders(pagination.page);
-      
+
       const setupSocket = () => {
         try {
           if (!socketService.getConnectionState()) {
             socketService.connect(user._id, user.role);
-            console.log("Profile: Socket connection established for user:", user._id);
+            // console.log('Profile: Socket connection established for user:', user._id);
           }
 
           socketService.off('orderCreated');
@@ -70,28 +70,27 @@ const Profile = () => {
           socketService.off('reconnect');
 
           socketService.on('orderCreated', (newOrder) => {
-            console.log("Profile: New order received via socket:", newOrder);
+            // console.log('Profile: New order received via socket:', newOrder);
             if (!newOrder || !newOrder.orderId) {
-              console.error("Profile: Invalid order data received:", newOrder);
+              console.error('Profile: Invalid order data received:', newOrder);
               return;
             }
-            
-            setNewOrderIds(prev => [...prev, newOrder.orderId]);
+            setNewOrderIds((prev) => [...prev, newOrder.orderId]);
             toast.info(`New Order Placed: ${newOrder.orderId}`, {
-              position: "top-right",
+              position: 'top-right',
               autoClose: 5000,
             });
             fetchUserOrders(pagination.page);
-            
+
             setTimeout(() => {
-              setNewOrderIds(prev => prev.filter(id => id !== newOrder.orderId));
+              setNewOrderIds((prev) => prev.filter((id) => id !== newOrder.orderId));
             }, 30000);
           });
 
           socketService.on('orderStatusUpdated', (updatedOrder) => {
-            console.log("Profile: Order status updated via socket:", updatedOrder);
+            // console.log('Profile: Order status updated via socket:', updatedOrder);
             if (!updatedOrder || !updatedOrder.orderId) {
-              console.error("Profile: Invalid order data received:", updatedOrder);
+              console.error('Profile: Invalid order data received:', updatedOrder);
               return;
             }
             toast.info(`Order ${updatedOrder.orderId} status updated to ${updatedOrder.status}`);
@@ -99,25 +98,25 @@ const Profile = () => {
           });
 
           socketService.on('disconnect', () => {
-            console.log("Profile: Socket disconnected");
-            toast.warning("Lost connection to server. Reconnecting...");
+            console.log('Profile: Socket disconnected');
+            toast.warning('Lost connection to server. Reconnecting...');
           });
 
           socketService.on('reconnect', () => {
-            console.log("Profile: Socket reconnected");
-            toast.success("Reconnected to server");
+            console.log('Profile: Socket reconnected');
+            toast.success('Reconnected to server');
             fetchUserOrders(pagination.page);
           });
         } catch (err) {
-          console.error("Profile: Socket setup error:", err);
-          toast.error("Failed to setup socket connection");
+          console.error('Profile: Socket setup error:', err);
+          toast.error('Failed to setup socket connection');
         }
       };
 
       setupSocket();
 
       return () => {
-        console.log("Profile: Cleaning up socket listeners");
+        console.log('Profile: Cleaning up socket listeners');
         socketService.off('orderCreated');
         socketService.off('orderStatusUpdated');
         socketService.off('disconnect');
@@ -164,19 +163,19 @@ const Profile = () => {
 
   const getOrderStatusBadge = (status) => {
     const statusStyles = {
-      pending: "bg-yellow-100 text-yellow-800",
-      processing: "bg-blue-100 text-blue-800",
-      shipped: "bg-purple-100 text-purple-800",
-      delivered: "bg-green-100 text-green-800",
-      cancelled: "bg-red-100 text-red-800",
+      pending: 'bg-yellow-100 text-yellow-800',
+      processing: 'bg-blue-100 text-blue-800',
+      shipped: 'bg-purple-100 text-purple-800',
+      delivered: 'bg-green-100 text-green-800',
+      cancelled: 'bg-red-100 text-red-800',
     };
-    
+
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs sm:text-sm font-medium ${statusStyles[status] || "bg-gray-100 text-gray-800"}`}>
-        {status === "pending" && <FiAlertCircle className="mr-1" />}
-        {status === "processing" && <FiClock className="mr-1" />}
-        {status === "shipped" && <FiTruck className="mr-1" />}
-        {status === "delivered" && <FiCheckCircle className="mr-1" />}
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs sm:text-sm font-medium ${statusStyles[status] || 'bg-gray-100 text-gray-800'}`}>
+        {status === 'pending' && <FiAlertCircle className="mr-1" />}
+        {status === 'processing' && <FiClock className="mr-1" />}
+        {status === 'shipped' && <FiTruck className="mr-1" />}
+        {status === 'delivered' && <FiCheckCircle className="mr-1" />}
         <span className="capitalize">{status || 'Unknown'}</span>
       </span>
     );
@@ -189,11 +188,15 @@ const Profile = () => {
       errors.email = 'Valid email is required';
     }
     formData.addresses.forEach((addr, index) => {
+      if (!addr.fullName?.trim()) errors[`address_${index}_fullName`] = 'Full name is required';
       if (!addr.street?.trim()) errors[`address_${index}_street`] = 'Street is required';
       if (!addr.city?.trim()) errors[`address_${index}_city`] = 'City is required';
       if (!addr.state?.trim()) errors[`address_${index}_state`] = 'State is required';
       if (!addr.zip?.trim()) errors[`address_${index}_zip`] = 'Zip code is required';
       if (!addr.country?.trim()) errors[`address_${index}_country`] = 'Country is required';
+      if (!addr.phone?.trim() || !/^\+?[\d\s-]{10,}$/.test(addr.phone)) {
+        errors[`address_${index}_phone`] = 'Valid phone number is required';
+      }
     });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -210,21 +213,40 @@ const Profile = () => {
     setFormErrors({});
   };
 
-  const addAddress = () => {
+  const handleCheckboxChange = (index) => {
+    const updatedAddresses = formData.addresses.map((addr, i) => ({
+      ...addr,
+      isDefault: i === index,
+    }));
+    setFormData({ ...formData, addresses: updatedAddresses });
+  };
+
+  const handleAddAddress = () => {
     setFormData({
       ...formData,
       addresses: [
         ...formData.addresses,
-        { street: '', city: '', state: '', zip: '', country: '' },
+        {
+          fullName: '',
+          street: '',
+          addressLine2: '',
+          city: '',
+          state: '',
+          zip: '',
+          country: '',
+          phone: '',
+          isDefault: formData.addresses.length === 0,
+        },
       ],
     });
   };
 
-  const removeAddress = (index) => {
-    setFormData({
-      ...formData,
-      addresses: formData.addresses.filter((_, i) => i !== index),
-    });
+  const handleRemoveAddress = (index) => {
+    const updatedAddresses = formData.addresses.filter((_, i) => i !== index);
+    if (updatedAddresses.length > 0 && !updatedAddresses.some((addr) => addr.isDefault)) {
+      updatedAddresses[0].isDefault = true;
+    }
+    setFormData({ ...formData, addresses: updatedAddresses });
     setFormErrors({});
   };
 
@@ -236,8 +258,10 @@ const Profile = () => {
       await updateUser(formData);
       setIsEditModalOpen(false);
       setFormErrors({});
+      toast.success('Profile updated successfully');
     } catch (err) {
       console.error('Profile: Update profile error:', err);
+      toast.error(err.message || 'Failed to update profile');
     }
   };
 
@@ -248,7 +272,7 @@ const Profile = () => {
           {authError && <p className="text-red-600 text-lg font-medium mb-4">{authError}</p>}
           <Button
             onClick={handleFetchUser}
-            className="w-full bg-red-600 text-white hover:bg-red-700 mb-4"
+            className="w-full bg-blue-600 text-white hover:bg-blue-700 mb-4"
             disabled={isLoading}
           >
             {isLoading ? 'Loading...' : authError ? 'Retry Now' : 'Load Profile'}
@@ -269,30 +293,28 @@ const Profile = () => {
       <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-6xl mx-auto">
           <div className="mb-8">
-            <LoadingSkeleton type="text" width="64" height="8" className="mb-2" />
-            <LoadingSkeleton type="text" width="32" height="6" />
+            <LoadingSkeleton type="text" width="w-64" height="h-8" className="mb-2" />
+            <LoadingSkeleton type="text" width="w-32" height="h-6" />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white rounded-lg shadow-sm p-6">
-              <LoadingSkeleton type="text" width="48" height="6" className="mb-4" />
-              <LoadingSkeleton type="text" width="80" height="5" className="mb-2" />
-              <LoadingSkeleton type="text" width="80" height="5" />
+              <LoadingSkeleton type="text" width="w-48" height="h-6" className="mb-4" />
+              <LoadingSkeleton type="text" width="w-80" height="h-5" className="mb-2" />
+              <LoadingSkeleton type="text" width="w-80" height="h-5" />
             </div>
             <div className="bg-white rounded-lg shadow-sm p-6 md:col-span-2">
-              <LoadingSkeleton type="text" width="48" height="6" className="mb-4" />
-              <LoadingSkeleton type="text" width="full" height="10" />
+              <LoadingSkeleton type="text" width="w-48" height="h-6" className="mb-4" />
+              <LoadingSkeleton type="text" width="w-full" height="h-10" />
             </div>
             <div className="bg-white rounded-lg shadow-sm p-6 md:col-span-3">
-              <LoadingSkeleton type="text" width="48" height="6" className="mb-4" />
-              <LoadingSkeleton type="text" width="full" height="20" />
+              <LoadingSkeleton type="text" width="w-48" height="h-6" className="mb-4" />
+              <LoadingSkeleton type="text" width="w-full" height="h-20" />
             </div>
           </div>
         </div>
       </div>
     );
   }
-
-  console.log('Profile: Orders state:', orders);
 
   return (
     <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
@@ -316,8 +338,8 @@ const Profile = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center gap-4 mb-4">
-              <div className="bg-red-100 p-3 rounded-full">
-                <FiUser className="text-red-600 text-xl sm:text-2xl" />
+              <div className="bg-blue-100 p-3 rounded-full">
+                <FiUser className="text-blue-600 text-xl sm:text-2xl" />
               </div>
               <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Personal Information</h2>
             </div>
@@ -338,9 +360,15 @@ const Profile = () => {
                 <p className="text-gray-600">Addresses</p>
                 {Array.isArray(user.addresses) && user.addresses.length > 0 ? (
                   user.addresses.map((addr, index) => (
-                    <p key={index} className="font-medium text-gray-900">
-                      {`${addr.street}, ${addr.city}, ${addr.state} ${addr.zip}, ${addr.country}`}
-                    </p>
+                    <div key={index} className="mb-2">
+                      <p className="font-medium text-gray-900">
+                        {`${addr.fullName}, ${addr.street}${addr.addressLine2 ? `, ${addr.addressLine2}` : ''}, ${addr.city}, ${addr.state}, ${addr.zip}, ${addr.country}`}
+                        {addr.phone && `, Phone: ${addr.phone}`}
+                        {addr.isDefault && (
+                          <span className="ml-2 text-sm text-green-600">(Default)</span>
+                        )}
+                      </p>
+                    </div>
                   ))
                 ) : (
                   <p className="text-gray-600">No addresses saved</p>
@@ -348,7 +376,7 @@ const Profile = () => {
               </div>
               <Button
                 onClick={() => setIsEditModalOpen(true)}
-                className="w-full bg-red-600 text-white hover:bg-red-700"
+                className="w-full bg-blue-600 text-white hover:bg-blue-700"
               >
                 Edit Profile
               </Button>
@@ -357,22 +385,22 @@ const Profile = () => {
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 md:col-span-2">
             <div className="flex items-center gap-4 mb-4">
-              <div className="bg-red-100 p-3 rounded-full">
-                <FiPackage className="text-red-600 text-xl sm:text-2xl" />
+              <div className="bg-blue-100 p-3 rounded-full">
+                <FiPackage className="text-blue-600 text-xl sm:text-2xl" />
               </div>
               <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Order Summary</h2>
             </div>
             {orderLoading ? (
               <div className="space-y-4">
-                <LoadingSkeleton type="text" width="full" height="10" />
-                <LoadingSkeleton type="text" width="full" height="10" />
+                <LoadingSkeleton type="text" width="w-full" height="h-10" />
+                <LoadingSkeleton type="text" width="w-full" height="h-10" />
               </div>
             ) : orderError ? (
               <div className="p-4 bg-gray-50 rounded-lg text-center">
                 <p className="text-gray-600">{orderError}</p>
                 <Button
                   onClick={() => fetchUserOrders(pagination.page)}
-                  className="mt-2 bg-red-600 text-white hover:bg-red-700"
+                  className="mt-2 bg-blue-600 text-white hover:bg-blue-700"
                 >
                   Retry
                 </Button>
@@ -385,14 +413,14 @@ const Profile = () => {
                   <p className="text-right">Total</p>
                 </div>
                 {(() => {
-                  const validOrders = (orders || []).filter(order => order && order.orderId);
+                  const validOrders = (orders || []).filter((order) => order && order.orderId);
                   console.log('Profile: Valid orders for summary:', validOrders);
                   return validOrders.length === 0 ? (
                     <p className="text-gray-600">No orders found</p>
                   ) : (
                     validOrders.map((order) => (
                       <div key={order.orderId} className="grid grid-cols-3 border-b py-2 text-sm sm:text-base">
-                        <p className="font-medium text-red-600 hover:underline cursor-pointer" onClick={() => navigate(`/orders/${order.orderId}`)}>
+                        <p className="font-medium text-blue-600 hover:underline cursor-pointer" onClick={() => navigate(`/orders/${order.orderId}`)}>
                           {order.orderId || 'Unknown Order'}
                         </p>
                         <p className="text-center text-gray-600">{new Date(order.createdAt || Date.now()).toLocaleDateString()}</p>
@@ -403,7 +431,7 @@ const Profile = () => {
                 })()}
                 <Button
                   onClick={() => navigate('/orders')}
-                  className="w-full border border-red-600 text-red-600 hover:bg-red-50"
+                  className="w-full border border-blue-600 text-blue-600 hover:bg-blue-50"
                   disabled={orderError}
                 >
                   View All Orders
@@ -414,22 +442,22 @@ const Profile = () => {
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 md:col-span-3">
             <div className="flex items-center gap-4 mb-6">
-              <div className="bg-red-100 p-3 rounded-full">
-                <FiTruck className="text-red-600 text-xl sm:text-2xl" />
+              <div className="bg-blue-100 p-3 rounded-full">
+                <FiTruck className="text-blue-600 text-xl sm:text-2xl" />
               </div>
               <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Current Orders</h2>
             </div>
             {orderLoading ? (
               <div className="space-y-6">
-                <LoadingSkeleton type="text" width="full" height="20" />
-                <LoadingSkeleton type="text" width="full" height="20" />
+                <LoadingSkeleton type="text" width="w-full" height="h-20" />
+                <LoadingSkeleton type="text" width="w-full" height="h-20" />
               </div>
             ) : orderError ? (
               <div className="p-4 bg-gray-50 rounded-lg text-center">
                 <p className="text-gray-600">{orderError}</p>
                 <Button
                   onClick={() => fetchUserOrders(pagination.page)}
-                  className="mt-2 bg-red-600 text-white hover:bg-red-700"
+                  className="mt-2 bg-blue-600 text-white hover:bg-blue-700"
                 >
                   Retry
                 </Button>
@@ -437,7 +465,9 @@ const Profile = () => {
             ) : (
               <div className="space-y-6">
                 {(() => {
-                  const validOrders = (orders || []).filter(order => order && order.orderId && order.status !== 'delivered' && order.status !== 'cancelled');
+                  const validOrders = (orders || []).filter(
+                    (order) => order && order.orderId && order.status !== 'delivered' && order.status !== 'cancelled'
+                  );
                   console.log('Profile: Valid current orders:', validOrders);
                   return validOrders.length === 0 ? (
                     <p className="text-gray-600 text-sm sm:text-base">No current orders</p>
@@ -485,7 +515,7 @@ const Profile = () => {
                             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                               <Button
                                 onClick={() => window.open(`https://tracking.example.com/${order.trackingNumber || ''}`, '_blank')}
-                                className="w-full sm:w-auto border border-red-600 text-red-600 hover:bg-red-50"
+                                className="w-full sm:w-auto border border-blue-600 text-blue-600 hover:bg-blue-50"
                                 disabled={!order.trackingNumber}
                               >
                                 Track Order
@@ -500,7 +530,7 @@ const Profile = () => {
                               )}
                               <Button
                                 onClick={() => navigate(`/orders/${order.orderId}`)}
-                                className="w-full sm:w-auto bg-red-600 text-white hover:bg-red-700"
+                                className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
                               >
                                 View Details
                               </Button>
@@ -552,7 +582,7 @@ const Profile = () => {
                     id="name"
                     value={formData.name}
                     onChange={handleInputChange}
-                    className={`mt-1 block w-full border ${formErrors.name ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                    className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors.name ? 'border-red-500' : 'border-gray-300'}`}
                   />
                   {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
                 </div>
@@ -566,7 +596,7 @@ const Profile = () => {
                     id="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    className={`mt-1 block w-full border ${formErrors.email ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                    className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors.email ? 'border-red-500' : 'border-gray-300'}`}
                   />
                   {formErrors.email && <p className="mt-1 text-sm text-red-600">{formErrors.email}</p>}
                 </div>
@@ -576,19 +606,46 @@ const Profile = () => {
                     <div key={index} className="border border-gray-200 rounded-md p-4 mb-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
+                          <label htmlFor={`fullName_${index}`} className="block text-sm font-medium text-gray-700">
+                            Full Name
+                          </label>
+                          <input
+                            type="text"
+                            id={`fullName_${index}`}
+                            value={address.fullName || ''}
+                            onChange={(e) => handleInputChange(e, index, 'fullName')}
+                            className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors[`address_${index}_fullName`] ? 'border-red-500' : 'border-gray-300'}`}
+                          />
+                          {formErrors[`address_${index}_fullName`] && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_fullName`]}</p>
+                          )}
+                        </div>
+                        <div>
                           <label htmlFor={`street_${index}`} className="block text-sm font-medium text-gray-700">
                             Street
                           </label>
                           <input
                             type="text"
                             id={`street_${index}`}
-                            value={address.street}
+                            value={address.street || ''}
                             onChange={(e) => handleInputChange(e, index, 'street')}
-                            className={`mt-1 block w-full border ${formErrors[`address_${index}_street`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                            className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors[`address_${index}_street`] ? 'border-red-500' : 'border-gray-300'}`}
                           />
                           {formErrors[`address_${index}_street`] && (
                             <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_street`]}</p>
                           )}
+                        </div>
+                        <div>
+                          <label htmlFor={`addressLine2_${index}`} className="block text-sm font-medium text-gray-700">
+                            Address Line 2 (Optional)
+                          </label>
+                          <input
+                            type="text"
+                            id={`addressLine2_${index}`}
+                            value={address.addressLine2 || ''}
+                            onChange={(e) => handleInputChange(e, index, 'addressLine2')}
+                            className="mt-1 block w-full border border-gray-300 rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          />
                         </div>
                         <div>
                           <label htmlFor={`city_${index}`} className="block text-sm font-medium text-gray-700">
@@ -597,9 +654,9 @@ const Profile = () => {
                           <input
                             type="text"
                             id={`city_${index}`}
-                            value={address.city}
+                            value={address.city || ''}
                             onChange={(e) => handleInputChange(e, index, 'city')}
-                            className={`mt-1 block w-full border ${formErrors[`address_${index}_city`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                            className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors[`address_${index}_city`] ? 'border-red-500' : 'border-gray-300'}`}
                           />
                           {formErrors[`address_${index}_city`] && (
                             <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_city`]}</p>
@@ -612,9 +669,9 @@ const Profile = () => {
                           <input
                             type="text"
                             id={`state_${index}`}
-                            value={address.state}
+                            value={address.state || ''}
                             onChange={(e) => handleInputChange(e, index, 'state')}
-                            className={`mt-1 block w-full border ${formErrors[`address_${index}_state`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                            className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors[`address_${index}_state`] ? 'border-red-500' : 'border-gray-300'}`}
                           />
                           {formErrors[`address_${index}_state`] && (
                             <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_state`]}</p>
@@ -627,41 +684,67 @@ const Profile = () => {
                           <input
                             type="text"
                             id={`zip_${index}`}
-                            value={address.zip}
+                            value={address.zip || ''}
                             onChange={(e) => handleInputChange(e, index, 'zip')}
-                            className={`mt-1 block w-full border ${formErrors[`address_${index}_zip`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                            className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors[`address_${index}_zip`] ? 'border-red-500' : 'border-gray-300'}`}
                           />
                           {formErrors[`address_${index}_zip`] && (
                             <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_zip`]}</p>
                           )}
                         </div>
-                        <div className="sm:col-span-2">
+                        <div>
                           <label htmlFor={`country_${index}`} className="block text-sm font-medium text-gray-700">
                             Country
                           </label>
                           <input
                             type="text"
                             id={`country_${index}`}
-                            value={address.country}
+                            value={address.country || ''}
                             onChange={(e) => handleInputChange(e, index, 'country')}
-                            className={`mt-1 block w-full border ${formErrors[`address_${index}_country`] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm p-2 focus:ring-red-500 focus:border-red-500 sm:text-sm`}
+                            className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors[`address_${index}_country`] ? 'border-red-500' : 'border-gray-300'}`}
                           />
                           {formErrors[`address_${index}_country`] && (
                             <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_country`]}</p>
                           )}
                         </div>
+                        <div>
+                          <label htmlFor={`phone_${index}`} className="block text-sm font-medium text-gray-700">
+                            Phone
+                          </label>
+                          <input
+                            type="text"
+                            id={`phone_${index}`}
+                            value={address.phone || ''}
+                            onChange={(e) => handleInputChange(e, index, 'phone')}
+                            className={`mt-1 block w-full border rounded-md p-2 shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${formErrors[`address_${index}_phone`] ? 'border-red-500' : 'border-gray-300'}`}
+                          />
+                          {formErrors[`address_${index}_phone`] && (
+                            <p className="mt-1 text-sm text-red-600">{formErrors[`address_${index}_phone`]}</p>
+                          )}
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={address.isDefault || false}
+                              onChange={() => handleCheckboxChange(index)}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <span className="text-sm text-gray-700">Set as Default Address</span>
+                          </label>
+                        </div>
                       </div>
                       <Button
-                        onClick={() => removeAddress(index)}
-                        className="mt-4 bg-red-100 text-red-600 hover:bg-red-200"
+                        onClick={() => handleRemoveAddress(index)}
+                        className="mt-4 w-full bg-red-600 text-white hover:bg-red-700"
                       >
                         Remove Address
                       </Button>
                     </div>
                   ))}
                   <Button
-                    onClick={addAddress}
-                    className="w-full border border-red-600 text-red-600 hover:bg-red-50"
+                    onClick={handleAddAddress}
+                    className="w-full border border-blue-600 text-blue-600 hover:bg-blue-50"
                   >
                     Add Address
                   </Button>
@@ -671,12 +754,12 @@ const Profile = () => {
                     type="button"
                     onClick={() => {
                       setIsEditModalOpen(false);
-                      setFormErrors({});
                       setFormData({
                         name: user.name || '',
                         email: user.email || '',
                         addresses: user.addresses || [],
                       });
+                      setFormErrors({});
                     }}
                     className="bg-gray-600 text-white hover:bg-gray-700"
                   >
@@ -684,10 +767,10 @@ const Profile = () => {
                   </Button>
                   <Button
                     type="submit"
-                    className="bg-red-600 text-white hover:bg-red-700"
+                    className="bg-blue-600 text-white hover:bg-blue-700"
                     disabled={authLoading}
                   >
-                    {authLoading ? 'Saving...' : 'Save Changes'}
+                    {authLoading ? 'Submitting...' : 'Save Changes'}
                   </Button>
                 </div>
               </form>

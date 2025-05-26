@@ -95,7 +95,7 @@ exports.googleAuthCallback = (req, res, next) => {
         tokens.accessToken
       )}&refreshToken=${encodeURIComponent(tokens.refreshToken)}&userId=${user._id.toString()}`;
 
-      console.log('Redirecting to:', frontendCallbackUrl);
+      // console.log('Redirecting to:', frontendCallbackUrl);
       res.redirect(frontendCallbackUrl);
     } catch (error) {
       next(new ApiError(500, 'Error processing Google auth callback', [error.message]));

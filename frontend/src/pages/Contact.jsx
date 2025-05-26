@@ -265,7 +265,11 @@ Sent via Raees Malls Contact Form`;
                   <p className="text-gray-600">
                     <span className='font-semibold italic text-red-600'>Head Office</span> <br />
                     <span className='text-xl font-mono font-bold'>Raees Traders</span><br />
-                    Opposite Ayesha Masjid Motor Market Jhang Road Faisalabad
+                    Opposite Ayesha Masjid Motor Market Jhang Road Faisalabad <hr /> <br />
+                    <span className='font-semibold italic text-red-600'>Sub Office</span><br />
+                    <span className='text-xl font-mono font-bold'>Raees Mobiles</span><br />
+                    Masjid Bazar Opposite Jamia Masjid Jaranwala <hr /> 
+
                   </p>
                 </div>
               </div>

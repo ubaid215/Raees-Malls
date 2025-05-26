@@ -1,6 +1,8 @@
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Discount = require('../models/Discount');
+const User = require('../models/User'); // Import User model
 const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const { v4: uuidv4 } = require('uuid');
@@ -15,7 +17,7 @@ exports.placeOrder = async (req, res, next) => {
       throw new ApiError(401, 'User not authenticated');
     }
 
-    const { items, shippingAddress, discountCode } = req.body;
+    const { items, shippingAddress, discountCode, saveAddress } = req.body;
 
     if (!items || items.length === 0) {
       throw new ApiError(400, 'Order must contain at least one item');
@@ -119,6 +121,49 @@ exports.placeOrder = async (req, res, next) => {
 
     await order.save();
 
+    // Save address to user's profile if saveAddress is true
+    if (saveAddress) {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new ApiError(404, 'User not found');
+      }
+
+      // Map shippingAddress to User address format
+      const newAddress = {
+        fullName: shippingAddress.fullName,
+        street: shippingAddress.addressLine1,
+        addressLine2: shippingAddress.addressLine2 || '',
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        zip: shippingAddress.postalCode,
+        country: shippingAddress.country,
+        phone: shippingAddress.phone,
+        isDefault: user.addresses.length === 0, // Set as default if first address
+      };
+
+      // Check if address already exists (case-insensitive and trimmed)
+      const addressExists = user.addresses.some(
+        addr =>
+          addr.street.trim().toLowerCase() === newAddress.street.trim().toLowerCase() &&
+          addr.city.trim().toLowerCase() === newAddress.city.trim().toLowerCase() &&
+          addr.zip.trim().toLowerCase() === newAddress.zip.trim().toLowerCase() &&
+          addr.country.trim().toLowerCase() === newAddress.country.trim().toLowerCase()
+      );
+
+      if (!addressExists) {
+        user.addresses.push(newAddress);
+        try {
+          await user.save();
+          // console.log('Address saved successfully:', newAddress);
+        } catch (error) {
+          console.error('Error saving user address:', error);
+          throw new ApiError(500, 'Failed to save address to user profile');
+        }
+      } else {
+        console.log('Address already exists, skipping save:', newAddress);
+      }
+    }
+
     for (const item of orderItems) {
       const product = await Product.findById(item.productId);
       if (item.variantId) {
@@ -133,7 +178,7 @@ exports.placeOrder = async (req, res, next) => {
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku shippingCost')
+      .populate('items.productId', 'title brand sku shippingCost images variants')
       .populate('discountId', 'code value type');
 
     io.to('adminRoom').emit('orderCreated', populatedOrder);
@@ -141,6 +186,7 @@ exports.placeOrder = async (req, res, next) => {
 
     ApiResponse.success(res, 201, 'Order placed successfully', { order: populatedOrder });
   } catch (error) {
+    console.error('Error in placeOrder:', error);
     next(error);
   }
 };
@@ -160,7 +206,7 @@ exports.getUserOrders = async (req, res, next) => {
     const orders = await Order.find(query)
       .populate({
         path: 'items.productId',
-        select: 'title brand sku shippingCost',
+        select: 'title brand sku shippingCost images variants',
         match: { _id: { $exists: true } },
       })
       .populate('discountId', 'code value type')
@@ -196,7 +242,7 @@ exports.getAllOrders = async (req, res, next) => {
 
     const orders = await Order.find(query)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku shippingCost')
+      .populate('items.productId', 'title brand sku shippingCost images variants')
       .populate('discountId', 'code value type')
       .sort('-createdAt')
       .skip(skip)
@@ -232,7 +278,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku shippingCost')
+      .populate('items.productId', 'title brand sku shippingCost images variants')
       .populate('discountId', 'code value type');
 
     io.to(`user_${order.userId}`).emit('orderStatusUpdated', populatedOrder);
@@ -285,7 +331,7 @@ exports.cancelOrder = async (req, res, next) => {
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku shippingCost')
+      .populate('items.productId', 'title brand sku shippingCost images variants')
       .populate('discountId', 'code value type');
 
     io.to(`user_${userId}`).emit('orderStatusUpdated', populatedOrder);
@@ -303,7 +349,7 @@ exports.downloadInvoice = async (req, res, next) => {
 
     const order = await Order.findOne({ orderId })
       .populate('userId', 'name email')
-      .populate('items.productId', 'title brand sku shippingCost')
+      .populate('items.productId', 'title brand sku shippingCost images variants')
       .populate('discountId', 'code value type');
 
     if (!order) {

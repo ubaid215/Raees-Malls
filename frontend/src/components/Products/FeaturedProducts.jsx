@@ -192,6 +192,7 @@ function FeaturedProducts() {
           )}
         </div>
 
+          {/* Product display side */}
         <div className="w-full lg:w-[70%] grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 xs:gap-3 sm:gap-4 md:gap-6">
           {memoizedProducts.length > 0 ? (
             memoizedProducts.map((product) => (

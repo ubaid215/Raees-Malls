@@ -13,12 +13,15 @@ import { useNavigate } from "react-router-dom";
 const CheckoutPage = () => {
   const { cartItems, clearCart, removeAllFromCart } = useCart();
   const { placeNewOrder } = useOrder();
-  const { user } = useAuth();
+  const { user, fetchUser } = useAuth();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [redirectCount, setRedirectCount] = useState(0);
   const [orderDetails, setOrderDetails] = useState(null);
+
+  // Find the default address or the first address if no default exists
+  const defaultAddress = user?.addresses?.find((addr) => addr.isDefault) || user?.addresses?.[0] || {};
 
   const {
     register,
@@ -29,16 +32,19 @@ const CheckoutPage = () => {
   } = useForm({
     defaultValues: {
       email: user?.email || "",
-      firstName: user?.firstName || "",
-      lastName: user?.lastName || "",
-      phone: user?.phone?.replace(/^\+\d{1,4}\s/, "") || "",
-      countryCode: user?.phone?.match(/^\+\d{1,4}/)?.[0] || "+92",
-      address1: user?.address?.address1 || "",
-      address2: user?.address?.address2 || "",
-      country: user?.address?.country || "Pakistan",
-      city: user?.address?.city || "",
-      state: user?.address?.state || "",
-      postalCode: user?.address?.postalCode || "",
+      firstName: defaultAddress.fullName ? defaultAddress.fullName.split(" ")[0] || "" : "",
+      lastName: defaultAddress.fullName
+        ? defaultAddress.fullName.split(" ").slice(1).join(" ") || ""
+        : "",
+      phone: defaultAddress.phone?.replace(/^\+\d{1,4}\s/, "") || "",
+      countryCode: defaultAddress.phone?.match(/^\+\d{1,4}/)?.[0] || "+92",
+      address1: defaultAddress.street || "",
+      address2: defaultAddress.addressLine2 || "",
+      country: defaultAddress.country || "Pakistan",
+      city: defaultAddress.city || "",
+      state: defaultAddress.state || "",
+      postalCode: defaultAddress.zip || "",
+      saveAddress: true, // Default to true for convenience
     },
   });
 
@@ -51,7 +57,6 @@ const CheckoutPage = () => {
     { code: "+91", label: "India (+91)" },
   ];
 
-  // Redirect to login if user is not authenticated
   useEffect(() => {
     if (!user && redirectCount < 2) {
       setRedirectCount((prev) => prev + 1);
@@ -65,7 +70,6 @@ const CheckoutPage = () => {
       0
     );
     const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-    // Calculate shipping cost for unique products
     const uniqueProducts = new Set();
     let shipping = 0;
     for (const item of cartItems) {
@@ -78,7 +82,6 @@ const CheckoutPage = () => {
         uniqueProducts.add(productId);
       }
     }
-    // Apply free shipping if subtotal or totalItems >= 25,000
     shipping = subtotal >= 2500 || totalItems >= 2500 ? 0 : shipping;
     const tax = 0;
     return { subtotal, shipping, tax, total: subtotal + shipping + tax };
@@ -94,7 +97,6 @@ const CheckoutPage = () => {
     try {
       const fullPhoneNumber = `${data.countryCode} ${data.phone}`;
 
-      // Extract the actual ID from the product object
       const validatedItems = cartItems.map((item) => {
         let validProductId;
         if (
@@ -108,7 +110,7 @@ const CheckoutPage = () => {
         } else if (item._id) {
           validProductId = item._id;
         } else {
-          validProductId = String(Math.random()).substring(2); // Last resort fallback
+          validProductId = String(Math.random()).substring(2);
         }
 
         return {
@@ -136,9 +138,10 @@ const CheckoutPage = () => {
           phone: fullPhoneNumber,
         },
         totalShippingCost: shipping,
+        saveAddress: data.saveAddress,
       };
 
-      console.log("Submitting order:", JSON.stringify(order));
+      // console.log("Submitting order:", JSON.stringify(order));
 
       const result = await placeNewOrder(order);
       setOrderDetails({
@@ -164,6 +167,17 @@ const CheckoutPage = () => {
           });
         } catch (e) {
           console.warn("Could not clear cart items individually:", e);
+        }
+      }
+
+      // Refresh user data to ensure addresses are updated
+      if (data.saveAddress) {
+        try {
+          await fetchUser();
+          // console.log('User data refreshed after order placement');
+        } catch (error) {
+          console.error('Error refreshing user data:', error);
+          toast.error('Order placed, but failed to refresh user data');
         }
       }
 
@@ -282,6 +296,27 @@ Please confirm my order. Thank you!`;
 
   const { subtotal, shipping, tax, total } = calculateTotal();
 
+  const getImageUrl = (item) => {
+    const baseUrl = import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
+    return (
+      item.image
+        ? typeof item.image === "string"
+          ? item.image.startsWith("http")
+            ? item.image
+            : `${baseUrl}${item.image}`
+          : item.image.url
+            ? item.image.url.startsWith("http")
+              ? item.image.url
+              : `${baseUrl}${item.image.url}`
+            : "/images/placeholder-product.png"
+        : item.productId?.images?.[0]?.url
+          ? item.productId.images[0].url.startsWith("http")
+            ? item.productId.images[0].url
+            : `${baseUrl}${item.productId.images[0].url}`
+          : "/images/placeholder-product.png"
+    );
+  };
+
   return (
     <div className="w-full min-h-screen bg-gray-100 px-4 py-6">
       <div className="max-w-4xl mx-auto">
@@ -290,14 +325,12 @@ Please confirm my order. Thank you!`;
         </h1>
 
         <div className="flex flex-col lg:flex-row gap-4">
-          {/* Left Column - Contact and Shipping */}
           <div className="flex-1">
             <form
               id="checkout-form"
               onSubmit={handleSubmit(onSubmit)}
               className="space-y-4"
             >
-              {/* Contact Information */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">
                   Contact Information
@@ -317,7 +350,6 @@ Please confirm my order. Thank you!`;
                 />
               </div>
 
-              {/* Shipping Information */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">
                   Shipping Information
@@ -369,8 +401,8 @@ Please confirm my order. Thank you!`;
                       {...register("phone", {
                         required: "Phone number is required",
                         pattern: {
-                          value: /^\d{6,14}$/,
-                          message: "Phone number must be 6 to 14 digits long",
+                          value: /^\+?[\d\s-]{10,}$/,
+                          message: "Phone number must be at least 10 digits",
                         },
                       })}
                       type="tel"
@@ -432,9 +464,20 @@ Please confirm my order. Thank you!`;
                     error={errors.postalCode?.message}
                   />
                 </div>
+                <div className="mt-4">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      {...register("saveAddress")}
+                      className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-600">
+                      Save this address for future orders
+                    </span>
+                  </label>
+                </div>
               </div>
 
-              {/* Payment Method */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">
                   Payment Method
@@ -449,50 +492,66 @@ Please confirm my order. Thank you!`;
             </form>
           </div>
 
-          {/* Right Column - Order Summary */}
           <div className="lg:w-80 lg:sticky lg:top-6">
             <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-900 mb-3">
                 Order Details
               </h2>
 
-              {/* Cart Items */}
               <div className="space-y-3 mb-4">
-                {cartItems.map((item, index) => (
-                  <div
-                    key={`${item.productId || item._id || index}`}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={item.image}
-                        alt={item.title || "Product"}
-                        className="w-12 h-12 object-cover rounded-md border border-gray-200"
-                        onError={(e) => {
-                          e.currentTarget.src = "/placeholder-product.png";
-                          e.currentTarget.onerror = null;
-                        }}
-                      />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900 line-clamp-2">
-                          {item.title || "Untitled Product"}
-                        </p>
-                        <p className="text-xs text-gray-600">
-                          Qty: {item.quantity}
-                        </p>
-                        <p className="text-xs text-gray-600">
-                          Shipping: {formatPrice(item.shippingCost || 0)}
-                        </p>
+                {cartItems.map((item, index) => {
+                  const imageUrl = getImageUrl(item);
+
+                  // console.log("CheckoutPage: Item image data:", {
+                  //   itemId: item.productId?._id || item._id || index,
+                  //   title: item.title,
+                  //   image: item.image,
+                  //   productIdImages: item.productId?.images,
+                  //   computedImageUrl: imageUrl,
+                  // });
+
+                  return (
+                    <div
+                      key={`${item.productId?._id || item._id || index}-${item.variantId || "no-variant"}`}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={imageUrl}
+                          alt={item.title || "Product"}
+                          className="w-12 h-12 object-cover rounded-md border border-gray-200"
+                          onError={(e) => {
+                            console.warn(
+                              `CheckoutPage: Image failed to load for ${item.title || "unknown"}:`,
+                              e.target.src
+                            );
+                            e.currentTarget.src = "/images/placeholder-product.png";
+                            e.currentTarget.onerror = null;
+                          }}
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900 line-clamp-2">
+                            {item.title || "Untitled Product"}
+                          </p>
+                          <p className="text-xs text-gray-600">
+                            SKU: {item.sku || "N/A"}
+                          </p>
+                          <p className="text-xs text-gray-600">
+                            Qty: {item.quantity}
+                          </p>
+                          <p className="text-xs text-gray-600">
+                            Shipping: {formatPrice(item.shippingCost || 0)}
+                          </p>
+                        </div>
                       </div>
+                      <p className="text-sm font-medium text-gray-900">
+                        {formatPrice(item.price * item.quantity)}
+                      </p>
                     </div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {formatPrice(item.price * item.quantity)}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
-              {/* Order Totals */}
               <div className="space-y-2 border-t border-gray-200 pt-3 mb-4 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Subtotal</span>
@@ -517,7 +576,6 @@ Please confirm my order. Thank you!`;
                 </div>
               </div>
 
-              {/* Place Order Button */}
               <Button
                 type="submit"
                 form="checkout-form"
@@ -527,7 +585,6 @@ Please confirm my order. Thank you!`;
                 {isSubmitting ? "Processing..." : "Place Order"}
               </Button>
 
-              {/* WhatsApp Support Button */}
               <Button
                 variant="outline"
                 className="w-full border-green-600 text-green-600 hover:bg-green-50 py-2 rounded-md text-sm"
@@ -559,8 +616,6 @@ Can you assist me?`;
   );
 };
 
-export default CheckoutPage;
-
 const formatPrice = (price) => {
   return new Intl.NumberFormat("en-PK", {
     style: "currency",
@@ -568,3 +623,5 @@ const formatPrice = (price) => {
     minimumFractionDigits: 0,
   }).format(price);
 };
+
+export default CheckoutPage;
