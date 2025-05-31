@@ -135,13 +135,20 @@ exports.getCart = async (req, res, next) => {
       };
     });
 
-    const totalPrice = populatedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const totalItems = populatedItems.reduce((sum, item) => sum + item.quantity, 0);
+    // Filter out invalid items (where productId is null) before calculating totals
+    const validItems = populatedItems.filter(item => !item.isUnavailable);
+
+    const totalPrice = validItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const totalItems = validItems.reduce((sum, item) => sum + item.quantity, 0);
     // Calculate shipping cost per product (once per productId, regardless of quantity or variant)
-    const uniqueProducts = new Set(populatedItems.map(item => item.productId.toString()));
+    const uniqueProducts = new Set(
+      validItems
+        .filter(item => item.productId) // Ensure productId exists
+        .map(item => item.productId.toString())
+    );
     const totalShippingCost = Array.from(uniqueProducts).reduce((sum, productId) => {
-      const item = populatedItems.find(item => item.productId.toString() === productId);
-      return sum + (item.shippingCost || 0);
+      const item = validItems.find(item => item.productId && item.productId.toString() === productId);
+      return sum + (item?.shippingCost || 0);
     }, 0);
 
     const responseCart = {
