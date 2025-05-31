@@ -127,7 +127,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     e.target.src = '/images/placeholder-product.png';
     e.target.onerror = null;
     if (e.target.tagName === 'VIDEO') {
-      // Replace video with first image if available
       e.target.outerHTML = `<img
         src="${product.images?.[0]?.url || '/images/placeholder-product.png'}"
         alt="${product.images?.[0]?.alt || product.title}"
@@ -162,135 +161,136 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const isOutOfStock = product.stock <= 0;
   const hasDiscount = product.discountPrice && product.discountPrice < product.price;
 
-  // Determine media to display (prefer video over image)
   const primaryMedia = product.videos?.[0]?.url
     ? { type: 'video', url: product.videos[0].url }
     : product.images?.[0]?.url
       ? { type: 'image', url: product.images[0].url }
       : { type: 'image', url: '/images/placeholder-product.png' };
 
-  // Ensure media URL is valid
   const mediaUrl = primaryMedia.url.startsWith('http')
     ? primaryMedia.url
     : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${primaryMedia.url}`;
 
-  // Get first 2 features for display (truncate to 30 chars each)
   const displayedFeatures = (product.features || [])
     .slice(0, 2)
     .map(f => f.length > 30 ? `${f.slice(0, 27)}...` : f);
 
   return (
-    <div
-      className="w-full max-w-[180px] xs:max-w-[200px] sm:max-w-none bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all cursor-pointer flex flex-col touch-manipulation mx-auto"
-      onClick={handleCardClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && handleCardClick(e)}
-      aria-label={`View ${product.title} details`}
-    >
-      <div className="relative">
-        {primaryMedia.type === 'video' ? (
-          <video
-            src={mediaUrl}
-            alt={product.title}
-            className="w-full aspect-square sm:aspect-[4/3] object-cover"
-            muted
-            controls
-            preload="metadata"
-            onError={handleMediaError}
-          />
-        ) : (
-          <img
-            src={mediaUrl}
-            alt={product.images?.[0]?.alt || product.title}
-            className="w-full aspect-square sm:aspect-[4/3] object-cover"
-            loading="lazy"
-            onError={handleMediaError}
-          />
-        )}
-        <span className={`absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium ${
-          isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-        }`}>
-          {isOutOfStock ? 'Out of Stock' : `In Stock (${product.stock})`}
-        </span>
-        {hasDiscount && (
-          <span className="absolute top-2 right-2 px-2 py-0.5 rounded bg-red-600 text-white text-xs font-medium">
-            {Math.round((1 - product.discountPrice / product.price) * 100)}% OFF
-          </span>
-        )}
-        {product.isFeatured && (
-          <span className="absolute top-10 left-2 px-2 py-0.5 rounded bg-yellow-500 text-white text-xs font-medium">
-            Featured
-          </span>
-        )}
-      </div>
-
-      <div className="p-2 sm:p-4 flex flex-col gap-1 sm:gap-2 flex-grow">
-        <h2 className="text-sm sm:text-lg font-semibold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight">
-          {product.title}
-        </h2>
-        <p className="text-xs text-gray-500 hidden sm:block">
-          {/* SKU: <span className="text-gray-700 font-medium">{product.sku || 'N/A'}</span> */}
-        </p>
-        <p className="text-xs text-gray-500 line-clamp-1 hidden sm:block">
-          Category: <span className="text-gray-700">{categoryNames}</span>
-        </p>
-        
-        {displayedFeatures.length > 0 && (
-          <ul className="text-xs text-gray-600 mt-1 sm:mt-2 hidden sm:block">
-            {displayedFeatures.map((feature, index) => (
-              <li key={index} className="flex items-center gap-1">
-                <span className="text-red-600">•</span>
-                <span>{feature}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-1 sm:mt-2">
-          {hasDiscount ? (
-            <div className="flex flex-col">
-              <p className="text-sm sm:text-lg font-bold text-red-600">{formattedPrice}</p>
-              <p className="text-xs sm:text-sm text-gray-500 line-through">
-                {new Intl.NumberFormat('en-PK', {
-                  style: 'currency',
-                  currency: 'PKR',
-                  minimumFractionDigits: 0,
-                }).format(product.price)}
-              </p>
-            </div>
+    <>
+      <style>{`
+        @keyframes vibrate {
+          0% { transform: translate(0, 0) rotate(0deg); }
+          20% { transform: translate(2px, 1px) rotate(0.5deg); }
+          40% { transform: translate(-1px, -2px) rotate(-0.5deg); }
+          60% { transform: translate(1px, -1px) rotate(0.5deg); }
+          80% { transform: translate(-2px, 1px) rotate(-0.5deg); }
+          100% { transform: translate(0, 0) rotate(0deg); }
+        }
+        .vibrate-on-hover:hover {
+          animation: vibrate 0.5s ease-in-out;
+        }
+      `}</style>
+      <div
+        className="w-full max-w-[180px] xs:max-w-[200px] sm:max-w-none bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all cursor-pointer flex flex-col touch-manipulation mx-auto"
+        onClick={handleCardClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === 'Enter' && handleCardClick(e)}
+        aria-label={`View ${product.title} details`}
+      >
+        <div className="relative">
+          {primaryMedia.type === 'video' ? (
+            <video
+              src={mediaUrl}
+              alt={product.title}
+              className="w-full aspect-square sm:aspect-[4/3] object-cover"
+              muted
+              controls
+              preload="metadata"
+              onError={handleMediaError}
+            />
           ) : (
-            <p className="text-sm sm:text-lg font-bold text-gray-900">{formattedPrice}</p>
+            <img
+              src={mediaUrl}
+              alt={product.images?.[0]?.alt || product.title}
+              className="w-full aspect-square sm:aspect-[4/3] object-cover"
+              loading="lazy"
+              onError={handleMediaError}
+            />
+          )}
+          <span className={`absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium ${
+            isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+          }`}>
+            {isOutOfStock ? 'Out of Stock' : `In Stock (${product.stock})`}
+          </span>
+          {hasDiscount && (
+            <span className="absolute top-2 right-2 px-2 py-0.5 rounded bg-red-600 text-white text-xs font-medium">
+              {Math.round((1 - product.discountPrice / product.price) * 100)}% OFF
+            </span>
+          )}
+          {product.isFeatured && (
+            <span className="absolute top-10 left-2 px-2 py-0.5 rounded bg-yellow-500 text-white text-xs font-medium">
+              Featured
+            </span>
           )}
         </div>
 
-        {/* <div className="flex items-center gap-1 text-xs mt-auto">
-          {renderStars(product.averageRating || 0)}
-          {product.numReviews ? (
-            <span className="text-gray-500 ml-1">({product.numReviews})</span>
-          ) : (
-            <span className="text-gray-500 ml-1">No reviews</span>
+        <div className="p-2 sm:p-4 flex flex-col gap-1 sm:gap-2 flex-grow">
+          <h2 className="text-sm sm:text-lg font-semibold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight">
+            {product.title}
+          </h2>
+          <p className="text-xs text-gray-500 hidden sm:block">
+            {/* SKU: <span className="text-gray-700 font-medium">{product.sku || 'N/A'}</span> */}
+          </p>
+          <p className="text-xs text-gray-500 line-clamp-1 hidden sm:block">
+            Category: <span className="text-gray-700">{categoryNames}</span>
+          </p>
+          
+          {displayedFeatures.length > 0 && (
+            <ul className="text-xs text-gray-600 mt-1 sm:mt-2 hidden sm:block">
+              {displayedFeatures.map((feature, index) => (
+                <li key={index} className="flex items-center gap-1">
+                  <span className="text-red-600">•</span>
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
           )}
-        </div> */}
 
-        <Button
-          onClick={handleAddToCartClick}
-          className={`mt-2 sm:mt-3 w-full ${
-            addToCartStatus.loading ? 'bg-gray-500' :
-            addToCartStatus.success ? 'bg-green-600' :
-            addToCartStatus.error ? 'bg-yellow-600' :
-            isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
-          } text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-md flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm`}
-          aria-label={`Add ${product.title} to cart`}
-          disabled={isOutOfStock || addToCartStatus.loading}
-        >
-          <CiShoppingCart size={14} className="sm:w-5 sm:h-5" />
-          <span>
+          <div className="mt-1 sm:mt-2">
+            {hasDiscount ? (
+              <div className="flex flex-col">
+                <p className="text-sm sm:text-lg font-bold text-red-600">{formattedPrice}</p>
+                <p className="text-xs sm:text-sm text-gray-500 line-through">
+                  {new Intl.NumberFormat('en-PK', {
+                    style: 'currency',
+                    currency: 'PKR',
+                    minimumFractionDigits: 0,
+                  }).format(product.price)}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm sm:text-lg font-bold text-gray-900">{formattedPrice}</p>
+            )}
+          </div>
+
+          <Button
+            onClick={handleAddToCartClick}
+            className={`mt-2 sm:mt-3 w-full ${
+              addToCartStatus.loading ? 'bg-gray-500' :
+              addToCartStatus.success ? 'bg-green-600' :
+              addToCartStatus.error ? 'bg-yellow-600' :
+              isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
+            } text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-md flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm`}
+            aria-label={`Add ${product.title} to cart`}
+            disabled={isOutOfStock || addToCartStatus.loading}
+            icon={CiShoppingCart}
+          >
             {isOutOfStock ? 'Out of Stock' : getButtonState()}
-          </span>
-        </Button>
+          </Button>
+        </div>
       </div>
-    </div>
+    </>
   );
 });
 

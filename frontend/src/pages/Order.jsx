@@ -58,7 +58,6 @@ const Order = () => {
         });
 
         socketService.on('orderStatusUpdated', (updatedOrder) => {
-          // console.log('Order: Order status updated via socket:', updatedOrder);
           if (!updatedOrder || !updatedOrder.orderId) {
             console.error('Order: Invalid order data received:', updatedOrder);
             return;
@@ -135,8 +134,32 @@ const Order = () => {
   };
 
   const handleBackToList = () => {
-    // console.log('Order: Returning to order list');
     setSelectedOrder(null);
+  };
+
+  const getImageUrl = (item) => {
+    const baseUrl = import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
+    return (
+      item.image
+        ? typeof item.image === "string"
+          ? item.image.startsWith("http")
+            ? item.image
+            : `${baseUrl}${item.image}`
+          : item.image.url
+            ? item.image.url.startsWith("http")
+              ? item.image.url
+              : `${baseUrl}${item.image.url}`
+            : "/images/placeholder-product.png"
+        : item.productId?.image?.url
+          ? item.productId.image.url.startsWith("http")
+            ? item.productId.image.url
+            : `${baseUrl}${item.productId.image.url}`
+          : item.productId?.images?.[0]?.url
+            ? item.productId.images[0].url.startsWith("http")
+              ? item.productId.images[0].url
+              : `${baseUrl}${item.productId.images[0].url}`
+            : "/images/placeholder-product.png"
+    );
   };
 
   if (loading && !orders.length) {
@@ -172,8 +195,6 @@ const Order = () => {
       </div>
     );
   }
-
-  // console.log('Order: Orders state:', orders);
 
   return (
     <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
@@ -215,13 +236,17 @@ const Order = () => {
                   {(selectedOrder.items || []).map((item, index) => (
                     <li key={index} className="flex items-start gap-4">
                       <img
-                        src={item.productId?.image?.url || '/placeholder-product.png'}
-                        alt={item.productId?.title || 'Product'}
-                        className="w巧w-12 h-12 object-cover rounded-md border border-gray-200"
-                        onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
+                        src={getImageUrl(item)}
+                        alt={item.productId?.title || item.title || 'Product'}
+                        className="w-12 h-12 object-contain rounded-md border border-gray-200"
+                        onError={(e) => {
+                          console.warn(`Order: Image failed to load for ${item.productId?.title || item.title || "unknown"}:`, e.target.src);
+                          e.currentTarget.src = "/images/placeholder-product.png";
+                          e.currentTarget.onerror = null;
+                        }}
                       />
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">{item.productId?.title || 'Untitled Product'}</p>
+                        <p className="font-medium text-gray-900">{item.productId?.title || item.title || 'Untitled Product'}</p>
                         {item.variantId && (
                           <p className="text-sm text-gray-500">Variant: {item.variantValue || item.variantId || 'Unknown'}</p>
                         )}

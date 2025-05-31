@@ -1,6 +1,7 @@
-import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
+import React, { createContext, useState, useContext, useMemo, useEffect, useRef } from 'react';
 import AdminAuthService from '../services/adminAuthService';
 import socketService from '../services/socketService';
+import API from '../services/api';
 
 const AdminAuthContext = createContext();
 
@@ -16,27 +17,79 @@ const AdminAuthProvider = ({ children }) => {
     isAdminAuthenticated: false,
   });
 
-  useEffect(() => {
-    const initializeAuth = async () => {
-      const token = localStorage.getItem('adminToken');
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (token && refreshToken) {
-        setAuthState(prev => ({ ...prev, loading: true }));
-        try {
-          await refreshAdminToken();
-        } catch (err) {
-          console.error('Token validation failed during initialization:', err);
-          resetAuthState();
-        } finally {
-          setAuthState(prev => ({ ...prev, loading: false }));
-        }
-      } else {
-        setAuthState(prev => ({ ...prev, loading: false }));
-      }
-    };
+  const initializationRef = useRef(false);
+  const verificationTimeoutRef = useRef(null);
 
-    initializeAuth();
-  }, []);
+  useEffect(() => {
+  if (initializationRef.current) return;
+  initializationRef.current = true;
+
+  const initializeAuth = async () => {
+    const adminToken = localStorage.getItem('adminToken');
+    const adminRefreshToken = localStorage.getItem('adminRefreshToken');
+
+    if (!adminToken && !adminRefreshToken) {
+      setAuthState(prev => ({ ...prev, loading: false, isAdminAuthenticated: false }));
+      return;
+    }
+
+    try {
+      setAuthState(prev => ({ ...prev, loading: true }));
+      const response = await API.get('/admin/verify-token', { withCredentials: true });
+      const { user } = response.data.data;
+
+      setAuthState(prev => ({
+        ...prev,
+        admin: user,
+        isAdminAuthenticated: true,
+        loading: false
+      }));
+
+      setupSocketConnection(user);
+      scheduleTokenVerification();
+    } catch (err) {
+      console.error('Auth Init Failed:', err);
+      resetAuthState();
+    }
+  };
+
+  initializeAuth();
+
+  return () => {
+    clearTimeout(verificationTimeoutRef.current);
+  };
+}, []);
+
+
+  const scheduleTokenVerification = () => {
+    // Clear existing timeout
+    if (verificationTimeoutRef.current) {
+      clearTimeout(verificationTimeoutRef.current);
+    }
+    
+    // Schedule next verification in 10 minutes
+    verificationTimeoutRef.current = setTimeout(async () => {
+      try {
+        const response = await API.get('/admin/verify-token', {
+          withCredentials: true
+        });
+        const { user } = response.data.data;
+        
+        setAuthState(prev => ({
+          ...prev,
+          admin: user,
+          isAdminAuthenticated: true
+        }));
+        
+        // Schedule next verification
+        scheduleTokenVerification();
+      } catch (err) {
+        console.error('Periodic token verification failed:', err);
+        // Don't reset auth state immediately, let user continue
+        // The API interceptor will handle token refresh if needed
+      }
+    }, 10 * 60 * 1000); // 10 minutes
+  };
 
   const setupSocketConnection = (admin) => {
     const adminId = admin?._id || admin?.userId;
@@ -73,6 +126,12 @@ const AdminAuthProvider = ({ children }) => {
   };
 
   const resetAuthState = () => {
+    // Clear periodic verification
+    if (verificationTimeoutRef.current) {
+      clearTimeout(verificationTimeoutRef.current);
+      verificationTimeoutRef.current = null;
+    }
+    
     setAuthState({
       admin: null,
       loading: false,
@@ -83,8 +142,10 @@ const AdminAuthProvider = ({ children }) => {
       isRefreshingToken: false,
       isAdminAuthenticated: false,
     });
+    
     localStorage.removeItem('adminToken');
-    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('adminRefreshToken');
+    
     try {
       socketService.disconnect();
     } catch (err) {
@@ -96,6 +157,11 @@ const AdminAuthProvider = ({ children }) => {
     setAuthState(prev => ({ ...prev, loading: true, error: null, errors: [] }));
     try {
       const adminData = await AdminAuthService.login(credentials);
+      
+      // Store tokens in localStorage for persistence
+      localStorage.setItem('adminToken', adminData.token);
+      localStorage.setItem('adminRefreshToken', adminData.refreshToken);
+      
       setAuthState({
         admin: adminData.user,
         loading: false,
@@ -106,7 +172,10 @@ const AdminAuthProvider = ({ children }) => {
         isRefreshingToken: false,
         isAdminAuthenticated: true,
       });
+      
       setupSocketConnection(adminData.user);
+      scheduleTokenVerification(); // Start periodic verification
+      
       return adminData;
     } catch (err) {
       handleAuthError(err);
@@ -122,8 +191,9 @@ const AdminAuthProvider = ({ children }) => {
       await AdminAuthService.logout();
       resetAuthState();
     } catch (err) {
-      handleAuthError(err);
-      throw err;
+      // Even if logout API fails, clear local state
+      resetAuthState();
+      console.error('Logout API failed, but cleared local state:', err);
     } finally {
       setAuthState(prev => ({ ...prev, loading: false }));
     }
@@ -133,6 +203,11 @@ const AdminAuthProvider = ({ children }) => {
     setAuthState(prev => ({ ...prev, isRefreshingToken: true, loading: true }));
     try {
       const adminData = await AdminAuthService.refreshToken();
+      
+      // Update tokens in localStorage
+      localStorage.setItem('adminToken', adminData.token);
+      localStorage.setItem('adminRefreshToken', adminData.refreshToken);
+      
       setAuthState(prev => ({
         ...prev,
         admin: adminData.user,
@@ -144,13 +219,16 @@ const AdminAuthProvider = ({ children }) => {
         retryAfter: null,
         isAdminAuthenticated: true,
       }));
+      
       setupSocketConnection(adminData.user);
+      scheduleTokenVerification(); // Restart periodic verification
+      
       return adminData;
     } catch (err) {
       handleAuthError(err);
       throw err;
     } finally {
-      setAuthState(prev => ({ isRefreshingToken: false, loading: false }));
+      setAuthState(prev => ({ ...prev, isRefreshingToken: false, loading: false }));
     }
   };
 

@@ -21,25 +21,60 @@ const AuthProvider = ({ children }) => {
   });
 
   useEffect(() => {
+    // Check for the correct token key that matches authServices.js
+    const storedToken = localStorage.getItem('userToken');
+    const storedRefreshToken = localStorage.getItem('userRefreshToken');
+    
+    if (!storedToken && !storedRefreshToken) {
+      setAuthState((prev) => ({ ...prev, loading: false }));
+      return;
+    }
+
     const initializeAuth = async () => {
-      // Skip Google redirect handling; let GoogleCallback.jsx handle it
-      const storedToken = localStorage.getItem('token');
-      if (storedToken) {
+      try {
+        // First try to fetch user with existing token
+        await fetchUser();
+      } catch (error) {
+        console.log('Initial fetch failed, attempting token refresh:', error.message);
         try {
-          await fetchUser();
-        } catch (error) {
-          try {
-            await refreshUserToken();
-          } catch (refreshError) {
+          // If fetch fails, try to refresh token
+          await refreshUserToken();
+        } catch (refreshError) {
+          console.log('Token refresh failed, resetting auth state:', refreshError.message);
+          // Only reset if refresh definitively fails (not network errors)
+          if (refreshError.message.includes('Token refresh failed') || 
+              refreshError.message.includes('No refresh token') ||
+              refreshError.response?.status === 401 ||
+              refreshError.response?.status === 403) {
             resetAuthState();
+          } else {
+            // For network errors or other issues, just stop loading but keep tokens
+            setAuthState((prev) => ({ ...prev, loading: false }));
           }
         }
-      } else {
-        setAuthState((prev) => ({ ...prev, loading: false }));
       }
     };
 
     initializeAuth();
+
+    // Periodic token refresh (every 10 minutes)
+    const refreshInterval = setInterval(async () => {
+      // Only refresh if we have a user and tokens
+      const currentToken = localStorage.getItem('userToken');
+      const currentRefreshToken = localStorage.getItem('userRefreshToken');
+      
+      if (currentToken && currentRefreshToken) {
+        try {
+          await refreshUserToken();
+        } catch (err) {
+          console.error('Periodic token refresh failed:', err);
+          // Don't auto-logout on periodic refresh failures
+          // Let the user continue and handle auth errors when they make requests
+        }
+      }
+    }, 10 * 60 * 1000); // 10 minutes
+
+    return () => clearInterval(refreshInterval); // Cleanup on unmount
   }, []);
 
   const setupSocketConnection = (user) => {
@@ -47,7 +82,7 @@ const AuthProvider = ({ children }) => {
     if (userId) socketService.connect(userId);
   };
 
-  const handleAuthError = (error) => {
+  const handleAuthError = (error, shouldResetAuth = true) => {
     console.error('Auth error:', error);
     let errorMessage = error.message;
 
@@ -70,10 +105,22 @@ const AuthProvider = ({ children }) => {
       needsFetch: false,
     }));
 
-    if (error.message.includes('Too many requests')) {
+    // Don't reset auth state for rate limiting or network errors
+    if (error.message.includes('Too many requests') || 
+        error.message.includes('Network error') ||
+        error.message.includes('timeout')) {
       return;
     }
-    resetAuthState();
+
+    // Only reset auth state if explicitly requested and it's a definitive auth failure
+    if (shouldResetAuth && (
+        error.message.includes('Token refresh failed') ||
+        error.message.includes('No refresh token') ||
+        error.response?.status === 401 ||
+        error.response?.status === 403
+    )) {
+      resetAuthState();
+    }
   };
 
   const resetAuthState = () => {
@@ -83,20 +130,28 @@ const AuthProvider = ({ children }) => {
       error: null,
       needsFetch: false,
     });
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
+    // Clear all auth-related data using the correct keys
+    localStorage.removeItem('userToken');
+    localStorage.removeItem('userRefreshToken');
     localStorage.removeItem('userId');
     localStorage.removeItem('userData');
     localStorage.removeItem('userDataTimestamp');
+    localStorage.removeItem('tokenExpiry');
+    // Also clear any legacy token keys
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     socketService.disconnect();
   };
 
   const fetchUser = async () => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
+      // Check cached user data first
       const cachedUser = localStorage.getItem('userData');
       const cachedTimestamp = localStorage.getItem('userDataTimestamp');
       const now = Date.now();
+      
+      // Use cached data if it's less than 5 minutes old
       if (cachedUser && cachedTimestamp && now - parseInt(cachedTimestamp) < 300000) {
         const userData = JSON.parse(cachedUser);
         setAuthState({
@@ -109,6 +164,7 @@ const AuthProvider = ({ children }) => {
         return userData;
       }
 
+      // Fetch fresh user data
       const userData = await getMe();
       localStorage.setItem('userData', JSON.stringify(userData));
       localStorage.setItem('userDataTimestamp', Date.now().toString());
@@ -121,7 +177,8 @@ const AuthProvider = ({ children }) => {
       setupSocketConnection(userData);
       return userData;
     } catch (err) {
-      handleAuthError(err);
+      // Don't automatically reset auth state on fetch errors
+      handleAuthError(err, false);
       throw err;
     }
   };
@@ -182,29 +239,44 @@ const AuthProvider = ({ children }) => {
       await logout();
       resetAuthState();
     } catch (err) {
-      setAuthState((prev) => ({ ...prev, error: [{ msg: err.message }] }));
-      throw err;
-    } finally {
-      setAuthState((prev) => ({ ...prev, loading: false }));
+      // Even if logout fails, clear local state
+      resetAuthState();
+      setAuthState((prev) => ({ 
+        ...prev, 
+        error: [{ msg: 'Logout completed locally' }],
+        loading: false 
+      }));
     }
   };
 
   const refreshUserToken = async () => {
-    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       const userData = await refreshToken();
-      localStorage.setItem('userData', JSON.stringify(userData));
-      localStorage.setItem('userDataTimestamp', Date.now().toString());
-      setAuthState((prev) => ({
-        ...prev,
-        user: userData || prev.user,
-        loading: false,
-        needsFetch: false,
-      }));
-      if (userData) setupSocketConnection(userData);
+      
+      if (userData) {
+        localStorage.setItem('userData', JSON.stringify(userData));
+        localStorage.setItem('userDataTimestamp', Date.now().toString());
+        setAuthState((prev) => ({
+          ...prev,
+          user: userData,
+          loading: false,
+          error: null,
+          needsFetch: false,
+        }));
+        setupSocketConnection(userData);
+      } else {
+        // Token refresh returned null but didn't throw error
+        setAuthState((prev) => ({
+          ...prev,
+          loading: false,
+          needsFetch: false,
+        }));
+      }
+      
       return userData;
     } catch (err) {
-      handleAuthError(err);
+      // Don't automatically reset auth state on refresh errors
+      handleAuthError(err, false);
       throw err;
     }
   };

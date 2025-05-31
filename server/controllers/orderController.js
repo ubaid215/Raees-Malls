@@ -154,7 +154,7 @@ exports.placeOrder = async (req, res, next) => {
         user.addresses.push(newAddress);
         try {
           await user.save();
-          // console.log('Address saved successfully:', newAddress);
+          console.log('Address saved successfully:', newAddress);
         } catch (error) {
           console.error('Error saving user address:', error);
           throw new ApiError(500, 'Failed to save address to user profile');

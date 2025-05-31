@@ -6,12 +6,6 @@ const ProtectedRoute = ({ children, roles = ['user'] }) => {
   const { user, isAuthenticated, loading } = useAuth();
   const location = useLocation();
 
-  // console.log('ProtectedRoute: Checking customer auth', {
-  //   isAuthenticated,
-  //   user,
-  //   role: user?.role,
-  //   location: location.pathname,
-  // });
 
   if (loading) {
     console.log('ProtectedRoute: Loading customer auth state');

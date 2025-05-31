@@ -15,14 +15,14 @@ router.post(
   authenticateJWT,
   authorizeRoles('admin'),
   upload.fields([
-    { name: 'baseImages', maxCount: 10 }, // Allow up to 10 base images
-    { name: 'baseVideos', maxCount: 5 },  // Allow up to 5 base videos
-    { name: 'variantImages[0]', maxCount: 10 }, // Allow up to 10 images for variant 0
-    { name: 'variantImages[1]', maxCount: 10 }, // Allow up to 10 images for variant 1
-    { name: 'variantImages[2]', maxCount: 10 }, // Allow up to 10 images for variant 2
-    { name: 'variantVideos[0]', maxCount: 5 },  // Allow up to 5 videos for variant 0
-    { name: 'variantVideos[1]', maxCount: 5 },  // Allow up to 5 videos for variant 1
-    { name: 'variantVideos[2]', maxCount: 5 }   // Allow up to 5 videos for variant 2
+    { name: 'baseImages', maxCount: 10 }, 
+    { name: 'baseVideos', maxCount: 5 },  
+    { name: 'variantImages[0]', maxCount: 10 }, 
+    { name: 'variantImages[1]', maxCount: 10 }, 
+    { name: 'variantImages[2]', maxCount: 10 }, 
+    { name: 'variantVideos[0]', maxCount: 5 },  
+    { name: 'variantVideos[1]', maxCount: 5 },  
+    { name: 'variantVideos[2]', maxCount: 5 }   
   ]),
   async (req, res, next) => {
     try {
@@ -60,14 +60,14 @@ router.put(
   authenticateJWT,
   authorizeRoles('admin'),
   upload.fields([
-    { name: 'baseImages', maxCount: 10 }, // Allow up to 10 base images
-    { name: 'baseVideos', maxCount: 5 },  // Allow up to 5 base videos
-    { name: 'variantImages[0]', maxCount: 10 }, // Allow up to 10 images for variant 0
-    { name: 'variantImages[1]', maxCount: 10 }, // Allow up to 10 images for variant 1
-    { name: 'variantImages[2]', maxCount: 10 }, // Allow up to 10 images for variant 2
-    { name: 'variantVideos[0]', maxCount: 5 },  // Allow up to 5 videos for variant 0
-    { name: 'variantVideos[1]', maxCount: 5 },  // Allow up to 5 videos for variant 1
-    { name: 'variantVideos[2]', maxCount: 5 }   // Allow up to 5 videos for variant 2
+    { name: 'baseImages', maxCount: 10 }, 
+    { name: 'baseVideos', maxCount: 5 },  
+    { name: 'variantImages[0]', maxCount: 10 }, 
+    { name: 'variantImages[1]', maxCount: 10 }, 
+    { name: 'variantImages[2]', maxCount: 10 }, 
+    { name: 'variantVideos[0]', maxCount: 5 },  
+    { name: 'variantVideos[1]', maxCount: 5 }, 
+    { name: 'variantVideos[2]', maxCount: 5 }   
   ]),
   async (req, res, next) => {
     try {

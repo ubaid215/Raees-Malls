@@ -8,16 +8,11 @@ const User = require('../models/User');
 const Token = require('../models/Token');
 
 exports.login = (req, res, next) => {
-  console.log('Admin login attempt:', req.body.email);
   passport.authenticate('local', async (err, user, info) => {
     try {
       if (err) throw new ApiError(500, 'Authentication error', err);
       if (!user) throw new ApiError(401, info.message || 'Invalid credentials');
-
-      if (user.role !== 'admin') {
-        console.log('User not an admin:', user.email, 'Role:', user.role);
-        throw new ApiError(403, 'User is not an admin');
-      }
+      if (user.role !== 'admin') throw new ApiError(403, 'User is not an admin');
 
       req.logIn(user, async (err) => {
         if (err) throw new ApiError(500, 'Session error', err);
@@ -37,23 +32,21 @@ exports.login = (req, res, next) => {
           userAgent: req.headers['user-agent']
         });
 
-        // Set HTTP-only cookies
         res.cookie('adminToken', accessToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
           maxAge: 15 * 60 * 1000 // 15 minutes
         });
-        res.cookie('refreshToken', refreshToken, {
+        res.cookie('adminRefreshToken', refreshToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
           maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
         });
 
-        console.log('Admin logged in:', user.email);
         ApiResponse.success(res, 200, 'Logged in successfully', {
           user: authService.sanitizeUser(user),
-          token: accessToken,
-          refreshToken: refreshToken
+          token: accessToken, // Return in body
+          refreshToken: refreshToken // Return in body
         });
       });
     } catch (error) {
@@ -182,36 +175,18 @@ exports.verifyToken = async (req, res, next) => {
 
 exports.refreshToken = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body || req.cookies.refreshToken;
+    const refreshToken = req.body.refreshToken || req.cookies.adminRefreshToken;
     if (!refreshToken) throw new ApiError(400, 'Refresh token is required');
 
-    let decoded;
-    try {
-      decoded = jwtService.verifyRefreshToken(refreshToken);
-      console.log('Admin refresh token decoded:', { userId: decoded.userId, role: decoded.role });
-    } catch (jwtError) {
-      console.error('Admin JWT verification failed:', jwtError.message);
-      throw new ApiError(403, 'Invalid or expired refresh token', [jwtError.message]);
-    }
-
+    const decoded = jwtService.verifyRefreshToken(refreshToken);
     const storedToken = await Token.findOne({
       token: refreshToken,
       userId: decoded.userId,
     });
-    if (!storedToken) {
-      console.error('Admin refresh token not found in database:', { userId: decoded.userId, refreshToken });
-      throw new ApiError(403, 'Refresh token not found or expired');
-    }
+    if (!storedToken) throw new ApiError(403, 'Refresh token not found or expired');
 
     const user = await User.findById(decoded.userId).select('-password');
-    if (!user) {
-      console.error('Admin user not found for ID:', decoded.userId);
-      throw new ApiError(404, 'User not found');
-    }
-    if (user.role !== 'admin') {
-      console.error('Admin user is not an admin:', { userId: user._id, email: user.email, role: user.role });
-      throw new ApiError(403, 'User is not an admin');
-    }
+    if (!user || user.role !== 'admin') throw new ApiError(403, 'User is not an admin');
 
     const { accessToken, refreshToken: newRefreshToken } = jwtService.generateTokens({
       userId: user._id.toString(),
@@ -228,26 +203,23 @@ exports.refreshToken = async (req, res, next) => {
       userAgent: req.headers['user-agent']
     });
 
-    // Update cookies
     res.cookie('adminToken', accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       maxAge: 15 * 60 * 1000
     });
-    res.cookie('refreshToken', newRefreshToken, {
+    res.cookie('adminRefreshToken', newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
-    console.log('Admin token refreshed for:', user.email);
     ApiResponse.success(res, 200, 'Token refreshed successfully', {
       user: authService.sanitizeUser(user),
-      token: accessToken,
-      refreshToken: newRefreshToken
+      token: accessToken, // Return in body
+      refreshToken: newRefreshToken // Return in body
     });
   } catch (error) {
-    console.error('Admin refresh token error:', error.message);
     next(error);
   }
 };

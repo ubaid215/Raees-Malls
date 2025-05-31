@@ -62,26 +62,37 @@ const updateProfileSchema = yup.object().shape({
     .optional(),
 });
 
-
 const getBaseUrl = () => {
   // Robust environment detection
-  const isProduction = window.location.hostname !== 'localhost' && 
-                      window.location.hostname !== '127.0.0.1';
-  
+  const isProduction = window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1';
+
   return isProduction
     ? (import.meta.env.VITE_API_BASE_PROD_URL || 'https://api.raeesmalls.com')
     : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000');
 };
 
+// Helper function to store tokens consistently
+const storeTokens = (accessToken, refreshToken, userId) => {
+  localStorage.setItem('userToken', accessToken);
+  localStorage.setItem('userRefreshToken', refreshToken);
+  localStorage.setItem('userId', userId);
+};
+
+// Helper function to clear all stored data
+const clearStoredData = () => {
+  localStorage.removeItem('userToken');
+  localStorage.removeItem('userRefreshToken');
+  localStorage.removeItem('userId');
+  localStorage.removeItem('userData');
+  localStorage.removeItem('userDataTimestamp');
+  localStorage.removeItem('tokenExpiry');
+};
+
 export const login = async (email, password) => {
   try {
-    const credentials = await loginSchema.validate(
-      { email, password },
-      { abortEarly: false }
-    );
-
-    const response = await api.post('/auth/login', credentials);
-    console.log('Login response:', response.data);
+    const credentials = await loginSchema.validate({ email, password }, { abortEarly: false });
+    const response = await api.post('/auth/login', credentials, { withCredentials: true });
     const { success, data } = response.data;
 
     const accessToken = data?.token;
@@ -89,14 +100,10 @@ export const login = async (email, password) => {
     const user = data?.user;
 
     if (!success || !accessToken || !user?._id) {
-      console.error('Invalid response data:', response.data);
       throw new Error('Invalid response from server');
     }
 
-    localStorage.setItem('token', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
-    localStorage.setItem('userId', user._id);
-
+    storeTokens(accessToken, refreshToken, user._id);
     return user;
   } catch (error) {
     if (error instanceof yup.ValidationError) {
@@ -123,28 +130,21 @@ export const login = async (email, password) => {
 export const googleLogin = async (authCode = null) => {
   try {
     const baseUrl = getBaseUrl();
-
-    // If authCode is provided, we're handling a redirect
     if (authCode) {
-      console.log('GoogleLogin: Processing auth code from redirect');
-      const response = await api.post('/auth/google/callback', { 
+      console.log('GoogleLogin: Processing auth code', authCode);
+      const response = await api.post('/auth/google/callback', {
         code: authCode,
-        redirect_uri: window.location.origin // Send current origin for validation
-      });
-      
+        redirect_uri: window.location.origin
+      }, { withCredentials: true });
+
       if (!response.data.success) {
         throw new Error(response.data.message || 'Google authentication failed');
       }
-      
+
       const { token, refreshToken, user } = response.data.data;
-      
-      localStorage.setItem('token', token);
-      localStorage.setItem('refreshToken', refreshToken);
-      localStorage.setItem('userId', user._id || user.id);
-      
+      storeTokens(token, refreshToken, user._id || user.id);
       return user;
     } else {
-      // Initiate Google OAuth flow with proper redirect URI
       const redirectUrl = `${baseUrl}/api/auth/google?redirect_uri=${encodeURIComponent(window.location.origin)}`;
       console.log('GoogleLogin: Redirecting to', redirectUrl);
       window.location.href = redirectUrl;
@@ -164,23 +164,22 @@ export const handleGoogleRedirect = async () => {
   const code = urlParams.get('code');
   const error = urlParams.get('error');
   const state = urlParams.get('state');
-  
+
   if (error) {
     console.error('Google OAuth error:', error);
     throw new Error(`Google login failed: ${error}`);
   }
-  
+
   if (code) {
     console.log('Google redirect detected with auth code');
     // Clean the URL to remove the code
     window.history.replaceState({}, document.title, window.location.pathname);
     return await googleLogin(code);
   }
-  
+
   return null;
 };
 
-// Other functions unchanged
 export const register = async (name, email, password) => {
   try {
     const userData = await registerSchema.validate(
@@ -202,11 +201,7 @@ export const register = async (name, email, password) => {
     }
 
     const userId = user._id || user.id;
-
-    localStorage.setItem('token', accessToken);
-    localStorage.setItem('refreshToken', refreshToken);
-    localStorage.setItem('userId', userId);
-
+    storeTokens(accessToken, refreshToken, userId);
     return user;
   } catch (error) {
     if (error instanceof yup.ValidationError) {
@@ -238,29 +233,33 @@ export const register = async (name, email, password) => {
 
 export const refreshToken = async () => {
   try {
-    const refreshToken = localStorage.getItem('refreshToken');
+    const refreshToken = localStorage.getItem('userRefreshToken');
     if (!refreshToken) {
       throw new Error('No refresh token available');
     }
 
-    const response = await api.post('/auth/refresh-token', { refreshToken });
-    console.log('Refresh token response:', response.data);
+    const response = await api.post('/auth/refresh-token', { refreshToken }, {
+      withCredentials: true,
+      skipAuth: true // Prevent infinite loop in axios interceptor
+    });
     const { success, data } = response.data;
 
     const accessToken = data?.token;
     const newRefreshToken = data?.refreshToken;
 
     if (!success || !accessToken) {
-      console.error('Invalid refresh response:', response.data);
-      throw new Error('Invalid response: Missing access token');
+      throw new Error('Invalid refresh response: Missing access token');
     }
 
-    localStorage.setItem('token', accessToken);
-    localStorage.setItem('refreshToken', newRefreshToken);
+    // Update stored tokens
+    localStorage.setItem('userToken', accessToken);
+    localStorage.setItem('userRefreshToken', newRefreshToken);
 
     return data.user || null;
   } catch (error) {
     console.error('Refresh token error:', error.response?.data, error.message);
+    // Clear tokens on refresh failure
+    clearStoredData();
     throw new Error(
       error.response?.data?.message || error.message || 'Token refresh failed'
     );
@@ -269,28 +268,15 @@ export const refreshToken = async () => {
 
 export const logout = async () => {
   try {
-    const refreshToken = localStorage.getItem('refreshToken');
+    const refreshToken = localStorage.getItem('userRefreshToken');
     if (refreshToken) {
-      await api.post('/auth/logout', { refreshToken });
+      await api.post('/auth/logout', { refreshToken }, { withCredentials: true });
     }
-
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userData');
-    localStorage.removeItem('userDataTimestamp');
-    localStorage.removeItem('tokenExpiry');
   } catch (error) {
     console.error('Logout error:', error.response?.data, error.message);
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('userId');
-    localStorage.removeItem('userData');
-    localStorage.removeItem('userDataTimestamp');
-    localStorage.removeItem('tokenExpiry');
-    throw new Error(
-      error.response?.data?.message || error.message || 'Logout failed'
-    );
+  } finally {
+    // Always clear local storage regardless of server response
+    clearStoredData();
   }
 };
 
@@ -320,6 +306,10 @@ export const getMe = async () => {
       throw new Error(
         `Too many requests. Please try again in ${retryAfter} seconds.`
       );
+    }
+    // If token is invalid, clear stored data
+    if (error.response?.status === 401) {
+      clearStoredData();
     }
     throw new Error(
       error.response?.data?.message || error.message || 'Failed to fetch user details'

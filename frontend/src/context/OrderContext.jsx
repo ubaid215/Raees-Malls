@@ -4,6 +4,7 @@ import { useAdminAuth } from './AdminAuthContext';
 import { useAuth } from './AuthContext';
 import { placeOrder, getUserOrders, getAllOrders, updateOrderStatus, downloadInvoice, cancelOrder as apiCancelOrder } from '../services/orderService';
 import socketService from '../services/socketService';
+import { toast } from 'react-toastify';
 
 export const OrderContext = createContext();
 
@@ -68,11 +69,40 @@ export const OrderProvider = ({ children }) => {
     return errors;
   };
 
+  const clearOrdersCache = useCallback(() => {
+    if (user) {
+      const cacheKeyPattern = `orders_user_${user?._id}_page_*`;
+      // Note: Redis or localStorage doesn't support wildcards natively in localStorage
+      // For simplicity, clear known cache keys
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith(`orders_user_${user?._id}_page_`)) {
+          localStorage.removeItem(key);
+          localStorage.removeItem(`${key}_timestamp`);
+        }
+      });
+      console.log('Orders cache cleared for user:', user?._id);
+    }
+  }, [user]);
+
   const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '') => {
     if (!isRegularUser && !isAdmin) {
       return;
     }
-    
+
+    // Check cache
+    const cacheKey = `orders_user_${user?._id}_page_${page}_limit_${limit}_status_${status || 'all'}`;
+    const cached = localStorage.getItem(cacheKey);
+    const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+    const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes
+
+    if (cached && cacheValid) {
+      console.log('fetchUserOrders: Using cached orders');
+      const { orders, pagination } = JSON.parse(cached);
+      setOrders(orders);
+      setPagination(pagination);
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -83,20 +113,50 @@ export const OrderProvider = ({ children }) => {
         setOrders([]);
         return;
       }
-      setOrders(orders.filter(order => order && order.orderId));
+      const filteredOrders = orders.filter(order => order && order.orderId);
+      setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
+      // Cache response
+      localStorage.setItem(cacheKey, JSON.stringify({
+        orders: filteredOrders,
+        pagination: { total, page: currentPage, limit: currentLimit, totalPages }
+      }));
+      localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
     } catch (err) {
       await handleOrderError(err, isRegularUser, () => fetchUserOrders(page, limit, status));
     } finally {
       setLoading(false);
     }
-  }, [isRegularUser, isAdmin, refreshToken]);
+  }, [isRegularUser, isAdmin, refreshToken, user?._id]);
+
+  const debouncedFetchUserOrders = useCallback(
+    debounce((page, limit, status) => {
+      return new Promise((resolve, reject) => {
+        fetchUserOrders(page, limit, status).then(resolve).catch(reject);
+      });
+    }, 1000),
+    [fetchUserOrders]
+  );
 
   const fetchAllOrders = useCallback(async (page = 1, limit = 10, status = '', userId = '') => {
     if (!isAdmin) {
       return;
     }
-    
+
+    // Check cache
+    const cacheKey = `orders_all_page_${page}_limit_${limit}_status_${status || 'all'}_user_${userId || 'all'}`;
+    const cached = localStorage.getItem(cacheKey);
+    const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+    const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes
+
+    if (cached && cacheValid) {
+      console.log('fetchAllOrders: Using cached orders');
+      const { orders, pagination } = JSON.parse(cached);
+      setOrders(orders);
+      setPagination(pagination);
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -107,8 +167,15 @@ export const OrderProvider = ({ children }) => {
         setOrders([]);
         return;
       }
-      setOrders(orders.filter(order => order && order.orderId));
+      const filteredOrders = orders.filter(order => order && order.orderId);
+      setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
+      // Cache response
+      localStorage.setItem(cacheKey, JSON.stringify({
+        orders: filteredOrders,
+        pagination: { total, page: currentPage, limit: currentLimit, totalPages }
+      }));
+      localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
     } catch (err) {
       await handleOrderError(err, isAdmin, () => fetchAllOrders(page, limit, status, userId));
     } finally {
@@ -118,7 +185,9 @@ export const OrderProvider = ({ children }) => {
 
   const debouncedFetchAllOrders = useCallback(
     debounce((page, limit, status, userId) => {
-      fetchAllOrders(page, limit, status, userId);
+      return new Promise((resolve, reject) => {
+        fetchAllOrders(page, limit, status, userId).then(resolve).catch(reject);
+      });
     }, 1000),
     [fetchAllOrders]
   );
@@ -126,8 +195,8 @@ export const OrderProvider = ({ children }) => {
   useEffect(() => {
     if (!userRole) return;
 
-    const fetchData = isAdmin ? fetchAllOrders : fetchUserOrders;
-    fetchData();
+    const fetchData = isAdmin ? debouncedFetchAllOrders : debouncedFetchUserOrders;
+    fetchData(1, 10);
 
     let pollingInterval = null;
 
@@ -139,7 +208,7 @@ export const OrderProvider = ({ children }) => {
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
             if (!socketService.getConnectionState()) {
-              fetchAllOrders(1, 10);
+              debouncedFetchAllOrders(1, 10);
             }
           }, 30000);
         }
@@ -166,15 +235,15 @@ export const OrderProvider = ({ children }) => {
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
             if (!socketService.getConnectionState()) {
-              fetchAllOrders(1, 10);
+              debouncedFetchAllOrders(1, 10);
             }
           }, 30000);
         }
       });
     } else if (isRegularUser) {
       socketService.connect(user?._id, 'user');
-      socketService.on('orderCreated', fetchUserOrders);
-      socketService.on('orderStatusUpdated', fetchUserOrders);
+      socketService.on('orderCreated', () => debouncedFetchUserOrders(1, 10));
+      socketService.on('orderStatusUpdated', () => debouncedFetchUserOrders(1, 10));
     }
 
     return () => {
@@ -187,10 +256,17 @@ export const OrderProvider = ({ children }) => {
       if (pollingInterval) {
         clearInterval(pollingInterval);
       }
+      debouncedFetchUserOrders.cancel();
+      debouncedFetchAllOrders.cancel();
     };
-  }, [isAdmin, isRegularUser, userRole, debouncedFetchAllOrders, fetchAllOrders, fetchUserOrders, admin?._id, user?._id]);
+  }, [isAdmin, isRegularUser, userRole, debouncedFetchAllOrders, debouncedFetchUserOrders, admin?._id, user?._id]);
 
   const handleOrderError = async (err, isUser, retryFn) => {
+    console.error('Order error:', {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    });
     if (err.response && err.response.status === 401) {
       try {
         await (isUser ? refreshToken() : refreshAdminToken());
@@ -228,9 +304,10 @@ export const OrderProvider = ({ children }) => {
       });
 
       if (isAdmin) {
-        await fetchAllOrders();
+        await debouncedFetchAllOrders(1, 10);
       } else if (isRegularUser) {
-        await fetchUserOrders();
+        clearOrdersCache(); // Invalidate cache
+        await debouncedFetchUserOrders(1, 10);
       }
       
       return order;
@@ -257,15 +334,16 @@ export const OrderProvider = ({ children }) => {
       throw new Error('Invalid status value');
     }
     
-    if (!/^ORD-[A-F0-9]{8}$/i.test(orderId)) {
-      setError('Invalid order ID format');
+    if (!orderId || typeof orderId !== 'string') {
+      setError('Invalid order ID');
       setLoading(false);
-      throw new Error('Invalid order ID format');
+      throw new Error('Invalid order ID');
     }
 
     try {
       const order = await updateOrderStatus(orderId, status);
-      await fetchAllOrders();
+      clearOrdersCache(); // Invalidate cache
+      await debouncedFetchAllOrders(1, 10);
       return order;
     } catch (err) {
       await handleOrderError(err, isAdmin, () => updateStatus(orderId, status));
@@ -284,17 +362,25 @@ export const OrderProvider = ({ children }) => {
     setLoading(true);
     setError('');
     
-    if (!/^ORD-[A-F0-9]{8}$/i.test(orderId)) {
-      setError('Invalid order ID format');
+    if (!orderId || typeof orderId !== 'string') {
+      setError('Invalid order ID');
       setLoading(false);
-      throw new Error('Invalid order ID format');
+      throw new Error('Invalid order ID');
     }
 
     try {
       const order = await apiCancelOrder(orderId);
-      await fetchUserOrders();
+      clearOrdersCache(); // Invalidate cache
+      await debouncedFetchUserOrders(1, 10);
+      toast.success('Order cancelled successfully');
       return order;
     } catch (err) {
+      console.error('Cancel order error:', {
+        orderId,
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data,
+      });
       await handleOrderError(err, isRegularUser, () => cancelUserOrder(orderId));
       throw err;
     } finally {
@@ -311,10 +397,10 @@ export const OrderProvider = ({ children }) => {
     setLoading(true);
     setError('');
     
-    if (!/^ORD-[A-F0-9]{8}$/i.test(orderId)) {
-      setError('Invalid order ID format');
+    if (!orderId || typeof orderId !== 'string') {
+      setError('Invalid order ID');
       setLoading(false);
-      throw new Error('Invalid order ID format');
+      throw new Error('Invalid order ID');
     }
 
     try {
@@ -342,8 +428,8 @@ export const OrderProvider = ({ children }) => {
     loading,
     error,
     placeNewOrder,
-    fetchUserOrders,
-    fetchAllOrders,
+    fetchUserOrders: debouncedFetchUserOrders,
+    fetchAllOrders: debouncedFetchAllOrders,
     updateStatus,
     cancelOrder: cancelUserOrder,
     downloadOrderInvoice,

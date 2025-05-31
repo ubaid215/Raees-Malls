@@ -414,7 +414,7 @@ const Profile = () => {
                 </div>
                 {(() => {
                   const validOrders = (orders || []).filter((order) => order && order.orderId);
-                  console.log('Profile: Valid orders for summary:', validOrders);
+                  // console.log('Profile: Valid orders for summary:', validOrders);
                   return validOrders.length === 0 ? (
                     <p className="text-gray-600">No orders found</p>
                   ) : (
@@ -468,7 +468,7 @@ const Profile = () => {
                   const validOrders = (orders || []).filter(
                     (order) => order && order.orderId && order.status !== 'delivered' && order.status !== 'cancelled'
                   );
-                  console.log('Profile: Valid current orders:', validOrders);
+                  // console.log('Profile: Valid current orders:', validOrders);
                   return validOrders.length === 0 ? (
                     <p className="text-gray-600 text-sm sm:text-base">No current orders</p>
                   ) : (

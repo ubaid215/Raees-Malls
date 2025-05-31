@@ -10,13 +10,13 @@ const AdminAuthService = {
     }
 
     try {
-      const response = await API.post('/admin/login', credentials);
+      const response = await API.post('/admin/login', credentials, {
+        withCredentials: true // Include cookies
+      });
       const { token, refreshToken, user } = response.data.data;
       if (!token || !refreshToken) {
         throw { message: 'Invalid response from server: Missing tokens', status: 500 };
       }
-
-      // Tokens are set as HTTP-only cookies by backend
       return { user, token, refreshToken };
     } catch (error) {
       const errorObj = {
@@ -55,13 +55,10 @@ const AdminAuthService = {
       const response = await API.post('/admin/refresh-token', {}, {
         withCredentials: true // Send refreshToken cookie
       });
-
       const { token: accessToken, refreshToken: newRefreshToken, user } = response.data.data;
       if (!accessToken || !newRefreshToken) {
         throw { message: 'Invalid refresh response: Missing tokens', status: 500 };
       }
-
-      // Tokens are updated as HTTP-only cookies by backend
       return { user, token: accessToken, refreshToken: newRefreshToken };
     } catch (error) {
       const errorObj = {

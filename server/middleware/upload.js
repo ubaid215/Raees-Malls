@@ -64,14 +64,14 @@ const upload = {
   array: (fieldName, maxCount, folder = 'products') => multer({
     storage: getStorage(folder),
     fileFilter: fileFilter,
-    limits: { fileSize: 30 * 1024 * 1024 } // INCREASED: 30MB limit (was 5MB)
+    limits: { fileSize: 30 * 1024 * 1024 } 
   }).array(fieldName, maxCount),
 
   // For multiple video uploads (e.g., products with baseVideos)
   arrayVideos: (fieldName, maxCount, folder = 'videos') => multer({
     storage: getStorage(folder),
     fileFilter: videoFileFilter,
-    limits: { fileSize: 100 * 1024 * 1024 } // INCREASED: 100MB limit (was 50MB)
+    limits: { fileSize: 100 * 1024 * 1024 } 
   }).array(fieldName, maxCount),
 
   // For multiple fields (e.g., products with baseImages, baseVideos, variantImages, variantVideos)
@@ -87,7 +87,7 @@ const upload = {
       }
     },
     limits: {
-      fileSize: 100 * 1024 * 1024 // INCREASED: 100MB limit to support larger videos (was 50MB)
+      fileSize: 100 * 1024 * 1024 
     }
   }).fields(fields)
 };

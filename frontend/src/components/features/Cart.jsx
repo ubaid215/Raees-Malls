@@ -151,7 +151,6 @@ function Cart() {
     error,
     totalPrice,
     fetchCart,
-    addItemToCart,
     updateQuantity,
     removeFromCart,
     clearCart,
@@ -212,10 +211,7 @@ function Cart() {
     if (newQuantity < 1) return;
     try {
       const result = await updateQuantity(productId, newQuantity, variantId);
-      if (result.success) {
-        await fetchCart();
-        toast.success("Quantity updated");
-      } else {
+      if (!result.success) {
         toast.error(result.message || "Failed to update quantity");
       }
     } catch (err) {
@@ -228,10 +224,7 @@ function Cart() {
   const handleRemoveItem = async (productId, variantId) => {
     try {
       const result = await removeFromCart(productId, variantId);
-      if (result.success) {
-        await fetchCart();
-        toast.success("Item removed from cart");
-      } else {
+      if (!result.success) {
         toast.error(result.message || "Failed to remove item");
       }
     } catch (err) {
@@ -242,10 +235,7 @@ function Cart() {
   const handleClearCart = async () => {
     try {
       const result = await clearCart();
-      if (result.success) {
-        await fetchCart();
-        toast.success("Cart cleared");
-      } else {
+      if (!result.success) {
         toast.error(result.message || "Failed to clear cart");
       }
     } catch (err) {
@@ -435,7 +425,7 @@ function Cart() {
                               SKU: {item.sku || "N/A"}
                             </p>
                             <p className="text-sm text-gray-600 truncate">
-                              Category: {item.category?.name || "No category"}
+                              Category: {item.productId?.category?.name || "No category"}
                             </p>
                             {(item.isUnavailable ||
                               item.isVariantUnavailable) && (

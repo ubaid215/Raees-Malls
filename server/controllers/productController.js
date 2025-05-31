@@ -253,16 +253,25 @@ exports.updateProduct = async (req, res, next) => {
 
     const { title, description, price, discountPrice, shippingCost, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
 
-    if (discountPrice !== undefined) {
-      const basePrice = price || product.price;
-      if (discountPrice >= basePrice) {
+    // Fix the discount price validation logic
+    if (discountPrice !== undefined && discountPrice !== null && discountPrice !== '') {
+      // Use the new price if provided, otherwise use the existing product price
+      const currentPrice = price !== undefined ? parseFloat(price) : product.price;
+      const currentDiscountPrice = parseFloat(discountPrice);
+      
+      if (currentDiscountPrice >= currentPrice) {
         throw new ApiError(400, 'Discount price must be less than the base price');
       }
     }
 
+    // Handle base images update
     if (req.files?.baseImages?.length > 0) {
       for (const image of product.images) {
-        await cloudinary.uploader.destroy(image.public_id);
+        try {
+          await cloudinary.uploader.destroy(image.public_id);
+        } catch (cloudinaryError) {
+          console.warn('Failed to delete old image:', cloudinaryError.message);
+        }
       }
       product.images = req.files.baseImages.map(file => ({
         url: file.path,
@@ -271,9 +280,14 @@ exports.updateProduct = async (req, res, next) => {
       }));
     }
 
+    // Handle base videos update
     if (req.files?.baseVideos?.length > 0) {
       for (const video of product.videos) {
-        await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+        try {
+          await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+        } catch (cloudinaryError) {
+          console.warn('Failed to delete old video:', cloudinaryError.message);
+        }
       }
       product.videos = req.files.baseVideos.map(file => ({
         url: file.path,
@@ -284,6 +298,7 @@ exports.updateProduct = async (req, res, next) => {
       product.videos = product.videos || [];
     }
 
+    // Handle variant files
     const variantImages = {};
     const variantVideos = {};
     if (req.files) {
@@ -306,6 +321,7 @@ exports.updateProduct = async (req, res, next) => {
       });
     }
 
+    // Handle variants
     let parsedVariants = variants;
     if (typeof variants === 'string') {
       try {
@@ -316,19 +332,35 @@ exports.updateProduct = async (req, res, next) => {
     }
 
     if (parsedVariants) {
+      // Delete old variant media
       for (const variant of product.variants) {
-        for (const image of variant.images) {
-          await cloudinary.uploader.destroy(image.public_id);
+        for (const image of variant.images || []) {
+          try {
+            await cloudinary.uploader.destroy(image.public_id);
+          } catch (cloudinaryError) {
+            console.warn('Failed to delete old variant image:', cloudinaryError.message);
+          }
         }
-        for (const video of variant.videos) {
-          await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+        for (const video of variant.videos || []) {
+          try {
+            await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+          } catch (cloudinaryError) {
+            console.warn('Failed to delete old variant video:', cloudinaryError.message);
+          }
         }
       }
 
+      // Process new variants with validation
       product.variants = parsedVariants.map((variant, index) => {
-        if (variant.discountPrice !== undefined && variant.discountPrice >= variant.price) {
-          throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
+        if (variant.discountPrice !== undefined && variant.discountPrice !== null && variant.discountPrice !== '') {
+          const variantPrice = parseFloat(variant.price);
+          const variantDiscountPrice = parseFloat(variant.discountPrice);
+          
+          if (variantDiscountPrice >= variantPrice) {
+            throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
+          }
         }
+        
         return {
           ...variant,
           images: variantImages[index] || variant.images || [],
@@ -337,6 +369,7 @@ exports.updateProduct = async (req, res, next) => {
       });
     }
 
+    // Parse other JSON fields
     let parsedSeo = seo;
     if (typeof seo === 'string') {
       try {
@@ -364,21 +397,25 @@ exports.updateProduct = async (req, res, next) => {
       }
     }
 
-    product.title = title || product.title;
-    product.description = description || product.description;
-    product.price = price || product.price;
-    product.discountPrice = discountPrice !== undefined ? discountPrice : product.discountPrice;
-    product.shippingCost = shippingCost !== undefined ? parseFloat(shippingCost) : product.shippingCost;
-    product.categoryId = categoryId || product.categoryId;
-    product.brand = brand || product.brand;
-    product.stock = stock !== undefined ? stock : product.stock;
-    product.specifications = parsedSpecifications || product.specifications;
-    product.features = parsedFeatures || product.features || [];
-    product.seo = parsedSeo || product.seo;
-    product.isFeatured = isFeatured !== undefined ? isFeatured : product.isFeatured;
+    // Update product fields
+    if (title !== undefined) product.title = title;
+    if (description !== undefined) product.description = description;
+    if (price !== undefined) product.price = parseFloat(price);
+    if (discountPrice !== undefined) {
+      product.discountPrice = discountPrice === '' || discountPrice === null ? undefined : parseFloat(discountPrice);
+    }
+    if (shippingCost !== undefined) product.shippingCost = parseFloat(shippingCost);
+    if (categoryId !== undefined) product.categoryId = categoryId;
+    if (brand !== undefined) product.brand = brand;
+    if (stock !== undefined) product.stock = parseInt(stock);
+    if (parsedSpecifications !== undefined) product.specifications = parsedSpecifications;
+    if (parsedFeatures !== undefined) product.features = parsedFeatures;
+    if (parsedSeo !== undefined) product.seo = parsedSeo;
+    if (isFeatured !== undefined) product.isFeatured = isFeatured === 'true' || isFeatured === true;
 
     await product.save();
 
+    // Create audit log
     await AuditLog.create({
       userId,
       action: 'PRODUCT_UPDATE',
@@ -387,6 +424,7 @@ exports.updateProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent'],
     });
 
+    // Emit socket event if available
     if (req.io) {
       req.io.emit('productUpdated', {
         product: product.toObject(),
@@ -395,7 +433,11 @@ exports.updateProduct = async (req, res, next) => {
     }
 
     ApiResponse.success(res, 200, 'Product updated successfully', { product });
+    
   } catch (error) {
+    console.error('Update product error:', error);
+    
+    // Handle validation errors
     if (error.name === 'ValidationError') {
       const errors = {};
       Object.keys(error.errors).forEach(key => {
@@ -406,10 +448,23 @@ exports.updateProduct = async (req, res, next) => {
       });
       return res.status(400).json({ message: 'Validation failed', errors });
     }
+    
+    // Handle duplicate key errors
     if (error.code === 11000) {
-      return next(new ApiError(400, 'Duplicate SKU detected'));
+      return res.status(400).json({ message: 'Duplicate SKU detected' });
     }
-    next(error);
+    
+    // Handle custom API errors
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    
+    // Handle other errors
+    if (next && typeof next === 'function') {
+      next(error);
+    } else {
+      res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
   }
 };
 

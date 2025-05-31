@@ -18,8 +18,22 @@ exports.register = async (req, res, next) => {
     const user = await authService.createUser(name, email, password, role, 'local');
     const tokens = jwtService.generateTokens(user);
 
-    // Store refresh token
+    // Store refresh token in database
     await Token.create({ userId: user._id, token: tokens.refreshToken });
+
+    // Set cookies AND return tokens
+    res.cookie('userToken', tokens.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000 // 15 minutes
+    });
+    res.cookie('userRefreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
 
     // Log the user in for session-based auth (for local only)
     req.login(user, (err) => {
@@ -56,6 +70,20 @@ exports.login = async (req, res, next) => {
         const tokens = jwtService.generateTokens(user);
         await Token.create({ userId: user._id, token: tokens.refreshToken });
 
+        // Set cookies AND return tokens
+        res.cookie('userToken', tokens.accessToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 15 * 60 * 1000 // 15 minutes
+        });
+        res.cookie('userRefreshToken', tokens.refreshToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        });
+
         ApiResponse.success(res, 200, 'Logged in successfully', {
           user: authService.sanitizeUser(user),
           token: tokens.accessToken,
@@ -79,23 +107,32 @@ exports.googleAuthCallback = (req, res, next) => {
     if (!user) return next(new ApiError(401, info?.message || 'Google authentication failed'));
 
     try {
-      // Generate JWT tokens
       const tokens = jwtService.generateTokens(user);
-
-      // Store refresh token
       await Token.create({ userId: user._id, token: tokens.refreshToken });
 
-      // Determine frontend callback URL
-      const frontendUrl =
-        process.env.NODE_ENV === 'production'
-          ? process.env.FRONTEND_PROD_URL
-          : process.env.FRONTEND_DEV_URL;
+      // Set cookies for Google auth as well
+      res.cookie('userToken', tokens.accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 15 * 60 * 1000
+      });
+      res.cookie('userRefreshToken', tokens.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
+      });
+
+      const frontendUrl = process.env.NODE_ENV === 'production'
+        ? process.env.FRONTEND_PROD_URL
+        : process.env.FRONTEND_DEV_URL;
 
       const frontendCallbackUrl = `${frontendUrl}/callback?token=${encodeURIComponent(
         tokens.accessToken
       )}&refreshToken=${encodeURIComponent(tokens.refreshToken)}&userId=${user._id.toString()}`;
 
-      // console.log('Redirecting to:', frontendCallbackUrl);
+      // console.log('Redirecting to:', frontendCallbackUrl); 
       res.redirect(frontendCallbackUrl);
     } catch (error) {
       next(new ApiError(500, 'Error processing Google auth callback', [error.message]));
@@ -105,12 +142,12 @@ exports.googleAuthCallback = (req, res, next) => {
 
 exports.refreshToken = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
+    // Check both request body and cookies for refresh token
+    const refreshToken = req.body.refreshToken || req.cookies.userRefreshToken;
     if (!refreshToken || typeof refreshToken !== 'string') {
       throw new ApiError(400, 'Valid refresh token is required');
     }
 
-    // Verify refresh token
     const decoded = jwtService.verifyRefreshToken(refreshToken);
     const storedToken = await Token.findOne({
       token: refreshToken,
@@ -121,18 +158,30 @@ exports.refreshToken = async (req, res, next) => {
       throw new ApiError(403, 'Invalid or expired refresh token');
     }
 
-    // Get user
     const user = await User.findById(decoded.userId).select('-password');
     if (!user) {
       throw new ApiError(404, 'User not found');
     }
 
-    // Generate new tokens
     const tokens = jwtService.generateTokens(user);
-
-    // Replace old refresh token
+    
+    // Remove old refresh token and add new one
     await Token.findOneAndDelete({ token: refreshToken });
     await Token.create({ userId: user._id, token: tokens.refreshToken });
+
+    // Update cookies with new tokens
+    res.cookie('userToken', tokens.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000
+    });
+    res.cookie('userRefreshToken', tokens.refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
 
     ApiResponse.success(res, 200, 'Token refreshed successfully', {
       user: authService.sanitizeUser(user),
@@ -147,10 +196,17 @@ exports.refreshToken = async (req, res, next) => {
 
 exports.logout = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
+    // Get refresh token from body or cookies
+    const refreshToken = req.body.refreshToken || req.cookies.userRefreshToken;
+    
     if (refreshToken) {
       await Token.findOneAndDelete({ token: refreshToken });
     }
+
+    // Clear cookies
+    res.clearCookie('userToken');
+    res.clearCookie('userRefreshToken');
+
     req.logout((err) => {
       if (err) {
         console.error('Logout error:', err);
