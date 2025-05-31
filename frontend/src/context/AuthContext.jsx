@@ -1,4 +1,5 @@
-import React, { createContext, useState, useContext, useMemo, useEffect } from 'react';
+import React, { createContext, useState, useContext, useMemo, useEffect, useCallback, useRef } from 'react';
+import { debounce } from 'lodash';
 import { 
   login, 
   register, 
@@ -20,7 +21,62 @@ const AuthProvider = ({ children }) => {
     needsFetch: false,
   });
 
+  // Refs to track ongoing operations and prevent duplicates
+  const isInitializing = useRef(false);
+  const isRefreshing = useRef(false);
+  const isFetching = useRef(false);
+  const isUpdating = useRef(false);
+
+  // Debounced functions that return Promises
+  const debouncedFetchUser = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        if (isFetching.current) {
+          resolve();
+          return;
+        }
+        isFetching.current = true;
+        
+        try {
+          const result = await fetchUserInternal();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        } finally {
+          isFetching.current = false;
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
+  }, []);
+
+  const debouncedRefreshToken = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        if (isRefreshing.current) {
+          resolve();
+          return;
+        }
+        isRefreshing.current = true;
+        
+        try {
+          const result = await refreshUserTokenInternal();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        } finally {
+          isRefreshing.current = false;
+        }
+      }, 1000);
+      
+      debouncedFn();
+    });
+  }, []);
+
   useEffect(() => {
+    if (isInitializing.current) return;
+    
     // Check for the correct token key that matches authServices.js
     const storedToken = localStorage.getItem('userToken');
     const storedRefreshToken = localStorage.getItem('userRefreshToken');
@@ -30,15 +86,17 @@ const AuthProvider = ({ children }) => {
       return;
     }
 
+    isInitializing.current = true;
+
     const initializeAuth = async () => {
       try {
         // First try to fetch user with existing token
-        await fetchUser();
+        await debouncedFetchUser();
       } catch (error) {
         console.log('Initial fetch failed, attempting token refresh:', error.message);
         try {
           // If fetch fails, try to refresh token
-          await refreshUserToken();
+          await debouncedRefreshToken();
         } catch (refreshError) {
           console.log('Token refresh failed, resetting auth state:', refreshError.message);
           // Only reset if refresh definitively fails (not network errors)
@@ -52,30 +110,36 @@ const AuthProvider = ({ children }) => {
             setAuthState((prev) => ({ ...prev, loading: false }));
           }
         }
+      } finally {
+        isInitializing.current = false;
       }
     };
 
     initializeAuth();
 
-    // Periodic token refresh (every 10 minutes)
-    const refreshInterval = setInterval(async () => {
+    // Periodic token refresh (every 10 minutes) - debounced
+    const refreshInterval = setInterval(() => {
       // Only refresh if we have a user and tokens
       const currentToken = localStorage.getItem('userToken');
       const currentRefreshToken = localStorage.getItem('userRefreshToken');
       
-      if (currentToken && currentRefreshToken) {
-        try {
-          await refreshUserToken();
-        } catch (err) {
+      if (currentToken && currentRefreshToken && !isRefreshing.current) {
+        debouncedRefreshToken().catch(err => {
           console.error('Periodic token refresh failed:', err);
           // Don't auto-logout on periodic refresh failures
-          // Let the user continue and handle auth errors when they make requests
-        }
+        });
       }
     }, 10 * 60 * 1000); // 10 minutes
 
-    return () => clearInterval(refreshInterval); // Cleanup on unmount
-  }, []);
+    return () => {
+      clearInterval(refreshInterval);
+      // Reset operation flags on cleanup
+      isInitializing.current = false;
+      isRefreshing.current = false;
+      isFetching.current = false;
+      isUpdating.current = false;
+    };
+  }, [debouncedFetchUser, debouncedRefreshToken]);
 
   const setupSocketConnection = (user) => {
     const userId = user._id || user.id;
@@ -130,6 +194,7 @@ const AuthProvider = ({ children }) => {
       error: null,
       needsFetch: false,
     });
+    
     // Clear all auth-related data using the correct keys
     localStorage.removeItem('userToken');
     localStorage.removeItem('userRefreshToken');
@@ -140,10 +205,16 @@ const AuthProvider = ({ children }) => {
     // Also clear any legacy token keys
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
+    
     socketService.disconnect();
+    
+    // Reset operation flags
+    isRefreshing.current = false;
+    isFetching.current = false;
+    isUpdating.current = false;
   };
 
-  const fetchUser = async () => {
+  const fetchUserInternal = async () => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       // Check cached user data first
@@ -183,73 +254,108 @@ const AuthProvider = ({ children }) => {
     }
   };
 
-  const loginUser = async (credentials) => {
-    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const userData = await login(credentials.email, credentials.password);
-      localStorage.setItem('userData', JSON.stringify(userData));
-      localStorage.setItem('userDataTimestamp', Date.now().toString());
-      setAuthState({
-        user: userData,
-        loading: false,
-        error: null,
-        needsFetch: false,
-      });
-      setupSocketConnection(userData);
-      return userData;
-    } catch (err) {
-      handleAuthError(err);
-      throw err;
-    }
-  };
+  const fetchUser = useCallback(() => {
+    return debouncedFetchUser();
+  }, [debouncedFetchUser]);
 
-  const googleLoginUser = async () => {
-    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      await googleLogin(); // Redirects to Google OAuth
-    } catch (err) {
-      handleAuthError(err);
-      throw err;
-    }
-  };
+  // Debounced user functions that return Promises
+  const loginUser = useCallback((credentials) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        setAuthState((prev) => ({ ...prev, loading: true, error: null }));
+        try {
+          const userData = await login(credentials.email, credentials.password);
+          localStorage.setItem('userData', JSON.stringify(userData));
+          localStorage.setItem('userDataTimestamp', Date.now().toString());
+          setAuthState({
+            user: userData,
+            loading: false,
+            error: null,
+            needsFetch: false,
+          });
+          setupSocketConnection(userData);
+          resolve(userData);
+        } catch (err) {
+          handleAuthError(err);
+          reject(err);
+        }
+      }, 500);
+      
+      debouncedFn();
+    });
+  }, []);
 
-  const registerUser = async (userData) => {
-    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const newUser = await register(userData.name, userData.email, userData.password);
-      localStorage.setItem('userData', JSON.stringify(newUser));
-      localStorage.setItem('userDataTimestamp', Date.now().toString());
-      setAuthState({
-        user: newUser,
-        loading: false,
-        error: null,
-        needsFetch: false,
-      });
-      setupSocketConnection(newUser);
-      return newUser;
-    } catch (err) {
-      handleAuthError(err);
-      throw err;
-    }
-  };
+  // Debounced Google login
+  const googleLoginUser = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        setAuthState((prev) => ({ ...prev, loading: true, error: null }));
+        try {
+          const result = await googleLogin(); // Redirects to Google OAuth
+          resolve(result);
+        } catch (err) {
+          handleAuthError(err);
+          reject(err);
+        }
+      }, 500);
+      
+      debouncedFn();
+    });
+  }, []);
 
-  const logoutUser = async () => {
-    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      await logout();
-      resetAuthState();
-    } catch (err) {
-      // Even if logout fails, clear local state
-      resetAuthState();
-      setAuthState((prev) => ({ 
-        ...prev, 
-        error: [{ msg: 'Logout completed locally' }],
-        loading: false 
-      }));
-    }
-  };
+  // Debounced register function
+  const registerUser = useCallback((userData) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        setAuthState((prev) => ({ ...prev, loading: true, error: null }));
+        try {
+          const newUser = await register(userData.name, userData.email, userData.password);
+          localStorage.setItem('userData', JSON.stringify(newUser));
+          localStorage.setItem('userDataTimestamp', Date.now().toString());
+          setAuthState({
+            user: newUser,
+            loading: false,
+            error: null,
+            needsFetch: false,
+          });
+          setupSocketConnection(newUser);
+          resolve(newUser);
+        } catch (err) {
+          handleAuthError(err);
+          reject(err);
+        }
+      }, 500);
+      
+      debouncedFn();
+    });
+  }, []);
 
-  const refreshUserToken = async () => {
+  // Debounced logout function
+  const logoutUser = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        setAuthState((prev) => ({ ...prev, loading: true, error: null }));
+        try {
+          await logout();
+          resetAuthState();
+          resolve();
+        } catch (err) {
+          // Even if logout fails, clear local state
+          resetAuthState();
+          setAuthState((prev) => ({ 
+            ...prev, 
+            error: [{ msg: 'Logout completed locally' }],
+            loading: false 
+          }));
+          resolve(); // Still resolve since we cleared local state
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
+  }, []);
+
+  const refreshUserTokenInternal = async () => {
     try {
       const userData = await refreshToken();
       
@@ -281,25 +387,44 @@ const AuthProvider = ({ children }) => {
     }
   };
 
-  const updateUserProfile = async (userData) => {
-    setAuthState((prev) => ({ ...prev, loading: true, error: null }));
-    try {
-      const updatedUser = await updateUser(userData);
-      localStorage.setItem('userData', JSON.stringify(updatedUser));
-      localStorage.setItem('userDataTimestamp', Date.now().toString());
-      setAuthState({
-        user: updatedUser,
-        loading: false,
-        error: null,
-        needsFetch: false,
-      });
-      setupSocketConnection(updatedUser);
-      return updatedUser;
-    } catch (err) {
-      handleAuthError(err);
-      throw err;
-    }
-  };
+  const refreshUserToken = useCallback(() => {
+    return debouncedRefreshToken();
+  }, [debouncedRefreshToken]);
+
+  // Debounced update user profile
+  const updateUserProfile = useCallback((userData) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        if (isUpdating.current) {
+          resolve();
+          return;
+        }
+        isUpdating.current = true;
+        
+        setAuthState((prev) => ({ ...prev, loading: true, error: null }));
+        try {
+          const updatedUser = await updateUser(userData);
+          localStorage.setItem('userData', JSON.stringify(updatedUser));
+          localStorage.setItem('userDataTimestamp', Date.now().toString());
+          setAuthState({
+            user: updatedUser,
+            loading: false,
+            error: null,
+            needsFetch: false,
+          });
+          setupSocketConnection(updatedUser);
+          resolve(updatedUser);
+        } catch (err) {
+          handleAuthError(err);
+          reject(err);
+        } finally {
+          isUpdating.current = false;
+        }
+      }, 500);
+      
+      debouncedFn();
+    });
+  }, []);
 
   const contextValue = useMemo(
     () => ({
@@ -313,7 +438,7 @@ const AuthProvider = ({ children }) => {
       fetchUser,
       updateUser: updateUserProfile,
     }),
-    [authState]
+    [authState, loginUser, googleLoginUser, registerUser, logoutUser, refreshUserToken, fetchUser, updateUserProfile]
   );
 
   return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;

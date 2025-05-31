@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react';
 import { debounce } from 'lodash';
 import { useAuth } from './AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +15,11 @@ const CartProvider = ({ children }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // Refs to prevent duplicate operations
+  const isFetching = useRef(false);
+  const isUpdating = useRef(false);
+  const pendingOperations = useRef(new Set());
+
   const clearCartCache = useCallback(() => {
     if (user) {
       const cacheKey = `cart_user_${user._id}`;
@@ -30,7 +35,12 @@ const CartProvider = ({ children }) => {
       return { success: false, message: 'User not authenticated' };
     }
 
-    // Check cache
+    if (isFetching.current) {
+      console.log('fetchCart: Already fetching, skipping');
+      return { success: false, message: 'Already fetching' };
+    }
+
+    // Check cache first
     const cacheKey = `cart_user_${user._id}`;
     const cached = localStorage.getItem(cacheKey);
     const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
@@ -42,11 +52,14 @@ const CartProvider = ({ children }) => {
       return { success: true, cart: JSON.parse(cached) };
     }
 
+    isFetching.current = true;
     setLoading(true);
     setError(null);
+    
     try {
       const result = await cartService.getCart();
       console.log('fetchCart: Result:', result);
+      
       if (result.success) {
         const cartData = result.cart || { items: [], totalPrice: 0, itemCount: 0 };
         const updatedCartData = {
@@ -56,14 +69,18 @@ const CartProvider = ({ children }) => {
             shippingCost: item.productId?.shippingCost || 0,
           })),
         };
+        
         setCart(updatedCartData);
         console.log('fetchCart: Updated cart state:', updatedCartData);
+        
         // Cache response
         localStorage.setItem(cacheKey, JSON.stringify(updatedCartData));
         localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+        
         if (updatedCartData.items.some(item => item.isUnavailable || item.isVariantUnavailable)) {
           toast.warn('Some items in your cart are unavailable');
         }
+        
         return { success: true, cart: updatedCartData };
       } else {
         setError({
@@ -79,6 +96,7 @@ const CartProvider = ({ children }) => {
         status: err.response?.status,
         details: err.response?.data
       });
+      
       setError({
         message: err.message || 'Failed to fetch cart',
         status: err.response?.status
@@ -87,157 +105,221 @@ const CartProvider = ({ children }) => {
       throw err;
     } finally {
       setLoading(false);
+      isFetching.current = false;
     }
   }, [user]);
 
+  // Debounced fetch cart function that returns a Promise
   const debouncedFetchCart = useCallback(() => {
     return new Promise((resolve, reject) => {
-      const debounced = debounce(async () => {
+      const debouncedFn = debounce(async () => {
         try {
           const result = await fetchCartInternal();
           resolve(result);
         } catch (err) {
+          console.error('Debounced fetchCart error:', err);
           reject(err);
         }
-      }, 1000);
-      debounced();
+      }, 500);
+      
+      debouncedFn();
     });
   }, [fetchCartInternal]);
 
-  const addItemToCart = useCallback(async (productId, variantId = null, quantity = 1) => {
+  // Generic debounced cart operation handler
+  const performCartOperation = useCallback(async (operationName, operation, ...args) => {
     if (!user) {
       navigate('/login', { state: { from: window.location.pathname } });
-      return { success: false, message: 'Please login to add items to cart' };
+      return { success: false, message: 'Please login to perform this action' };
     }
 
+    const operationKey = `${operationName}-${JSON.stringify(args)}`;
+    
+    if (pendingOperations.current.has(operationKey)) {
+      console.log(`${operationName}: Operation already pending, skipping`);
+      return { success: false, message: 'Operation already in progress' };
+    }
+
+    pendingOperations.current.add(operationKey);
     setLoading(true);
+    
     try {
-      const result = await cartService.addToCart(productId, variantId, quantity);
+      const result = await operation(...args);
+      
       if (result.success) {
         clearCartCache(); // Invalidate cache
-        await debouncedFetchCart();
+        
+        // Debounce the fetch to prevent rapid successive calls
+        setTimeout(() => {
+          debouncedFetchCart().catch(err => {
+            console.error(`${operationName}: Failed to refresh cart`, err);
+          });
+        }, 100);
+        
         toast.success(result.message);
         return { success: true, cart: result.cart };
       }
+      
       throw new Error(result.message);
     } catch (error) {
-      console.error('Add to cart error:', error);
-      toast.error(error.message || 'Failed to add to cart');
+      console.error(`${operationName} error:`, error);
+      toast.error(error.message || `Failed to ${operationName.toLowerCase()}`);
       return { success: false, message: error.message };
     } finally {
       setLoading(false);
+      pendingOperations.current.delete(operationKey);
     }
   }, [user, navigate, debouncedFetchCart, clearCartCache]);
 
-  const updateQuantity = useCallback(async (productId, quantity, variantId = null) => {
-    if (!user) {
-      navigate('/login', { state: { from: window.location.pathname } });
-      return { success: false, message: 'Please login to update cart' };
-    }
+  // Debounced cart operations that return Promises
+  const addItemToCart = useCallback((productId, variantId = null, quantity = 1) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'addToCart',
+            cartService.addToCart,
+            productId,
+            variantId,
+            quantity
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
+  }, [performCartOperation]);
 
-    setLoading(true);
-    try {
-      const result = await cartService.updateQuantity(productId, quantity, variantId);
-      if (result.success) {
-        clearCartCache(); // Invalidate cache
-        await debouncedFetchCart();
-        toast.success(result.message);
-        return { success: true, cart: result.cart };
-      }
-      throw new Error(result.message);
-    } catch (error) {
-      console.error('Update quantity error:', error);
-      toast.error(error.message || 'Failed to update quantity');
-      return { success: false, message: error.message };
-    } finally {
-      setLoading(false);
-    }
+  const updateQuantity = useCallback((productId, quantity, variantId = null) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'updateQuantity',
+            cartService.updateQuantity,
+            productId,
+            quantity,
+            variantId
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      }, 500);
+      
+      debouncedFn();
+    });
+  }, [performCartOperation]);
+
+  const removeFromCart = useCallback((productId, variantId = null) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'removeFromCart',
+            cartService.removeFromCart,
+            productId,
+            variantId
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
+  }, [performCartOperation]);
+
+  const clearCart = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'clearCart',
+            cartService.clearCart
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
+  }, [performCartOperation]);
+
+  const placeOrder = useCallback((orderData) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        if (!user) {
+          navigate('/login', { state: { from: window.location.pathname } });
+          resolve({ success: false, message: 'Please login to place order' });
+          return;
+        }
+
+        if (isUpdating.current) {
+          resolve({ success: false, message: 'Order placement already in progress' });
+          return;
+        }
+
+        isUpdating.current = true;
+        setLoading(true);
+        
+        try {
+          const result = await cartService.placeOrder(orderData);
+          
+          if (result.success) {
+            clearCartCache(); // Invalidate cache
+            
+            // Refresh cart after order placement
+            setTimeout(() => {
+              debouncedFetchCart().catch(err => {
+                console.error('Failed to refresh cart after order placement', err);
+              });
+            }, 100);
+            
+            toast.success('Order placed successfully');
+            resolve({ success: true, order: result.order });
+          } else {
+            throw new Error(result.message);
+          }
+        } catch (error) {
+          console.error('Place order error:', error);
+          toast.error(error.message || 'Failed to place order');
+          reject(error);
+        } finally {
+          setLoading(false);
+          isUpdating.current = false;
+        }
+      }, 1000);
+      
+      debouncedFn();
+    });
   }, [user, navigate, debouncedFetchCart, clearCartCache]);
 
-  const removeFromCart = useCallback(async (productId, variantId = null) => {
-    if (!user) {
-      navigate('/login', { state: { from: window.location.pathname } });
-      return { success: false, message: 'Please login to remove items from cart' };
-    }
-
-    setLoading(true);
-    try {
-      const result = await cartService.removeFromCart(productId, variantId);
-      if (result.success) {
-        clearCartCache(); // Invalidate cache
-        await debouncedFetchCart();
-        toast.success(result.message);
-        return { success: true, cart: result.cart };
-      }
-      throw new Error(result.message);
-    } catch (error) {
-      console.error('Remove from cart error:', error);
-      toast.error(error.message || 'Failed to remove from cart');
-      return { success: false, message: error.message };
-    } finally {
-      setLoading(false);
-    }
-  }, [user, navigate, debouncedFetchCart, clearCartCache]);
-
-  const clearCart = useCallback(async () => {
-    if (!user) {
-      navigate('/login', { state: { from: window.location.pathname } });
-      return { success: false, message: 'Please login to clear cart' };
-    }
-
-    setLoading(true);
-    try {
-      const result = await cartService.clearCart();
-      if (result.success) {
-        clearCartCache(); // Invalidate cache
-        await debouncedFetchCart();
-        toast.success(result.message);
-        return { success: true, cart: result.cart };
-      }
-      throw new Error(result.message);
-    } catch (error) {
-      console.error('Clear cart error:', error);
-      toast.error(error.message || 'Failed to clear cart');
-      return { success: false, message: error.message };
-    } finally {
-      setLoading(false);
-    }
-  }, [user, navigate, debouncedFetchCart, clearCartCache]);
-
-  const placeOrder = useCallback(async (orderData) => {
-    if (!user) {
-      navigate('/login', { state: { from: window.location.pathname } });
-      return { success: false, message: 'Please login to place order' };
-    }
-
-    setLoading(true);
-    try {
-      const result = await cartService.placeOrder(orderData);
-      if (result.success) {
-        clearCartCache(); // Invalidate cache
-        await debouncedFetchCart();
-        toast.success('Order placed successfully');
-        return { success: true, order: result.order };
-      }
-      throw new Error(result.message);
-    } catch (error) {
-      console.error('Place order error:', error);
-      toast.error(error.message || 'Failed to place order');
-      return { success: false, message: error.message };
-    } finally {
-      setLoading(false);
-    }
-  }, [user, navigate, debouncedFetchCart, clearCartCache]);
-
+  // Effect to fetch cart when user changes
   useEffect(() => {
-    if (user) {
+    if (user && !isFetching.current) {
       debouncedFetchCart().catch(err => {
         console.error('Initial fetchCart error:', err);
         toast.error('Failed to load cart: ' + (err.message || 'Unknown error'));
       });
+    } else if (!user) {
+      // Clear cart when user logs out
+      setCart(null);
+      setError(null);
     }
+
+    // Cleanup function - no need to cancel since we're using Promise-wrapped debounced functions
     return () => {
-      // No cleanup needed; debounce handled by Promise
+      // Reset operation flags when component unmounts or user changes
+      isFetching.current = false;
+      isUpdating.current = false;
+      pendingOperations.current.clear();
     };
   }, [user, debouncedFetchCart]);
 
@@ -253,7 +335,17 @@ const CartProvider = ({ children }) => {
     removeFromCart,
     clearCart,
     placeOrder,
-  }), [cart, loading, error, addItemToCart, debouncedFetchCart, updateQuantity, removeFromCart, clearCart, placeOrder]);
+  }), [
+    cart,
+    loading,
+    error,
+    addItemToCart,
+    debouncedFetchCart,
+    updateQuantity,
+    removeFromCart,
+    clearCart,
+    placeOrder
+  ]);
 
   return (
     <CartContext.Provider value={contextValue}>
