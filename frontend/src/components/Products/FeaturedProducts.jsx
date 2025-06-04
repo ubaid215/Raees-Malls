@@ -14,7 +14,7 @@ import { toast } from 'react-toastify';
 
 function FeaturedProducts() {
   const { products, loading: productsLoading, error: productsError, fetchFeaturedProducts } = useContext(ProductContext);
-  const { banners, loading: bannersLoading, error: bannersError } = useBanners();
+  const { banners, loading: bannersLoading } = useBanners();
   const [isInitialized, setIsInitialized] = useState(false);
   const [localError, setLocalError] = useState(null);
 
@@ -25,19 +25,11 @@ function FeaturedProducts() {
     const initializeProducts = async () => {
       try {
         setLocalError(null);
-        
-        // Only clear cache if products array is empty or undefined
-        if (!products || products.length === 0) {
-          // Clear only featured products cache, not all product caches
-          const featuredCacheKeys = Object.keys(localStorage).filter(key => 
-            key.startsWith('featured_products_')
-          );
-          featuredCacheKeys.forEach(key => localStorage.removeItem(key));
-        }
-        
+        // Always fetch on mount to ensure fresh data, bypass cache if no featured products
+        const hasFeaturedProducts = products?.some(p => p.isFeatured);
         await fetchFeaturedProducts(
           { page: 1, limit: 6, sort: '-createdAt' },
-          { skipCache: !products || products.length === 0 }
+          { skipCache: !hasFeaturedProducts } // Bypass cache if no featured products
         );
         
         if (isMounted) {
@@ -57,14 +49,14 @@ function FeaturedProducts() {
     return () => {
       isMounted = false;
     };
-  }, []); // Run only once on mount
+  }, [fetchFeaturedProducts, products]);
 
   const handleFetchFeaturedProducts = useCallback(async () => {
     try {
       setLocalError(null);
       await fetchFeaturedProducts(
         { page: 1, limit: 6, sort: '-createdAt' },
-        { skipCache: true }
+        { skipCache: true } // Always bypass cache on manual refresh
       );
     } catch (err) {
       console.error('Fetch featured products error:', err);
@@ -121,8 +113,6 @@ function FeaturedProducts() {
       }
     };
   }, [isInitialized, handleFetchFeaturedProducts]);
-
-  const featuredBanner = banners.find((banner) => banner.position === 'featured-products-banner' && banner.isActive);
 
   const memoizedProducts = useMemo(() => {
     if (!products || !Array.isArray(products)) {
@@ -215,7 +205,6 @@ function FeaturedProducts() {
       </div>
 
       <div className="flex items-start justify-center gap-4 lg:gap-8 w-full">
-        {/* Desktop Side Banner */}
         <div className="hidden lg:block w-[30%] h-[160vh] rounded-xl overflow-hidden relative">
           {bannersLoading ? (
             <div className="w-full h-full flex items-center justify-center bg-gray-200">
@@ -224,24 +213,21 @@ function FeaturedProducts() {
           ) : (
             <Link to="/products">
               <img
-                src={featuredBanner ? featuredBanner.image.url : Sidebanner}
-                alt={featuredBanner ? featuredBanner.image.alt || featuredBanner.title : 'Promotional banner for up to 50% off sale'}
+                src={banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.image.url || Sidebanner}
+                alt={banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.image.alt || 'Promotional banner'}
                 className="w-full h-full object-center object-cover"
                 loading="lazy"
               />
               <h5 className="uppercase absolute top-10 left-7 text-white">
-                {featuredBanner ? featuredBanner.title : 'Upto 50% off'}
+                {banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.title || 'Upto 50% off'}
               </h5>
               <h1 className="absolute top-20 left-7 text-white text-3xl font-semibold">
-                {featuredBanner ? featuredBanner.description : 'Limited '}
-                <span className="text-red-600">{featuredBanner ? '' : 'Stock'}</span>, 
-                <br />{featuredBanner ? '' : 'Huge Saving'}
+                {banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.description || 'Limited Stock, Huge Saving'}
               </h1>
             </Link>
           )}
         </div>
 
-        {/* Product display side */}
         <div className="w-full lg:w-[70%] grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 xs:gap-3 sm:gap-4 md:gap-6">
           {memoizedProducts.length > 0 ? (
             memoizedProducts.map((product) => (

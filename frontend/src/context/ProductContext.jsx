@@ -56,9 +56,8 @@ export const ProductProvider = ({ children }) => {
     if (productId) {
       clearCache(`product_${productId}`);
     }
-
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('products_')) {
+      if (key.startsWith('products_') || key.startsWith('featured_products_')) {
         clearCache(key);
       }
     });
@@ -68,7 +67,7 @@ export const ProductProvider = ({ children }) => {
     const cleanupExpiredCache = () => {
       const now = Date.now();
       Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('product_')) {
+        if (key.startsWith('product_') || key.startsWith('products_') || key.startsWith('featured_products_')) {
           const cached = getCache(key);
           if (cached && now - cached.timestamp > 30 * 60 * 1000) {
             clearCache(key);
@@ -86,19 +85,25 @@ export const ProductProvider = ({ children }) => {
     SocketService.connect();
 
     const handleProductCreated = (data) => {
-      setProducts(prev => [...prev, {
-        ...data.product,
-        displayPrice: data.displayPrice
-      }]);
+      // Only append if not a featured product to avoid duplicating logic
+      if (!data.product?.isFeatured) {
+        setProducts(prev => [...prev, {
+          ...data.product,
+          displayPrice: data.displayPrice
+        }]);
+      }
       clearRelatedCaches();
     };
 
     const handleProductUpdated = (data) => {
-      setProducts(prev => prev.map(p => 
-        p._id === data.product._id 
-          ? { ...data.product, displayPrice: data.displayPrice }
-          : p
-      ));
+      // Only update if not a featured product
+      if (!data.product?.isFeatured) {
+        setProducts(prev => prev.map(p => 
+          p._id === data.product._id 
+            ? { ...data.product, displayPrice: data.displayPrice }
+            : p
+        ));
+      }
       clearRelatedCaches(data.product._id);
     };
 
@@ -209,25 +214,28 @@ export const ProductProvider = ({ children }) => {
   );
 
   const fetchFeaturedProducts = useCallback(
-    debounce(async (params = {}) => {
+    debounce(async (params = {}, options = {}) => {
       const {
         page = 1,
         limit = 10,
         sort = '-createdAt',
       } = params;
   
+      const { skipCache = false } = options;
       const cacheKey = `featured_products_${page}_${limit}_${sort}`;
   
-      const cached = getCache(cacheKey);
-      if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
-        setProducts(cached.data.products || []);
-        setPagination({
-          page,
-          limit,
-          totalPages: cached.data.totalPages || 1,
-          totalItems: cached.data.totalItems || 0,
-        });
-        return cached.data;
+      if (!skipCache) {
+        const cached = getCache(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
+          setProducts(cached.data.products || []);
+          setPagination({
+            page,
+            limit,
+            totalPages: cached.data.totalPages || 1,
+            totalItems: cached.data.totalItems || 0,
+          });
+          return cached.data;
+        }
       }
   
       setLoading(true);
