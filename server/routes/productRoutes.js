@@ -9,7 +9,7 @@ router.get('/public', productController.getAllProductsForCustomers);
 router.get('/public/:id', productController.getProductDetailsForCustomers);
 router.get('/public/featured', productController.getFeaturedProducts);
 
-// Admin routes with improved error handling
+// Admin routes - FIXED: Properly pass next parameter
 router.post(
   '/',
   authenticateJWT,
@@ -24,37 +24,25 @@ router.post(
     { name: 'variantVideos[1]', maxCount: 5 },  
     { name: 'variantVideos[2]', maxCount: 5 }   
   ]),
-  async (req, res, next) => {
-    try {
-      await productController.createProduct(req, res);
-    } catch (error) {
-      console.error('Error creating product:', error);
-      res.status(500).json({ error: error.message || 'Failed to create product' });
-    }
-  }
+  // FIXED: Pass next parameter to controller
+  productController.createProduct
 );
 
-// Admin route to get all products
-router.get('/', authenticateJWT, authorizeRoles('admin'), async (req, res, next) => {
-  try {
-    await productController.getAllProducts(req, res);
-  } catch (error) {
-    console.error('Error fetching products:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch products' });
-  }
-});
+// Admin route to get all products - FIXED
+router.get('/', 
+  authenticateJWT, 
+  authorizeRoles('admin'), 
+  productController.getAllProducts
+);
 
-// Admin route to get a single product by ID
-router.get('/:id', authenticateJWT, authorizeRoles('admin'), async (req, res, next) => {
-  try {
-    await productController.getProductById(req, res);
-  } catch (error) {
-    console.error('Error fetching product:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch product' });
-  }
-});
+// Admin route to get a single product by ID - FIXED
+router.get('/:id', 
+  authenticateJWT, 
+  authorizeRoles('admin'), 
+  productController.getProductById
+);
 
-// Admin route to update a product
+// Admin route to update a product - FIXED
 router.put(
   '/:id',
   authenticateJWT,
@@ -69,29 +57,22 @@ router.put(
     { name: 'variantVideos[1]', maxCount: 5 }, 
     { name: 'variantVideos[2]', maxCount: 5 }   
   ]),
-  async (req, res, next) => {
-    try {
-      // Validate product ID
-      const { id } = req.params;
-      if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-        return res.status(400).json({ error: 'Invalid product ID' });
-      }
-      await productController.updateProduct(req, res);
-    } catch (error) {
-      console.error('Error updating product:', error);
-      res.status(500).json({ error: error.message || 'Failed to update product' });
+  // FIXED: If you need validation, do it like this:
+  (req, res, next) => {
+    const { id } = req.params;
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: 'Invalid product ID' });
     }
+    // Call the controller with all three parameters
+    productController.updateProduct(req, res, next);
   }
 );
 
-// Admin route to delete a product
-router.delete('/:id', authenticateJWT, authorizeRoles('admin'), async (req, res, next) => {
-  try {
-    await productController.deleteProduct(req, res);
-  } catch (error) {
-    console.error('Error deleting product:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete product' });
-  }
-});
+// Admin route to delete a product - FIXED
+router.delete('/:id', 
+  authenticateJWT, 
+  authorizeRoles('admin'), 
+  productController.deleteProduct
+);
 
 module.exports = router;

@@ -9,24 +9,34 @@ exports.createProduct = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
     if (!userId) {
-      throw new ApiError(401, 'User not authenticated');
+      return next(new ApiError(401, 'User not authenticated'));
     }
 
     console.log('Request body:', JSON.stringify(req.body, null, 2));
     console.log('Request files:', JSON.stringify(req.files, null, 2));
 
     if (!req.body || Object.keys(req.body).length === 0) {
-      throw new ApiError(400, 'Request body is missing or empty');
+      return next(new ApiError(400, 'Request body is missing or empty'));
     }
 
     const { title, description, price, categoryId, stock, discountPrice, shippingCost, brand, specifications, features, variants, seo, isFeatured } = req.body;
 
     if (!title || !description || !price || !categoryId || !stock) {
-      throw new ApiError(400, 'Title, description, price, categoryId, and stock are required');
+      return next(new ApiError(400, 'Title, description, price, categoryId, and stock are required'));
     }
 
-    if (discountPrice !== undefined && discountPrice >= price) {
-      throw new ApiError(400, 'Discount price must be less than the base price');
+    // Fixed discount price validation
+    if (discountPrice !== undefined && discountPrice !== null && discountPrice !== '') {
+      const numericPrice = parseFloat(price);
+      const numericDiscountPrice = parseFloat(discountPrice);
+      
+      if (isNaN(numericPrice) || isNaN(numericDiscountPrice)) {
+        return next(new ApiError(400, 'Price and discount price must be valid numbers'));
+      }
+      
+      if (numericDiscountPrice >= numericPrice) {
+        return next(new ApiError(400, 'Discount price must be less than the base price'));
+      }
     }
 
     const images = req.files?.baseImages?.map(file => ({
@@ -68,13 +78,23 @@ exports.createProduct = async (req, res, next) => {
       try {
         parsedVariants = JSON.parse(variants);
       } catch (error) {
-        throw new ApiError(400, 'Invalid variants format');
+        return next(new ApiError(400, 'Invalid variants format'));
       }
     }
 
+    // Process variants with proper validation
     const processedVariants = parsedVariants?.map((variant, index) => {
-      if (variant.discountPrice !== undefined && variant.discountPrice >= variant.price) {
-        throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
+      if (variant.discountPrice !== undefined && variant.discountPrice !== null && variant.discountPrice !== '') {
+        const variantPrice = parseFloat(variant.price);
+        const variantDiscountPrice = parseFloat(variant.discountPrice);
+        
+        if (isNaN(variantPrice) || isNaN(variantDiscountPrice)) {
+          throw new ApiError(400, `Variant ${index + 1} price and discount price must be valid numbers`);
+        }
+        
+        if (variantDiscountPrice >= variantPrice) {
+          throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
+        }
       }
       return {
         ...variant,
@@ -88,7 +108,7 @@ exports.createProduct = async (req, res, next) => {
       try {
         parsedSeo = JSON.parse(seo);
       } catch (error) {
-        throw new ApiError(400, 'Invalid SEO format');
+        return next(new ApiError(400, 'Invalid SEO format'));
       }
     } else if (typeof seo === 'object') {
       parsedSeo = seo;
@@ -99,7 +119,7 @@ exports.createProduct = async (req, res, next) => {
       try {
         parsedSpecifications = JSON.parse(specifications);
       } catch (error) {
-        throw new ApiError(400, 'Invalid specifications format');
+        return next(new ApiError(400, 'Invalid specifications format'));
       }
     }
 
@@ -108,7 +128,7 @@ exports.createProduct = async (req, res, next) => {
       try {
         parsedFeatures = JSON.parse(features);
       } catch (error) {
-        throw new ApiError(400, 'Invalid features format');
+        return next(new ApiError(400, 'Invalid features format'));
       }
     }
 
@@ -116,7 +136,7 @@ exports.createProduct = async (req, res, next) => {
       title,
       description,
       price: parseFloat(price),
-      discountPrice: discountPrice ? parseFloat(discountPrice) : undefined,
+      discountPrice: discountPrice && discountPrice !== '' ? parseFloat(discountPrice) : undefined,
       shippingCost: shippingCost ? parseFloat(shippingCost) : 0,
       images,
       videos,
@@ -147,9 +167,12 @@ exports.createProduct = async (req, res, next) => {
       });
     }
 
-    ApiResponse.success(res, 201, 'Product created successfully', { product });
+    return ApiResponse.success(res, 201, 'Product created successfully', { product });
+    
   } catch (error) {
     console.error('Create product error:', error);
+    
+    // Handle validation errors
     if (error.name === 'ValidationError') {
       const errors = {};
       Object.keys(error.errors).forEach(key => {
@@ -160,78 +183,22 @@ exports.createProduct = async (req, res, next) => {
       });
       return res.status(400).json({ message: 'Validation failed', errors });
     }
+    
+    // Handle duplicate key errors
     if (error.code === 11000) {
       return next(new ApiError(400, 'Duplicate SKU detected'));
     }
-    next(error);
-  }
-};
-
-exports.getAllProducts = async (req, res, next) => {
-  try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search, isFeatured } = req.query;
-
-    const query = {};
-    if (categoryId) query.categoryId = categoryId;
-    if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = parseFloat(minPrice);
-      if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+    
+    // Handle ApiError instances
+    if (error instanceof ApiError) {
+      return res.status(error.statusCode).json({ 
+        message: error.message, 
+        errors: error.errors || [] 
+      });
     }
-    if (attributeKey && attributeValue) {
-      query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
-    }
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { brand: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
-      ];
-    }
-    if (isFeatured !== undefined) {
-      query.isFeatured = isFeatured === 'true';
-    }
-
-    const sortOption = sort || '-createdAt';
-    const skip = (page - 1) * limit;
-
-    const products = await Product.find(query)
-      .populate('categoryId', 'name slug')
-      .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await Product.countDocuments(query);
-
-    ApiResponse.success(res, 200, 'Products retrieved successfully', {
-      products,
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit),
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-exports.getProductById = async (req, res, next) => {
-  try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      throw new ApiError(400, 'Invalid product ID');
-    }
-
-    const product = await Product.findById(req.params.id)
-      .populate('categoryId', 'name slug');
-
-    if (!product) {
-      throw new ApiError(404, 'Product not found');
-    }
-
-    ApiResponse.success(res, 200, 'Product retrieved successfully', { product });
-  } catch (error) {
-    next(error);
+    
+    // Handle other errors
+    return next(error);
   }
 };
 
@@ -239,28 +206,32 @@ exports.updateProduct = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
     if (!userId) {
-      throw new ApiError(401, 'User not authenticated');
+      return next(new ApiError(401, 'User not authenticated'));
     }
 
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      throw new ApiError(400, 'Invalid product ID');
+      return next(new ApiError(400, 'Invalid product ID'));
     }
 
     const product = await Product.findById(req.params.id);
     if (!product) {
-      throw new ApiError(404, 'Product not found');
+      return next(new ApiError(404, 'Product not found'));
     }
 
     const { title, description, price, discountPrice, shippingCost, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
 
-    // Fix the discount price validation logic
+    // Fixed discount price validation logic
     if (discountPrice !== undefined && discountPrice !== null && discountPrice !== '') {
       // Use the new price if provided, otherwise use the existing product price
       const currentPrice = price !== undefined ? parseFloat(price) : product.price;
       const currentDiscountPrice = parseFloat(discountPrice);
       
+      if (isNaN(currentPrice) || isNaN(currentDiscountPrice)) {
+        return next(new ApiError(400, 'Price and discount price must be valid numbers'));
+      }
+      
       if (currentDiscountPrice >= currentPrice) {
-        throw new ApiError(400, 'Discount price must be less than the base price');
+        return next(new ApiError(400, 'Discount price must be less than the base price'));
       }
     }
 
@@ -327,7 +298,7 @@ exports.updateProduct = async (req, res, next) => {
       try {
         parsedVariants = JSON.parse(variants);
       } catch (error) {
-        throw new ApiError(400, 'Invalid variants format');
+        return next(new ApiError(400, 'Invalid variants format'));
       }
     }
 
@@ -356,6 +327,10 @@ exports.updateProduct = async (req, res, next) => {
           const variantPrice = parseFloat(variant.price);
           const variantDiscountPrice = parseFloat(variant.discountPrice);
           
+          if (isNaN(variantPrice) || isNaN(variantDiscountPrice)) {
+            throw new ApiError(400, `Variant ${index + 1} price and discount price must be valid numbers`);
+          }
+          
           if (variantDiscountPrice >= variantPrice) {
             throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
           }
@@ -375,7 +350,7 @@ exports.updateProduct = async (req, res, next) => {
       try {
         parsedSeo = JSON.parse(seo);
       } catch (error) {
-        throw new ApiError(400, 'Invalid SEO format');
+        return next(new ApiError(400, 'Invalid SEO format'));
       }
     }
 
@@ -384,7 +359,7 @@ exports.updateProduct = async (req, res, next) => {
       try {
         parsedSpecifications = JSON.parse(specifications);
       } catch (error) {
-        throw new ApiError(400, 'Invalid specifications format');
+        return next(new ApiError(400, 'Invalid specifications format'));
       }
     }
 
@@ -393,7 +368,7 @@ exports.updateProduct = async (req, res, next) => {
       try {
         parsedFeatures = JSON.parse(features);
       } catch (error) {
-        throw new ApiError(400, 'Invalid features format');
+        return next(new ApiError(400, 'Invalid features format'));
       }
     }
 
@@ -432,7 +407,7 @@ exports.updateProduct = async (req, res, next) => {
       });
     }
 
-    ApiResponse.success(res, 200, 'Product updated successfully', { product });
+    return ApiResponse.success(res, 200, 'Product updated successfully', { product });
     
   } catch (error) {
     console.error('Update product error:', error);
@@ -454,17 +429,84 @@ exports.updateProduct = async (req, res, next) => {
       return res.status(400).json({ message: 'Duplicate SKU detected' });
     }
     
-    // Handle custom API errors
-    if (error.statusCode) {
-      return res.status(error.statusCode).json({ message: error.message });
+    // Handle ApiError instances
+    if (error instanceof ApiError) {
+      return res.status(error.statusCode).json({ 
+        message: error.message, 
+        errors: error.errors || [] 
+      });
     }
     
     // Handle other errors
-    if (next && typeof next === 'function') {
-      next(error);
-    } else {
-      res.status(500).json({ message: 'Internal server error', error: error.message });
+    return next(error);
+  }
+};
+
+exports.getAllProducts = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search, isFeatured } = req.query;
+
+    const query = {};
+    if (categoryId) query.categoryId = categoryId;
+    if (minPrice || maxPrice) {
+      query.price = {};
+      if (minPrice) query.price.$gte = parseFloat(minPrice);
+      if (maxPrice) query.price.$lte = parseFloat(maxPrice);
     }
+    if (attributeKey && attributeValue) {
+      query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
+    }
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { brand: { $regex: search, $options: 'i' } },
+        { sku: { $regex: search, $options: 'i' } },
+      ];
+    }
+    if (isFeatured !== undefined) {
+      query.isFeatured = isFeatured === 'true';
+    }
+
+    const sortOption = sort || '-createdAt';
+    const skip = (page - 1) * limit;
+
+    const products = await Product.find(query)
+      .populate('categoryId', 'name slug')
+      .sort(sortOption)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Product.countDocuments(query);
+
+    return ApiResponse.success(res, 200, 'Products retrieved successfully', {
+      products,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getProductById = async (req, res, next) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return next(new ApiError(400, 'Invalid product ID'));
+    }
+
+    const product = await Product.findById(req.params.id)
+      .populate('categoryId', 'name slug');
+
+    if (!product) {
+      return next(new ApiError(404, 'Product not found'));
+    }
+
+    return ApiResponse.success(res, 200, 'Product retrieved successfully', { product });
+  } catch (error) {
+    return next(error);
   }
 };
 
@@ -472,16 +514,16 @@ exports.deleteProduct = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
     if (!userId) {
-      throw new ApiError(401, 'User not authenticated');
+      return next(new ApiError(401, 'User not authenticated'));
     }
 
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      throw new ApiError(400, 'Invalid product ID');
+      return next(new ApiError(400, 'Invalid product ID'));
     }
 
     const product = await Product.findById(req.params.id);
     if (!product) {
-      throw new ApiError(404, 'Product not found');
+      return next(new ApiError(404, 'Product not found'));
     }
 
     for (const image of product.images) {
@@ -514,9 +556,9 @@ exports.deleteProduct = async (req, res, next) => {
       req.io.emit('productDeleted', { productId: product._id });
     }
 
-    ApiResponse.success(res, 200, 'Product deleted successfully');
+    return ApiResponse.success(res, 200, 'Product deleted successfully');
   } catch (error) {
-    next(error);
+    return next(error);
   }
 };
 
@@ -574,7 +616,7 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
 
     const total = await Product.countDocuments(query);
 
-    ApiResponse.success(res, 200, 'Products retrieved successfully', {
+    return ApiResponse.success(res, 200, 'Products retrieved successfully', {
       products: productsWithDisplayPrice,
       total,
       page: parseInt(page),
@@ -582,14 +624,14 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
       totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 };
 
 exports.getProductDetailsForCustomers = async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      throw new ApiError(400, 'Invalid product ID');
+      return next(new ApiError(400, 'Invalid product ID'));
     }
 
     const product = await Product.findById(req.params.id)
@@ -597,11 +639,11 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       .populate('categoryId', 'name slug');
 
     if (!product) {
-      throw new ApiError(404, 'Product not found');
+      return next(new ApiError(404, 'Product not found'));
     }
 
     if (product.stock <= 0 && product.variants.every(v => v.stock <= 0)) {
-      throw new ApiError(404, 'Product is out of stock');
+      return next(new ApiError(404, 'Product is out of stock'));
     }
 
     const productWithDisplayPrice = {
@@ -613,11 +655,11 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       })),
     };
 
-    ApiResponse.success(res, 200, 'Product details retrieved successfully', { 
+    return ApiResponse.success(res, 200, 'Product details retrieved successfully', { 
       product: productWithDisplayPrice,
     });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 };
 
@@ -643,7 +685,7 @@ exports.getFeaturedProducts = async (req, res, next) => {
 
     const total = await Product.countDocuments(query);
 
-    ApiResponse.success(res, 200, 'Featured products retrieved successfully', {
+    return ApiResponse.success(res, 200, 'Featured products retrieved successfully', {
       products: productsWithDisplayPrice,
       total,
       page: parseInt(page),
@@ -651,6 +693,6 @@ exports.getFeaturedProducts = async (req, res, next) => {
       totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 };
