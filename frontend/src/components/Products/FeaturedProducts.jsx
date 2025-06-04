@@ -15,61 +15,97 @@ import { toast } from 'react-toastify';
 function FeaturedProducts() {
   const { products, loading: productsLoading, error: productsError, fetchFeaturedProducts } = useContext(ProductContext);
   const { banners, loading: bannersLoading, error: bannersError } = useBanners();
-  const [needsFetch, setNeedsFetch] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [localError, setLocalError] = useState(null);
 
+  // Initialize products on mount
   useEffect(() => {
-    const clearProductCaches = () => {
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('products_') || key.startsWith('product_') || key.startsWith('featured_products_')) {
-          localStorage.removeItem(key);
+    let isMounted = true;
+
+    const initializeProducts = async () => {
+      try {
+        setLocalError(null);
+        
+        // Only clear cache if products array is empty or undefined
+        if (!products || products.length === 0) {
+          // Clear only featured products cache, not all product caches
+          const featuredCacheKeys = Object.keys(localStorage).filter(key => 
+            key.startsWith('featured_products_')
+          );
+          featuredCacheKeys.forEach(key => localStorage.removeItem(key));
         }
-      });
+        
+        await fetchFeaturedProducts(
+          { page: 1, limit: 6, sort: '-createdAt' },
+          { skipCache: !products || products.length === 0 }
+        );
+        
+        if (isMounted) {
+          setIsInitialized(true);
+        }
+      } catch (err) {
+        console.error('Initialize featured products error:', err);
+        if (isMounted) {
+          setLocalError(err.message || 'Failed to load featured products');
+          setIsInitialized(true);
+        }
+      }
     };
 
-    clearProductCaches();
-    setNeedsFetch(true);
-  }, []);
+    initializeProducts();
 
-  useEffect(() => {
-    if (needsFetch) {
-      handleFetchFeaturedProducts();
-    }
-  }, [needsFetch]);
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Run only once on mount
 
   const handleFetchFeaturedProducts = useCallback(async () => {
     try {
+      setLocalError(null);
       await fetchFeaturedProducts(
         { page: 1, limit: 6, sort: '-createdAt' },
         { skipCache: true }
       );
-      setNeedsFetch(false);
     } catch (err) {
       console.error('Fetch featured products error:', err);
+      setLocalError(err.message || 'Failed to load featured products');
       toast.error(err.message || 'Failed to load featured products');
     }
   }, [fetchFeaturedProducts]);
 
+  // Socket connection and event handling
   useEffect(() => {
-    SocketService.connect();
+    if (!isInitialized) return;
+
+    let isConnected = false;
+
+    const connectSocket = () => {
+      if (!isConnected) {
+        SocketService.connect();
+        isConnected = true;
+      }
+    };
 
     const handleProductCreated = (data) => {
-      if (data.product.isFeatured && data.product.stock > 0) {
-        setNeedsFetch(true);
+      if (data.product?.isFeatured && data.product?.stock > 0) {
+        handleFetchFeaturedProducts();
         toast.success(`New featured product added: ${data.product.title}`);
       }
     };
 
     const handleProductUpdated = (data) => {
-      if (data.product.isFeatured) {
-        setNeedsFetch(true);
+      if (data.product?.isFeatured) {
+        handleFetchFeaturedProducts();
         toast.info(`Featured product updated: ${data.product.title}`);
       }
     };
 
-    const handleProductDeleted = (data) => {
-      setNeedsFetch(true);
+    const handleProductDeleted = () => {
+      handleFetchFeaturedProducts();
       toast.warn('Featured product removed');
     };
+
+    connectSocket();
 
     SocketService.on('productCreated', handleProductCreated);
     SocketService.on('productUpdated', handleProductUpdated);
@@ -79,45 +115,55 @@ function FeaturedProducts() {
       SocketService.off('productCreated', handleProductCreated);
       SocketService.off('productUpdated', handleProductUpdated);
       SocketService.off('productDeleted', handleProductDeleted);
-      SocketService.disconnect();
+      if (isConnected) {
+        SocketService.disconnect();
+        isConnected = false;
+      }
     };
-  }, []);
+  }, [isInitialized, handleFetchFeaturedProducts]);
 
   const featuredBanner = banners.find((banner) => banner.position === 'featured-products-banner' && banner.isActive);
 
   const memoizedProducts = useMemo(() => {
-    const productArray = Array.isArray(products) ? products : [];
+    if (!products || !Array.isArray(products)) {
+      return [];
+    }
     
-    return productArray.map((product) => {
-      const images = product.images && product.images.length > 0
-        ? product.images.map(image => ({
-            url: image.url
-              ? image.url.startsWith('http')
-                ? image.url
-                : `${API_BASE_URL}${image.url}`
-              : '/images/placeholder-product.png',
-            public_id: image.public_id || '',
-            alt: image.alt || product.title || 'Product image'
-          }))
-        : [{ url: '/images/placeholder-product.png', public_id: '', alt: product.title || 'Product image' }];
+    return products
+      .filter(product => product?.isFeatured === true)
+      .map((product) => {
+        const images = product.images && product.images.length > 0
+          ? product.images.map(image => ({
+              url: image.url
+                ? image.url.startsWith('http')
+                  ? image.url
+                  : `${API_BASE_URL}${image.url}`
+                : '/images/placeholder-product.png',
+              public_id: image.public_id || '',
+              alt: image.alt || product.title || 'Product image'
+            }))
+          : [{ url: '/images/placeholder-product.png', public_id: '', alt: product.title || 'Product image' }];
 
-      return {
-        _id: product._id,
-        title: product.title || product.name || 'Untitled Product',
-        price: product.price || 0, // Original price
-        discountPrice: product.discountPrice || null, // Discounted price (if any)
-        images,
-        averageRating: product.averageRating || product.rating || 0,
-        numReviews: product.numReviews || 0,
-        stock: product.stock || 0,
-        categoryId: product.categoryId,
-        sku: product.sku,
-        isFeatured: product.isFeatured || false
-      };
-    }).filter(product => product.isFeatured);
+        return {
+          _id: product._id,
+          title: product.title || product.name || 'Untitled Product',
+          price: product.price || 0,
+          discountPrice: product.discountPrice || null,
+          images,
+          averageRating: product.averageRating || product.rating || 0,
+          numReviews: product.numReviews || 0,
+          stock: product.stock || 0,
+          categoryId: product.categoryId,
+          sku: product.sku,
+          isFeatured: product.isFeatured || false
+        };
+      });
   }, [products]);
 
-  if (productsLoading && memoizedProducts.length === 0) {
+  const isLoading = !isInitialized || (productsLoading && memoizedProducts.length === 0);
+  const hasError = localError || productsError;
+
+  if (isLoading) {
     return (
       <section aria-label="Loading Featured Products" className="w-full px-4 sm:px-6 my-6 sm:my-8 pb-5 text-center">
         <div className="flex justify-center">
@@ -127,11 +173,11 @@ function FeaturedProducts() {
     );
   }
 
-  if (productsError) {
+  if (hasError) {
     return (
       <section aria-label="No Featured Products" className="w-full px-4 sm:px-6 my-6 sm:my-8 pb-5 text-center">
         <p className="text-base sm:text-lg text-gray-500 mb-4">
-          Failed to load featured products: {productsError}
+          Failed to load featured products: {hasError}
         </p>
         <div className="flex flex-col items-center gap-2">
           <Button
@@ -169,7 +215,7 @@ function FeaturedProducts() {
       </div>
 
       <div className="flex items-start justify-center gap-4 lg:gap-8 w-full">
-        {/* Desktop Side Banner (Shown only on large screens) */}
+        {/* Desktop Side Banner */}
         <div className="hidden lg:block w-[30%] h-[160vh] rounded-xl overflow-hidden relative">
           {bannersLoading ? (
             <div className="w-full h-full flex items-center justify-center bg-gray-200">
@@ -183,16 +229,19 @@ function FeaturedProducts() {
                 className="w-full h-full object-center object-cover"
                 loading="lazy"
               />
-              <h5 className="uppercase absolute top-10 left-7 text-white">{featuredBanner ? featuredBanner.title : 'Upto 50% off'}</h5>
+              <h5 className="uppercase absolute top-10 left-7 text-white">
+                {featuredBanner ? featuredBanner.title : 'Upto 50% off'}
+              </h5>
               <h1 className="absolute top-20 left-7 text-white text-3xl font-semibold">
-                {featuredBanner ? featuredBanner.description : 'Limited '}<span className="text-red-600">{featuredBanner ? '' : 'Stock'}</span>, <br />{featuredBanner ? '' : 'Huge Saving'}
+                {featuredBanner ? featuredBanner.description : 'Limited '}
+                <span className="text-red-600">{featuredBanner ? '' : 'Stock'}</span>, 
+                <br />{featuredBanner ? '' : 'Huge Saving'}
               </h1>
-              
             </Link>
           )}
         </div>
 
-          {/* Product display side */}
+        {/* Product display side */}
         <div className="w-full lg:w-[70%] grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 xs:gap-3 sm:gap-4 md:gap-6">
           {memoizedProducts.length > 0 ? (
             memoizedProducts.map((product) => (
@@ -207,8 +256,9 @@ function FeaturedProducts() {
               <Button 
                 onClick={handleFetchFeaturedProducts}
                 className="mt-3 sm:mt-4 text-sm"
+                disabled={productsLoading}
               >
-                Refresh Products
+                {productsLoading ? 'Loading...' : 'Refresh Products'}
               </Button>
             </div>
           )}

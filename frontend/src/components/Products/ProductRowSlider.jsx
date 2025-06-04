@@ -273,7 +273,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   return (
     <section className="relative w-full px-4 py-8 rounded-lg shadow-sm" aria-live="polite">
       <Helmet>
-        <title>{title || 'Products'} | Your Store</title>
+        <title>{title || 'Products'} | Raees Malls</title>
         <meta name="description" content={`Explore our ${title?.toLowerCase() || 'selected products'} with exclusive deals and limited stock.`} />
       </Helmet>
 
