@@ -7,6 +7,7 @@ import { ProductContext } from '../../../context/ProductContext';
 import { useCart } from '../../../context/CartContext';
 import SocketService from '../../../services/socketService';
 import { toast } from 'react-toastify';
+import Logo from '../../../assets/images/Raees Malls.png';
 
 // Navigation links
 const navLinks = [
@@ -29,17 +30,17 @@ function Navbar() {
   const [expandedCategories, setExpandedCategories] = useState({});
   const navigate = useNavigate();
 
-  // Cart context - FIXED: Use cartItems instead of cart.items
+  // Cart context
   const { cartItems } = useCart();
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
   const { products, fetchProducts } = useContext(ProductContext);
 
-  // FIXED: Calculate cart count from cartItems array
+  // Calculate cart count from cartItems array
   const cartCount = Array.isArray(cartItems)
     ? cartItems.reduce((count, item) => count + (item.quantity || 0), 0)
     : 0;
 
-  // Debug logging to help troubleshoot
+  // Debug logging
   useEffect(() => {
     console.log('Navbar: cartItems:', cartItems);
     console.log('Navbar: cartCount:', cartCount);
@@ -185,7 +186,6 @@ function Navbar() {
     setSelectedCategory(category.name);
     setShowDropdown(false);
     setShowMobileMenu(false);
-    // Simply navigate to products page with category as query param
     navigate(`/products?category=${category.slug}`);
   };
 
@@ -328,11 +328,7 @@ function Navbar() {
           <CiMenuBurger size={24} strokeWidth={1} />
         </button>
 
-        <div className="flex-shrink-0 mx-4">
-          <h1 className="text-red-600 font-sans">
-            Raees <br /> Malls
-          </h1>
-        </div>
+        <img src={Logo} alt="Raees Malls Logo" className="h-8 w-auto" />
 
         <div className="flex items-center gap-4">
           <button
@@ -488,9 +484,9 @@ function Navbar() {
       {/* Desktop Top Navigation */}
       <nav className="hidden md:flex max-w-7xl mx-auto px-4 py-4 bg-white items-center justify-between border-b">
         <div className="flex-shrink-0">
-          <h1 className="text-red-500 font-sans tracking-tighter">
-            Raees <br /> Malls
-          </h1>
+          <Link to="/">
+            <img src={Logo} alt="Raees Malls Logo" className="h-12 w-auto" />
+          </Link>
         </div>
 
         <div className="flex items-center flex-1 max-w-xl mx-6 relative">

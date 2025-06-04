@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import Logo from './Logo';
+import Logo from '../../assets/images/Raees Malls.png';
 
 const Footer = () => {
   const footerLinks = [
@@ -36,7 +36,7 @@ const Footer = () => {
           {/* Logo and description */}
           <div className="md:col-span-1">
             <Link to="/" className="flex items-center">
-              <Logo className="h-8 w-auto" />
+              <img src={Logo} alt="Raees Malls Logo" className="h-8 w-auto" />
             </Link>
             <p className="mt-4 text-sm text-gray-600">
               Your one-stop shop for all mobile accessories and gadgets.
@@ -121,7 +121,7 @@ const Footer = () => {
         {/* Copyright */}
         <div className="mt-3 pt-4 border-t border-gray-200">
           <p className="text-sm text-gray-500 text-center">
-            &copy; {new Date().getFullYear()} Raees Malls. All rights reserved.
+            © {new Date().getFullYear()} Raees Malls. All rights reserved.
           </p>
         </div>
       </div>
