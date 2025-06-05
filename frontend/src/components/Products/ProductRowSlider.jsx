@@ -17,13 +17,20 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const [visibleItems, setVisibleItems] = useState(4);
   const [needsFetch, setNeedsFetch] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
   const carouselRef = useRef(null);
   const intervalRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const locationRef = useRef(location.pathname);
 
   const memoizedProducts = useMemo(() => {
-    console.log('Raw products for ProductRowSlider:', products);
+    // Only log once when products actually change, not on every render
+    if (!hasInitialized && products && products.length > 0) {
+      console.log('Products loaded for ProductRowSlider:', products.length);
+      setHasInitialized(true);
+    }
+    
     const productArray = Array.isArray(products) ? products : [];
 
     const mappedProducts = productArray.map((product) => {
@@ -50,8 +57,8 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       return {
         _id: product._id,
         title: product.title || product.name || 'Untitled Product',
-        price: product.price || 0, // Original price
-        discountPrice: product.discountPrice || null, // Discounted price (if any)
+        price: product.price || 0,
+        discountPrice: product.discountPrice || null,
         images: processedImages,
         averageRating: product.averageRating || product.rating || 0,
         numReviews: product.numReviews || 0,
@@ -62,31 +69,30 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       };
     });
 
-    console.log('Mapped products for ProductRowSlider:', mappedProducts);
     return mappedProducts;
-  }, [products]);
+  }, [products, hasInitialized]);
 
+  // Handle location changes separately to avoid repeated logs
   useEffect(() => {
-    console.log('ProductRowSlider mounted, location:', location.pathname);
-    console.log('Current products:', products);
-    const clearProductCaches = () => {
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('products_') || key.startsWith('product_') || key.startsWith('featured_products_')) {
-          localStorage.removeItem(key);
-        }
-      });
-    };
+    if (locationRef.current !== location.pathname) {
+      console.log('Location changed, clearing cache');
+      locationRef.current = location.pathname;
+      
+      const clearProductCaches = () => {
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('products_') || key.startsWith('product_') || key.startsWith('featured_products_')) {
+            localStorage.removeItem(key);
+          }
+        });
+      };
 
-    clearProductCaches();
-    setNeedsFetch(true);
+      clearProductCaches();
+      setNeedsFetch(true);
+      setHasInitialized(false);
+    }
   }, [location.pathname]);
 
-  useEffect(() => {
-    if (needsFetch) {
-      handleFetchProducts();
-    }
-  }, [needsFetch, categoryId, isFeatured]);
-
+  // Fetch products only when needed
   const handleFetchProducts = useCallback(async () => {
     try {
       const params = {
@@ -101,9 +107,18 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     } catch (err) {
       console.error('Fetch error:', err);
       toast.error(err.message || 'Failed to load products');
+      setNeedsFetch(false);
     }
   }, [fetchProducts, categoryId, isFeatured]);
 
+  // Only fetch when actually needed
+  useEffect(() => {
+    if (needsFetch && !loading) {
+      handleFetchProducts();
+    }
+  }, [needsFetch, loading, handleFetchProducts]);
+
+  // Socket connection - only set up once
   useEffect(() => {
     SocketService.connect();
 
@@ -112,6 +127,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
           (isFeatured ? data.product.isFeatured : true) &&
           (categoryId ? data.product.categoryId === categoryId : true)) {
         setNeedsFetch(true);
+        setHasInitialized(false);
         toast.success(`New product added: ${data.product.title}`);
       }
     };
@@ -120,12 +136,14 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       if ((isFeatured ? data.product.isFeatured : true) &&
           (categoryId ? data.product.categoryId === categoryId : true)) {
         setNeedsFetch(true);
+        setHasInitialized(false);
         toast.info(`Product updated: ${data.product.title}`);
       }
     };
 
-    const handleProductDeleted = (data) => {
+    const handleProductDeleted = () => {
       setNeedsFetch(true);
+      setHasInitialized(false);
       toast.warn('Product removed');
     };
 
@@ -139,7 +157,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       SocketService.off('productDeleted', handleProductDeleted);
       SocketService.disconnect();
     };
-  }, [isFeatured, categoryId]);
+  }, []); // Empty dependency array - only run once
 
   const getVisibleItemsCount = useCallback(() => {
     if (typeof window === 'undefined') return 4;
@@ -150,33 +168,26 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     return 4;
   }, []);
 
+  // Handle window resize
   useEffect(() => {
-    setVisibleItems(getVisibleItemsCount());
-
     const handleResize = () => {
-      setVisibleItems(getVisibleItemsCount());
-      const maxIndex = Math.ceil(memoizedProducts.length / getVisibleItemsCount()) - 1;
+      const newVisibleItems = getVisibleItemsCount();
+      setVisibleItems(newVisibleItems);
+      setIsMobile(window.innerWidth < 768);
+      
+      const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / newVisibleItems) - 1);
       if (currentIndex > maxIndex && maxIndex >= 0) {
         setCurrentIndex(maxIndex);
       }
     };
 
+    // Set initial values
+    setVisibleItems(getVisibleItemsCount());
+    setIsMobile(window.innerWidth < 768);
+
     window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
+    return () => window.removeEventListener('resize', handleResize);
   }, [getVisibleItemsCount, memoizedProducts.length, currentIndex]);
-
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   const handlePrev = useCallback(() => {
     const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
@@ -208,13 +219,17 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     setTimeout(() => setIsAutoPlaying(true), 10000);
   }, []);
 
+  // Auto-play functionality
   useEffect(() => {
-    if (!isAutoPlaying || memoizedProducts.length === 0) return;
+    if (!isAutoPlaying || memoizedProducts.length === 0 || memoizedProducts.length <= visibleItems) {
+      return;
+    }
 
     intervalRef.current = setInterval(() => {
-      setCurrentIndex((prev) =>
-        prev === Math.ceil(memoizedProducts.length / visibleItems) - 1 ? 0 : prev + 1
-      );
+      setCurrentIndex((prev) => {
+        const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
+        return prev >= maxIndex ? 0 : prev + 1;
+      });
     }, 5000);
 
     return () => {

@@ -8,13 +8,6 @@ function HeroSection() {
   const { banners, loading: bannersLoading } = useBanners();
   const [currentSlide, setCurrentSlide] = useState(0);
 
-  // Default fallback images
-  const defaultImages = {
-    'hero-side-top': { src: Airpods, alt: 'Wireless Airpods', title: 'Wireless Airpods', subtitle: 'Starting at $99.99' },
-    'hero-side-bottom-left': { src: banner1, alt: 'Special Offer', title: 'Summer Sale' },
-    'hero-side-bottom-right': { src: banner2, alt: 'New Arrivals', title: 'New Arrivals' },
-  };
-
   // Get slider banners
   const sliderBanners = banners
     .filter((banner) => banner.position === 'hero-slider' && banner.isActive)
@@ -35,12 +28,6 @@ function HeroSection() {
 
   const activeSliderBanners = sliderBanners.length > 0 ? sliderBanners : fallbackSliderBanners;
 
-  // Get banner by position for side banners
-  const getBannerByPosition = (position) => {
-    const banner = banners.find((banner) => banner.position === position && banner.isActive);
-    return banner ? { ...banner, targetUrl: '/products' } : { ...defaultImages[position], link: '/products' };
-  };
-
   // Auto slide change
   useEffect(() => {
     const interval = setInterval(() => {
@@ -50,9 +37,9 @@ function HeroSection() {
   }, [activeSliderBanners.length]);
 
   return (
-    <section className="lg:px-4 md:px-2 sm:px-0 mb-3 pb-5 pt-7 w-full flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-5">
-      {/* Main Slider Section - Always visible */}
-      <div className="w-full md:w-[65%] h-[30vh] sm:h-[50vh] md:h-[80vh] relative rounded-none md:rounded-md lg:rounded-xl overflow-hidden">
+    <section className="lg:px-4 md:px-2 sm:px-0 mb-3 pb-5 pt-7 w-full">
+      {/* Main Slider Section */}
+      <div className="w-full h-[30vh] sm:h-[50vh] md:h-[80vh] relative rounded-none md:rounded-md lg:rounded-xl overflow-hidden">
         <div className="relative w-full h-full">
           {bannersLoading ? (
             <div className="w-full h-full flex items-center justify-center bg-gray-200">
@@ -97,105 +84,6 @@ function HeroSection() {
               </div>
             </>
           )}
-        </div>
-      </div>
-
-      {/* Side Banner Section - Hidden on mobile, visible on md and up */}
-      <div className="hidden md:flex w-full md:w-[35%] flex-col gap-4 h-[80vh]">
-        {/* Top Banner */}
-        <div className="w-full h-1/2 relative rounded-xl overflow-hidden">
-          {bannersLoading ? (
-            <div className="w-full h-full flex items-center justify-center bg-gray-200">
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-            </div>
-          ) : (
-            <>
-              {(() => {
-                const banner = getBannerByPosition('hero-side-top');
-                return (
-                  <a href="/products" className="block w-full h-full">
-                    <img
-                      src={banner.image?.url || banner.src}
-                      alt={banner.image?.alt || banner.title}
-                      className="w-full h-full object-cover object-center"
-                    />
-                    <div className="absolute bottom-4 left-4">
-                      <h3 className="text-xl font-bold text-yellow-500">{banner.title}</h3>
-                      {banner.description || banner.subtitle ? (
-                        <p className="text-sm text-green-500">{banner.description || banner.subtitle}</p>
-                      ) : null}
-                      
-                    </div>
-                  </a>
-                );
-              })()}
-            </>
-          )}
-        </div>
-
-        {/* Bottom Banners */}
-        <div className="w-full h-1/2 flex gap-4">
-          {/* Bottom Left Banner */}
-          <div className="w-1/2 h-full relative rounded-xl overflow-hidden">
-            {bannersLoading ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
-              </div>
-            ) : (
-              <>
-                {(() => {
-                  const banner = getBannerByPosition('hero-side-bottom-left');
-                  return (
-                    <a href="/products" className="block w-full h-full">
-                      <img
-                        src={banner.image?.url || banner.src}
-                        alt={banner.image?.alt || banner.title}
-                        className="w-full h-full object-center object-cover"
-                      />
-                      <div className="absolute bottom-2 left-2">
-                        <p className="text-sm font-medium text-orange-500">{banner.title}</p>
-                        {banner.description || banner.subtitle ? (
-                          <p className="text-xs text-purple-500">{banner.description || banner.subtitle}</p>
-                        ) : null}
-                        
-                      </div>
-                    </a>
-                  );
-                })()}
-              </>
-            )}
-          </div>
-
-          {/* Bottom Right Banner */}
-          <div className="w-1/2 h-full relative rounded-xl overflow-hidden">
-            {bannersLoading ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-blue-500"></div>
-              </div>
-            ) : (
-              <>
-                {(() => {
-                  const banner = getBannerByPosition('hero-side-bottom-right');
-                  return (
-                    <a href="/products" className="block w-full h-full">
-                      <img
-                        src={banner.image?.url || banner.src}
-                        alt={banner.image?.alt || banner.title}
-                        className="w-full h-full object-cover object-center"
-                      />
-                      <div className="absolute bottom-2 left-2">
-                        <p className="text-sm font-medium text-orange-500">{banner.title}</p>
-                        {banner.description || banner.subtitle ? (
-                          <p className="text-xs text-purple-500">{banner.description || banner.subtitle}</p>
-                        ) : null}
-                        
-                      </div>
-                    </a>
-                  );
-                })()}
-              </>
-            )}
-          </div>
         </div>
       </div>
     </section>
