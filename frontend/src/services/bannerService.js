@@ -25,7 +25,7 @@ const bannerSchema = yup.object().shape({
   position: yup
     .string()
     .required('Position is required')
-    .oneOf(['hero-slider', 'hero-side-top', 'hero-side-bottom-left', 'hero-side-bottom-right', 'featured-products-banner'], 'Invalid position'),
+    .oneOf(['hero-slider', 'featured-products-banner'], 'Invalid position'),
 });
 
 // Get active banners (public)

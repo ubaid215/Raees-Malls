@@ -265,9 +265,6 @@ const BannerManager = () => {
                   }`}
                 >
                   <option value="hero-slider">Hero Slider</option>
-                  <option value="hero-side-top">Side Top</option>
-                  <option value="hero-side-bottom-left">Side Bottom Left</option>
-                  <option value="hero-side-bottom-right">Side Bottom Right</option>
                   <option value="featured-products-banner">Featured Products Banner</option>
                 </select>
                 {formErrors.position && (

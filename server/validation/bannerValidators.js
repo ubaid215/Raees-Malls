@@ -32,7 +32,7 @@ const bannerValidator = [
     .trim()
     .notEmpty()
     .withMessage('Position is required')
-    .isIn(['hero-slider', 'hero-side-top', 'hero-side-bottom-left', 'hero-side-bottom-right', 'featured-products-banner'])
+    .isIn(['hero-slider',  'featured-products-banner'])
     .withMessage('Invalid position'),
   checkValidationResult
 ];

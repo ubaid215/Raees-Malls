@@ -30,7 +30,7 @@ const bannerSchema = new Schema({
   },
   position: {
     type: String,
-    enum: ['hero-slider', 'hero-side-top', 'hero-side-bottom-left', 'hero-side-bottom-right', 'featured-products-banner'],
+    enum: ['hero-slider',  'featured-products-banner'],
     required: true,
     trim: true
   },
