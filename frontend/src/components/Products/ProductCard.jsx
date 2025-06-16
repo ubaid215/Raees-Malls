@@ -130,7 +130,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       e.target.outerHTML = `<img
         src="${product.images?.[0]?.url || '/images/placeholder-product.png'}"
         alt="${product.images?.[0]?.alt || product.title}"
-        class="w-full aspect-square sm:aspect-[4/3] object-cover"
+        className="w-full aspect-square sm:aspect-[4/3] object-cover"
         loading="lazy"
       />`;
     }
@@ -189,6 +189,10 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         .vibrate-on-hover:hover {
           animation: vibrate 0.5s ease-in-out;
         }
+        .discount-tag:hover {
+          transform: scale(1.05);
+          transition: transform 0.2s ease-in-out;
+        }
       `}</style>
       <div
         className="w-full max-w-[180px] xs:max-w-[200px] sm:max-w-none bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all cursor-pointer flex flex-col touch-manipulation mx-auto"
@@ -218,21 +222,18 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
               onError={handleMediaError}
             />
           )}
-          <span className={`absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium ${
-            isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-          }`}>
-            {isOutOfStock ? 'Out of Stock' : `In Stock (${product.stock})`}
-          </span>
-          {hasDiscount && (
-            <span className="absolute top-2 right-2 px-2 py-0.5 rounded bg-red-600 text-white text-xs font-medium">
-              {Math.round((1 - product.discountPrice / product.price) * 100)}% OFF
+          <div className="absolute top-2 left-2 flex flex-col gap-1">
+            <span className={`px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium max-w-[120px] sm:max-w-[140px] ${
+              isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+            }`}>
+              {isOutOfStock ? 'Out of Stock' : `In Stock (${product.stock})`}
             </span>
-          )}
-          {product.isFeatured && (
-            <span className="absolute top-10 left-2 px-2 py-0.5 rounded bg-yellow-500 text-white text-xs font-medium">
-              Featured
-            </span>
-          )}
+            {product.isFeatured && (
+              <span className="px-1.5 sm:px-2 py-0.5 rounded bg-yellow-500 text-white text-[10px] sm:text-xs font-medium max-w-[120px] sm:max-w-[140px]">
+                Featured
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="p-2 sm:p-4 flex flex-col gap-1 sm:gap-2 flex-grow">
@@ -257,10 +258,15 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             </ul>
           )}
 
-          <div className="mt-1 sm:mt-2">
+          <div className="mt-1 sm:mt-2 flex items-center gap-1 sm:gap-2 flex-wrap">
             {hasDiscount ? (
               <div className="flex flex-col">
-                <p className="text-sm sm:text-lg font-bold text-red-600">{formattedPrice}</p>
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <p className="text-sm sm:text-lg font-bold text-red-600">{formattedPrice}</p>
+                  <span className="inline-flex px-1.5 sm:px-2 py-0.5 rounded bg-gradient-to-r from-red-500 to-red-600 text-white text-[10px] sm:text-xs font-medium discount-tag">
+                    {Math.round(((product.price - product.discountPrice) / product.price) * 100)}% OFF
+                  </span>
+                </div>
                 <p className="text-xs sm:text-sm text-gray-500 line-through">
                   {new Intl.NumberFormat('en-PK', {
                     style: 'currency',

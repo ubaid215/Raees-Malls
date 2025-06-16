@@ -21,7 +21,7 @@ const Profile = lazy(() => import('../components/shared/Profile'));
 const Wishlist = lazy(() => import('../components/Products/Wishlist'));
 const Cart = lazy(() => import('../components/features/Cart'));
 const Order = lazy(() => import('../pages/Order'));
-const GoogleCallback = lazy(() => import('../pages/GoogleCallback')); // New import
+const GoogleCallback = lazy(() => import('../pages/GoogleCallback'));
 const Dashboard = lazy(() => import('../admin/pages/Dashboard'));
 const ProductInventory = lazy(() => import('../admin/pages/ProductInventory'));
 const OrderManagement = lazy(() => import('../admin/pages/OrderManagment'));
@@ -31,6 +31,10 @@ const EditProductPage = lazy(() => import('../admin/pages/EditProductPage'));
 const HeroSliderAdmin = lazy(() => import('../admin/components/HeroSliderAdmin'));
 const CategoryManager = lazy(() => import('../admin/components/CategoryManager'));
 const BannerManager = lazy(() => import('../admin/components/BannerManager'));
+const PrivacyPolicy = lazy(() => import('../pages/PrivacyPolicy'));
+const ReturnPolicy = lazy(() => import('../pages/ReturnPolicy'));
+const RefundShipping = lazy(() => import('../pages/RefundShipping'));
+const WarrantyTerms = lazy(() => import('../pages/WarrantyTerms'));
 
 const AppRouter = () => {
   return (
@@ -46,7 +50,11 @@ const AppRouter = () => {
           <Route path="contact" element={<Contact />} />
           <Route path="login" element={<Login />} />
           <Route path="register" element={<Register />} />
-          <Route path="callback" element={<GoogleCallback />} /> {/* New route */}
+          <Route path="callback" element={<GoogleCallback />} />
+          <Route path="privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="return-policy" element={<ReturnPolicy />} />
+          <Route path="refund-shipping" element={<RefundShipping />} />
+          <Route path="warranty-terms" element={<WarrantyTerms />} />
 
           {/* Protected Customer Routes */}
           <Route

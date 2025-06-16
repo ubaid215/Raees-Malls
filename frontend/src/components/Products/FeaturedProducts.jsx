@@ -1,20 +1,21 @@
 import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { ArrowRight } from 'lucide-react';
-import Sidebanner from '../../assets/images/Side_banner_home_1_535x.webp';
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
 import { ProductContext } from '../../context/ProductContext';
-import { useBanners } from '../../context/BannerContext';
 import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../shared/config';
 import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
+import { Swiper, SwiperSlide } from 'swiper/react';
+import { Navigation, Autoplay } from 'swiper/modules';
+import 'swiper/css';
+import 'swiper/css/navigation';
 
 function FeaturedProducts() {
   const { products, loading: productsLoading, error: productsError, fetchFeaturedProducts } = useContext(ProductContext);
-  const { banners, loading: bannersLoading } = useBanners();
   const [isInitialized, setIsInitialized] = useState(false);
   const [localError, setLocalError] = useState(null);
 
@@ -25,11 +26,10 @@ function FeaturedProducts() {
     const initializeProducts = async () => {
       try {
         setLocalError(null);
-        // Always fetch on mount to ensure fresh data, bypass cache if no featured products
         const hasFeaturedProducts = products?.some(p => p.isFeatured);
         await fetchFeaturedProducts(
           { page: 1, limit: 6, sort: '-createdAt' },
-          { skipCache: !hasFeaturedProducts } // Bypass cache if no featured products
+          { skipCache: !hasFeaturedProducts }
         );
         
         if (isMounted) {
@@ -56,7 +56,7 @@ function FeaturedProducts() {
       setLocalError(null);
       await fetchFeaturedProducts(
         { page: 1, limit: 6, sort: '-createdAt' },
-        { skipCache: true } // Always bypass cache on manual refresh
+        { skipCache: true }
       );
     } catch (err) {
       console.error('Fetch featured products error:', err);
@@ -192,7 +192,7 @@ function FeaturedProducts() {
         <meta name="description" content="Explore our handpicked selection of featured products with exclusive discounts and limited stock." />
       </Helmet>
 
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6">
+      <div className="flex sm:flex-row flex-col  items-start sm:items-center justify-between mb-4 sm:mb-6">
         <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold">Featured Products</h1>
         <nav className="mt-2 sm:mt-0">
           <Link 
@@ -204,51 +204,63 @@ function FeaturedProducts() {
         </nav>
       </div>
 
-      <div className="flex items-start justify-center gap-4 lg:gap-8 w-full">
-        <div className="hidden lg:block w-[30%] h-[160vh] rounded-xl overflow-hidden relative">
-          {bannersLoading ? (
-            <div className="w-full h-full flex items-center justify-center bg-gray-200">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : (
-            <Link to="/products">
-              <img
-                src={banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.image.url || Sidebanner}
-                alt={banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.image.alt || 'Promotional banner'}
-                className="w-full h-full object-center object-cover"
-                loading="lazy"
-              />
-              <h5 className="uppercase absolute top-10 left-7 text-white">
-                {banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.title || 'Upto 50% off'}
-              </h5>
-              <h1 className="absolute top-20 left-7 text-white text-3xl font-semibold">
-                {banners.find(b => b.position === 'featured-products-banner' && b.isActive)?.description || 'Limited Stock, Huge Saving'}
-              </h1>
-            </Link>
-          )}
-        </div>
-
-        <div className="w-full lg:w-[70%] grid grid-cols-2 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 xs:gap-3 sm:gap-4 md:gap-6">
-          {memoizedProducts.length > 0 ? (
-            memoizedProducts.map((product) => (
-              <ProductCard
-                key={product._id}
-                product={product}
-              />
-            ))
-          ) : (
-            <div className="col-span-2 md:col-span-2 lg:col-span-3 text-center py-8 sm:py-10">
-              <p className="text-gray-500 text-sm sm:text-base">No featured products available</p>
-              <Button 
-                onClick={handleFetchFeaturedProducts}
-                className="mt-3 sm:mt-4 text-sm"
-                disabled={productsLoading}
-              >
-                {productsLoading ? 'Loading...' : 'Refresh Products'}
-              </Button>
-            </div>
-          )}
-        </div>
+      <div className="w-full">
+        <style>
+          {`
+            .swiper-button-next,
+            .swiper-button-prev {
+              color: #e53e3e;
+              background-color: rgba(255, 255, 255, 0.8);
+              border-radius: 50%;
+              width: 32px;
+              height: 32px;
+              top: 50%;
+              transform: translateY(-50%);
+            }
+            .swiper-button-next:after,
+            .swiper-button-prev:after {
+              font-size: 16px;
+            }
+            .swiper-button-next {
+              right: 10px;
+            }
+            .swiper-button-prev {
+              left: 10px;
+            }
+          `}
+        </style>
+        {memoizedProducts.length > 0 ? (
+          <Swiper
+            modules={[Navigation, Autoplay]}
+            spaceBetween={16}
+            slidesPerView={2}
+            navigation
+            autoplay={{ delay: 3000, disableOnInteraction: false }}
+            breakpoints={{
+              640: { slidesPerView: 2 },
+              768: { slidesPerView: 3 },
+              1024: { slidesPerView: 4 }
+            }}
+            className="mySwiper"
+          >
+            {memoizedProducts.map((product) => (
+              <SwiperSlide key={product._id}>
+                <ProductCard product={product} />
+              </SwiperSlide>
+            ))}
+          </Swiper>
+        ) : (
+          <div className="text-center py-8 sm:py-10">
+            <p className="text-gray-500 text-sm sm:text-base">No featured products available</p>
+            <Button 
+              onClick={handleFetchFeaturedProducts}
+              className="mt-3 sm:mt-4 text-sm"
+              disabled={productsLoading}
+            >
+              {productsLoading ? 'Loading...' : 'Refresh Products'}
+            </Button>
+          </div>
+        )}
       </div>
     </section>
   );

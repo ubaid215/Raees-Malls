@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Loader2, MapPin, Phone, Clock, Mail, MessageCircle } from 'lucide-react';
 
-// Your Button component (from April 15, 2025)
+// Button component
 const Button = ({
   children,
   variant = 'primary',
@@ -57,7 +57,7 @@ const Button = ({
   );
 };
 
-// Assumed Card component (aligned with About page)
+// Card component
 const Card = ({ children, className = '' }) => (
   <div
     className={`
@@ -69,7 +69,7 @@ const Card = ({ children, className = '' }) => (
   </div>
 );
 
-// Assumed Input component (modern, with animation)
+// Input component
 const Input = ({
   label,
   name,
@@ -258,6 +258,67 @@ Sent via Raees Malls Contact Form`;
           <div className="space-y-6">
             <h2 className="text-3xl font-bold text-gray-900 mb-6">Contact Information</h2>
             <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">About Raees Malls</h3>
+              <p className="text-gray-600">
+                We are a dependable marketplace for refurbished mobile phones, laptops, and other tech gadgets.
+              </p>
+            </Card>
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Need Help?</h3>
+              <p className="text-gray-600 mb-4">
+                We would love to hear from you. We are here for you 24/7.
+              </p>
+              <div className="space-y-4">
+                <div className="flex items-start">
+                  <Phone className="text-red-600 mr-4 mt-1" size={24} />
+                  <div>
+                    <h4 className="text-md font-semibold text-gray-900">Talk to Us</h4>
+                    <p className="text-gray-600 mb-1">
+                      We are just a call away. Our representative is eager to hear from you.
+                    </p>
+                    <p className="text-gray-600">
+                      <a href="tel:03006530063" className="hover:text-red-600 font-semibold">
+                        0300-6530063
+                      </a>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start">
+                  <Mail className="text-red-600 mr-4 mt-1" size={24} />
+                  <div>
+                    <h4 className="text-md font-semibold text-gray-900">Drop Us a Line</h4>
+                    <p className="text-gray-600 mb-1">
+                      Reach us via email to discuss anything in detail. We’ll respond promptly.
+                    </p>
+                    <p className="text-gray-600">
+                      <a href="mailto:raeesmalls1@gmail.com" className="hover:text-red-600 font-semibold">
+                        raeesmalls1@gmail.com
+                      </a>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start">
+                  <MessageCircle className="text-red-600 mr-4 mt-1" size={24} />
+                  <div>
+                    <h4 className="text-md font-semibold text-gray-900">Contact Help Center</h4>
+                    <p className="text-gray-600 mb-1">
+                      Our support staff is ready to answer all your queries via WhatsApp.
+                    </p>
+                    <p className="text-gray-600">
+                      <a
+                        href="https://wa.me/923006530063"
+                        className="hover:text-red-600 font-semibold"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        0300-6530063
+                      </a>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Card>
+            <Card className="p-6">
               <div className="flex items-start">
                 <MapPin className="text-red-600 mr-4 mt-1" size={24} />
                 <div>
@@ -268,58 +329,7 @@ Sent via Raees Malls Contact Form`;
                     Opposite Ayesha Masjid Motor Market Jhang Road Faisalabad <hr /> <br />
                     <span className='font-semibold italic text-red-600'>Sub Office</span><br />
                     <span className='text-xl font-mono font-bold'>Raees Mobiles</span><br />
-                    Masjid Bazar Opposite Jamia Masjid Jaranwala <hr /> 
-
-                  </p>
-                </div>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <div className="flex items-start">
-                <Phone className="text-red-600 mr-4 mt-1" size={24} />
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">Phone Numbers</h3>
-                  <p className="text-gray-600 mb-1">
-                    <a href="tel:03007246696" className="hover:text-red-600">
-                      0300-7246696
-                    </a>
-                  </p>
-                  <p className="text-gray-600">
-                    <a href="tel:03006530063" className="hover:text-red-600">
-                      0300-6530063
-                    </a>
-                  </p>
-                </div>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <div className="flex items-start">
-                <MessageCircle className="text-red-600 mr-4 mt-1" size={24} />
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">WhatsApp</h3>
-                  <p className="text-gray-600">
-                    Reach us on WhatsApp:{' '}
-                    <a
-                      href="https://wa.me/923006530063"
-                      className="hover:text-red-600 font-semibold"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      0300-6530063
-                    </a>
-                  </p>
-                </div>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <div className="flex items-start">
-                <Mail className="text-red-600 mr-4 mt-1" size={24} />
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">Email</h3>
-                  <p className="text-gray-600">
-                    <a href="mailto:raeesmalls1@gmail.com" className="hover:text-red-600">
-                      raeesmalls1@gmail.com
-                    </a>
+                    Masjid Bazar Opposite Jamia Masjid Jaranwala <hr />
                   </p>
                 </div>
               </div>

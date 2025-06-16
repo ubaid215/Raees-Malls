@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo, useContext } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useContext, useRef } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate, useLocation } from "react-router-dom";
 import Button from "../components/core/Button";
@@ -26,6 +26,7 @@ function AllProducts() {
   const location = useLocation();
   const { categories, fetchCategories } = useContext(CategoryContext);
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
+  const dropdownRef = useRef(null);
 
   // Create a hierarchical structure for categories
   const categoriesWithSubcategories = useMemo(() => {
@@ -58,6 +59,21 @@ function AllProducts() {
       ...categoriesWithSubcategories,
     ];
   }, [categoriesWithSubcategories]);
+
+  // Create a category lookup map for product category names
+  const categoryLookup = useMemo(() => {
+    const lookup = {};
+    const buildLookup = (cats) => {
+      cats.forEach((cat) => {
+        lookup[cat._id] = cat.name;
+        if (cat.subCategories?.length > 0) {
+          buildLookup(cat.subCategories);
+        }
+      });
+    };
+    buildLookup(safeCategories);
+    return lookup;
+  }, [safeCategories]);
 
   const selectedCategoryName = useMemo(() => {
     const findCategoryName = (cats, id) => {
@@ -97,7 +113,7 @@ function AllProducts() {
         setNeedsFetch(true);
       }
     }
-  }, [location.search, safeCategories]);
+  }, [location.search, safeCategories, selectedCategory]);
 
   const debouncedFetchProducts = useCallback(
     debounce(async (page, limit, categoryId, retries = 3) => {
@@ -220,7 +236,6 @@ function AllProducts() {
   };
 
   const handleCategoryChange = (categoryId) => {
-    // Find the category to get its slug
     const findCategoryById = (cats, id) => {
       for (const cat of cats) {
         if (cat._id === id) return cat;
@@ -235,16 +250,16 @@ function AllProducts() {
     const category = findCategoryById(safeCategories, categoryId);
     const slug = category?.slug || '';
     
-    // Update URL without reload
     navigate(`?category=${slug}`, { replace: true });
     
-    // Update local state
     setSelectedCategory(categoryId);
     setPagination((prev) => ({ ...prev, page: 1 }));
     setNeedsFetch(true);
+    setIsCategoryDropdownOpen(false);
   };
 
-  const toggleCategoryDropdown = () => {
+  const toggleCategoryDropdown = (e) => {
+    e.stopPropagation();
     setIsCategoryDropdownOpen((prev) => !prev);
   };
 
@@ -258,17 +273,19 @@ function AllProducts() {
   // Close dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      const dropdown = document.getElementById("category-dropdown");
-      if (dropdown && !dropdown.contains(event.target)) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        console.log("Clicked outside, target:", event.target); // Debugging
         setIsCategoryDropdownOpen(false);
       }
     };
 
     if (isCategoryDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("touchstart", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
     };
   }, [isCategoryDropdownOpen]);
 
@@ -281,15 +298,19 @@ function AllProducts() {
       discountPrice: product.discountPrice || 0,
       images: product.images?.map((img) => ({
         url: img.url?.startsWith("http") ? img.url : `${API_BASE_URL}${img.url}`,
-      })) || [{ url: "/placeholder-product.png" }],
+        alt: img.alt || product.title || "Product image",
+      })) || [{ url: "/placeholder-product.png", alt: "Placeholder image" }],
       sku: product.sku || "N/A",
-      rating: product.averageRating || product.rating || 0,
+      averageRating: product.averageRating || product.rating || 0,
       numReviews: product.numReviews || 0,
       stock: product.stock || 0,
-      categories: product.categories || [],
       isFeatured: product.isFeatured || false,
+      categoryId: {
+        _id: product.categoryId?._id || product.categoryId,
+        name: categoryLookup[product.categoryId?._id || product.categoryId] || "Uncategorized",
+      },
     }));
-  }, [products]);
+  }, [products, categoryLookup]);
 
   // Render category for desktop sidebar
   const renderCategory = (category, level = 0) => {
@@ -305,6 +326,7 @@ function AllProducts() {
             isSelected ? "bg-red-600 text-white" : "text-gray-600 hover:bg-gray-50"
           }`}
           style={{ paddingLeft: `${level * 12 + 12}px` }}
+          type="button"
         >
           <span>{category.name}</span>
           {hasSubcategories && (
@@ -342,11 +364,22 @@ function AllProducts() {
       <React.Fragment key={category._id}>
         <li className="relative">
           <button
-            onClick={() => hasSubcategories ? toggleSubcategory(category._id) : (handleCategoryChange(category._id), setIsCategoryDropdownOpen(false))}
-            className={`w-full flex items-center justify-between px-4 py-2 text-sm ${
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (hasSubcategories) {
+                toggleSubcategory(category._id);
+              } else {
+                handleCategoryChange(category._id);
+              }
+            }}
+            className={`w-full flex items-center justify-between px-4 py-4 text-sm transition-colors ${
               isSelected ? "bg-red-600 text-white" : "text-gray-600 hover:bg-gray-50"
             }`}
             style={{ paddingLeft: `${level * 12 + 16}px` }}
+            role="menuitem"
+            aria-selected={isSelected}
+            type="button"
           >
             <span>{category.name}</span>
             {hasSubcategories && (
@@ -365,9 +398,11 @@ function AllProducts() {
           </button>
         </li>
         {hasSubcategories && isExpanded && (
-          category.subCategories.map((subCategory) =>
-            renderMobileCategory(subCategory, level + 1)
-          )
+          <>
+            {category.subCategories.map((subCategory) =>
+              renderMobileCategory(subCategory, level + 1)
+            )}
+          </>
         )}
       </React.Fragment>
     );
@@ -451,6 +486,7 @@ function AllProducts() {
                       fetchCategories({ isPublic: true });
                     }}
                     className="font-medium text-red-700 hover:text-red-600 underline"
+                    type="button"
                   >
                     Try again
                   </button>
@@ -463,10 +499,12 @@ function AllProducts() {
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Mobile Category Dropdown */}
           <div className="lg:hidden w-full mb-6">
-            <div className="relative" id="category-dropdown">
+            <div className="relative" id="category-dropdown" ref={dropdownRef}>
               <button
                 onClick={toggleCategoryDropdown}
                 className="flex justify-between items-center w-full bg-white border border-gray-200 rounded-lg shadow-sm px-4 py-3 text-left"
+                type="button"
+                aria-expanded={isCategoryDropdownOpen}
               >
                 <span className="font-medium text-gray-900">
                   {selectedCategoryName}
@@ -485,23 +523,26 @@ function AllProducts() {
                   />
                 </svg>
               </button>
-
               {isCategoryDropdownOpen && (
-                <div className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 py-1 max-h-60 overflow-auto">
+                <div className="mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200 py-1 max-h-60 max-w-full overflow-auto pointer-events-auto touch-action-manipulation z-[100]">
                   {categories.length === 0 ? (
                     <div className="text-center py-4">
                       <p className="text-sm text-gray-500 mb-2">
                         No categories loaded.
                       </p>
                       <Button
-                        onClick={() => fetchCategories({ isPublic: true })}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          fetchCategories({ isPublic: true });
+                        }}
                         className="inline-flex items-center px-3 py-1 text-xs font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                        type="button"
                       >
                         Load Categories
                       </Button>
                     </div>
                   ) : (
-                    <ul>
+                    <ul role="menu">
                       {safeCategories.map((category) =>
                         renderMobileCategory(category)
                       )}
@@ -525,6 +566,7 @@ function AllProducts() {
                 <Button
                   onClick={() => fetchCategories({ isPublic: true })}
                   className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700"
+                  type="button"
                 >
                   Load Categories
                 </Button>
@@ -578,6 +620,7 @@ function AllProducts() {
                   <Button
                     onClick={() => setNeedsFetch(true)}
                     className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none"
+                    type="button"
                   >
                     Refresh Products
                   </Button>
@@ -585,6 +628,7 @@ function AllProducts() {
                     <Button
                       onClick={() => handleCategoryChange("all")}
                       className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      type="button"
                     >
                       View All Products
                     </Button>
@@ -605,6 +649,7 @@ function AllProducts() {
                       onClick={() => handlePageChange(pagination.page - 1)}
                       disabled={pagination.page === 1}
                       className="w-full sm:w-auto px-4 py-2 border border-gray-200 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      type="button"
                     >
                       Previous
                     </Button>
@@ -629,6 +674,7 @@ function AllProducts() {
                                   ? "bg-red-600 text-white"
                                   : "text-gray-600 hover:bg-gray-100"
                               }`}
+                              type="button"
                             >
                               {pageNum}
                             </button>
@@ -641,6 +687,7 @@ function AllProducts() {
                       onClick={() => handlePageChange(pagination.page + 1)}
                       disabled={pagination.page === pagination.pages}
                       className="w-full sm:w-auto px-4 py-2 border border-gray-200 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      type="button"
                     >
                       Next
                     </Button>
