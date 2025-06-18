@@ -35,13 +35,13 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
         : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.productId.images[0].url}`
       : "/images/placeholder-product.png";
 
-  console.log("CartProductCard: Item image data:", {
-    itemId: item.productId._id,
-    title: item.title,
-    image: item.image,
-    productIdImages: item.productId?.images,
-    computedImageUrl: imageUrl,
-  });
+  // console.log("CartProductCard: Item image data:", {
+  //   itemId: item.productId._id,
+  //   title: item.title,
+  //   image: item.image,
+  //   productIdImages: item.productId?.images,
+  //   computedImageUrl: imageUrl,
+  // });
 
   const formattedPrice = new Intl.NumberFormat("en-PK", {
     style: "currency",
@@ -159,7 +159,7 @@ function Cart() {
   const [redirectCount, setRedirectCount] = useState(0);
 
   useEffect(() => {
-    console.log("Cart: cartItems:", cartItems);
+    // console.log("Cart: cartItems:", cartItems);
     console.log("Cart: isLoading:", isLoading, "error:", error);
   }, [cartItems, isLoading, error]);
 
@@ -385,13 +385,13 @@ function Cart() {
                           : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.productId.images[0].url}`
                         : "/images/placeholder-product.png";
 
-                    console.log("Cart: Item image data:", {
-                      itemId: item.productId._id,
-                      title: item.title,
-                      image: item.image,
-                      productIdImages: item.productId?.images,
-                      computedImageUrl: imageUrl,
-                    });
+                    // console.log("Cart: Item image data:", {
+                    //   itemId: item.productId._id,
+                    //   title: item.title,
+                    //   image: item.image,
+                    //   productIdImages: item.productId?.images,
+                    //   computedImageUrl: imageUrl,
+                    // });
 
                     return (
                       <tr

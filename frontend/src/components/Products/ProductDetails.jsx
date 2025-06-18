@@ -109,7 +109,7 @@ const ProductDetails = memo(() => {
       setError(null);
       try {
         const fetchedProduct = await getProductById(productId, { isPublic: true });
-        console.log('Fetched Product:', JSON.stringify(fetchedProduct, null, 2));
+        // console.log('Fetched Product:', JSON.stringify(fetchedProduct, null, 2));
 
         if (!fetchedProduct) {
           throw new Error('Product not found');

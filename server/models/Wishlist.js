@@ -2,10 +2,8 @@ const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const wishlistSchema = new Schema({
-  userId: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
-    required: [true, 'User ID is required'],
+  deviceId: {
+    type: String,
     index: true
   },
   items: [{
@@ -15,8 +13,8 @@ const wishlistSchema = new Schema({
       required: [true, 'Product ID is required']
     },
     variantId: {
-      type: Schema.Types.ObjectId, // References _id of a variant in Product.variants
-      required: false // Optional, for variant-specific wishlists
+      type: Schema.Types.ObjectId,
+      required: false
     },
     addedAt: {
       type: Date,
@@ -39,7 +37,7 @@ wishlistSchema.pre('save', function(next) {
   next();
 });
 
-// Ensure unique product/variant per user
-wishlistSchema.index({ userId: 1, 'items.productId': 1, 'items.variantId': 1 }, { unique: true });
+// Ensure unique product/variant per device
+wishlistSchema.index({ deviceId: 1, 'items.productId': 1, 'items.variantId': 1 }, { unique: true, partialFilterExpression: { deviceId: { $exists: true } } });
 
 module.exports = mongoose.model('Wishlist', wishlistSchema);

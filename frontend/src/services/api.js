@@ -44,9 +44,9 @@ api.interceptors.request.use(
       const token = localStorage.getItem(tokenKey);
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
-        console.log(`API request: Adding ${tokenKey}`, { url: config.url, token });
+        // console.log(`API request: Adding ${tokenKey}`, { url: config.url, token });
       } else {
-        console.log(`API request: No ${tokenKey} found`, { url: config.url });
+        // console.log(`API request: No ${tokenKey} found`, { url: config.url });
       }
     }
     // Remove Content-Type for multipart/form-data
@@ -155,7 +155,7 @@ const refreshToken = async (isAdmin = false) => {
     const { token: accessToken, refreshToken: newRefreshToken } = data;
     localStorage.setItem(isAdmin ? 'adminToken' : 'userToken', accessToken);
     localStorage.setItem(tokenKey, newRefreshToken);
-    console.log(`refreshToken: Tokens updated`, { accessToken, newRefreshToken });
+    // console.log(`refreshToken: Tokens updated`, { accessToken, newRefreshToken });
 
     return accessToken;
   } catch (error) {
@@ -167,7 +167,7 @@ const refreshToken = async (isAdmin = false) => {
       const accessTokenKey = isAdmin ? 'adminToken' : 'userToken';
       localStorage.removeItem(tokenKey);
       localStorage.removeItem(accessTokenKey);
-      console.log('Cleared invalid tokens');
+      // console.log('Cleared invalid tokens');
     }
     
     // Return null instead of throwing to prevent auto-logout

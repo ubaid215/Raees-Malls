@@ -1,6 +1,7 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useCallback } from 'react';
 import { addToWishlist, getWishlist, removeFromWishlist } from '../services/wishlistService';
 import socketService from '../services/socketService';
+import { v4 as uuidv4 } from 'uuid';
 
 export const WishlistContext = createContext();
 
@@ -9,58 +10,223 @@ export const WishlistProvider = ({ children }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const userId = localStorage.getItem('userId');
-    const adminToken = localStorage.getItem('adminToken');
-
-    if (userId) {
-      socketService.connect(userId, adminToken ? 'admin' : 'user');
-      fetchWishlist();
-      socketService.on('wishlistUpdated', fetchWishlist);
+  const getDeviceId = () => {
+    let deviceId = localStorage.getItem('deviceId');
+    if (!deviceId) {
+      deviceId = uuidv4();
+      localStorage.setItem('deviceId', deviceId);
     }
+    return deviceId;
+  };
 
-    return () => {
-      socketService.off('wishlistUpdated', fetchWishlist);
-      // socketService.disconnect(); // Optional
+  const debounce = (func, wait) => {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func(...args), wait);
     };
-  }, []);
+  };
 
-  const fetchWishlist = async () => {
-    setLoading(true);
-    setError('');
+  // Safe value extraction with proper null checks
+  const safeExtractValue = (obj, path, defaultValue = null) => {
     try {
-      const wishlistData = await getWishlist();
-      setWishlist(wishlistData);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      const keys = path.split('.');
+      let current = obj;
+      for (const key of keys) {
+        if (current === null || current === undefined) {
+          return defaultValue;
+        }
+        current = current[key];
+      }
+      return current !== null && current !== undefined ? current : defaultValue;
+    } catch (error) {
+      console.warn(`Error extracting value from path ${path}:`, error);
+      return defaultValue;
     }
   };
 
+  const fetchWishlist = useCallback(
+    debounce(async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const wishlistData = await getWishlist();
+        // console.log('fetchWishlist wishlistData:', JSON.stringify(wishlistData, null, 2));
+        
+        // Handle empty or invalid data
+        if (!wishlistData) {
+          console.log('No wishlist data received, setting empty array');
+          setWishlist([]);
+          return;
+        }
+
+        if (!Array.isArray(wishlistData)) {
+          console.error('fetchWishlist: Expected wishlistData to be an array, got:', typeof wishlistData, wishlistData);
+          setError('Invalid wishlist data format');
+          setWishlist([]);
+          return;
+        }
+
+        // Handle empty array
+        if (wishlistData.length === 0) {
+          console.log('Wishlist is empty');
+          setWishlist([]);
+          return;
+        }
+
+        const transformedData = wishlistData
+          .map((item, index) => {
+            try {
+              // console.log(`Transforming item ${index}:`, JSON.stringify(item, null, 2));
+              
+              // Handle different possible data structures
+              const product = item?.productId || item?.product || item;
+              
+              if (!product) {
+                console.warn(`Item ${index} has no product data:`, item);
+                return null;
+              }
+
+              // Extract product ID
+              const productId = product._id || product.id || safeExtractValue(item, 'productId._id') || safeExtractValue(item, 'productId');
+              
+              if (!productId) {
+                console.warn(`Item ${index} has no valid product ID:`, product);
+                return null;
+              }
+
+              // Safe extraction of product data with fallbacks
+              const title = safeExtractValue(product, 'title') || 
+                           safeExtractValue(product, 'name') || 
+                           'Unknown Product';
+
+              const images = safeExtractValue(product, 'images') || [];
+              const imageUrl = Array.isArray(images) && images.length > 0 
+                ? (images[0]?.url || images[0]?.src || images[0])
+                : '/placeholder-product.png';
+
+              // Handle price with proper fallbacks
+              const originalPrice = Number(safeExtractValue(product, 'price', 0)) || 0;
+              const discountPrice = Number(safeExtractValue(product, 'discountPrice')) || null;
+              const finalPrice = discountPrice && discountPrice > 0 ? discountPrice : originalPrice;
+
+              // Handle rating and reviews
+              const rating = Number(safeExtractValue(product, 'averageRating', 0)) || 
+                           Number(safeExtractValue(product, 'rating', 0)) || 0;
+              const reviews = Number(safeExtractValue(product, 'numReviews', 0)) || 
+                            Number(safeExtractValue(product, 'reviewCount', 0)) || 0;
+
+              // Handle stock
+              const stock = Number(safeExtractValue(product, 'stock', 0)) || 
+                          Number(safeExtractValue(product, 'quantity', 0)) || 0;
+
+              const transformedItem = {
+                productId: productId,
+                title: title,
+                image: imageUrl,
+                price: originalPrice,
+                discountPrice: discountPrice,
+                rating: rating,
+                reviews: reviews,
+                stock: stock,
+                variantId: safeExtractValue(item, 'variantId'),
+              };
+
+              console.log(`Transformed item ${index}:`, transformedItem);
+              return transformedItem;
+            } catch (transformError) {
+              console.error(`Error transforming item ${index}:`, transformError, item);
+              return null;
+            }
+          })
+          .filter(item => item !== null && item.productId);
+
+        // console.log('Final transformed wishlist:', JSON.stringify(transformedData, null, 2));
+        setWishlist(transformedData);
+        
+      } catch (err) {
+        console.error('fetchWishlist error:', err);
+        setError(err.message || 'Failed to fetch wishlist');
+        setWishlist([]); // Set empty array on error to prevent blank page
+      } finally {
+        setLoading(false);
+      }
+    }, 500),
+    []
+  );
+
+  useEffect(() => {
+    try {
+      const deviceId = getDeviceId();
+      socketService.connect(deviceId);
+      
+      // Add error handling for socket events
+      socketService.on('wishlistUpdated', (data) => {
+        // console.log('Socket wishlistUpdated event:', JSON.stringify(data, null, 2));
+        try {
+          fetchWishlist();
+        } catch (socketError) {
+          console.error('Error handling wishlistUpdated event:', socketError);
+        }
+      });
+
+      // Initial fetch
+      fetchWishlist();
+
+    } catch (initError) {
+      console.error('Error initializing wishlist:', initError);
+      setError('Failed to initialize wishlist');
+      setLoading(false);
+    }
+
+    return () => {
+      try {
+        socketService.off('wishlistUpdated');
+      } catch (cleanupError) {
+        console.error('Error cleaning up socket listeners:', cleanupError);
+      }
+    };
+  }, [fetchWishlist]);
+
   const addItemToWishlist = async (productId, variantId = null) => {
+    if (!productId) {
+      const error = 'Product ID is required';
+      setError(error);
+      throw new Error(error);
+    }
+
     setLoading(true);
     setError('');
     try {
       await addToWishlist(productId, variantId);
       await fetchWishlist();
     } catch (err) {
-      setError(err.message);
-      throw err;
+      console.error('addItemToWishlist error:', err);
+      const errorMessage = err.message || 'Failed to add to wishlist';
+      setError(errorMessage);
+      throw new Error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
   const removeItemFromWishlist = async (productId, variantId = null) => {
+    if (!productId) {
+      const error = 'Product ID is required';
+      setError(error);
+      throw new Error(error);
+    }
+
     setLoading(true);
     setError('');
     try {
       await removeFromWishlist(productId, variantId);
       await fetchWishlist();
     } catch (err) {
-      setError(err.message);
-      throw err;
+      console.error('removeItemFromWishlist error:', err);
+      const errorMessage = err.message || 'Failed to remove from wishlist';
+      setError(errorMessage);
+      throw new Error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -68,6 +234,7 @@ export const WishlistProvider = ({ children }) => {
 
   const value = {
     wishlist,
+    wishlistCount: wishlist.length,
     loading,
     error,
     addItemToWishlist,

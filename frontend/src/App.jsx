@@ -10,6 +10,7 @@ import { CartProvider } from './context/CartContext';
 import { CategoryProvider } from './context/CategoryContext';
 import { ReviewProvider } from './context/ReviewContext';
 import { BannerProvider } from './context/BannerContext';
+import {WishlistProvider} from './context/WishlistContext';
 
 function App() {
   return (
@@ -26,7 +27,9 @@ function App() {
                       <ReviewProvider>
                         {/* Admin-specific provider */}
                         <DiscountProvider>
+                          <WishlistProvider>
                           <AppRouter />
+                          </WishlistProvider>
                         </DiscountProvider>
                       </ReviewProvider>
                   </OrderProvider>

@@ -1,12 +1,13 @@
-import React, { memo, useState, useEffect } from 'react';
+import React, { memo, useState, useEffect, useContext } from 'react';
 import { CiShoppingCart } from 'react-icons/ci';
-import { FaStar, FaStarHalfAlt, FaRegStar } from 'react-icons/fa';
+import { FaStar, FaStarHalfAlt, FaRegStar, FaHeart, FaRegHeart } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import Button from '../core/Button';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { useProduct } from '../../context/ProductContext';
+import { WishlistContext } from '../../context/WishlistContext';
 import PropTypes from 'prop-types';
 
 const ProductCard = memo(({ productId, product: initialProduct }) => {
@@ -14,33 +15,41 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const { addItemToCart } = useCart();
   const { user } = useAuth();
   const { getProduct } = useProduct();
+  const { wishlist, addItemToWishlist, removeItemFromWishlist, loading } = useContext(WishlistContext);
   const [product, setProduct] = useState(initialProduct);
-  const [loading, setLoading] = useState(!initialProduct);
+  const [loadingProduct, setLoadingProduct] = useState(!initialProduct);
   const [addToCartStatus, setAddToCartStatus] = useState({
     loading: false,
     success: false,
     error: null
   });
+  const [isInWishlist, setIsInWishlist] = useState(false);
 
   useEffect(() => {
     if (productId && !initialProduct) {
       const fetchProduct = async () => {
         try {
-          setLoading(true);
+          setLoadingProduct(true);
           const fetchedProduct = await getProduct(productId, { skipCache: false });
           setProduct(fetchedProduct);
         } catch (error) {
           console.error('Failed to fetch product:', error);
           toast.error('Failed to load product details');
         } finally {
-          setLoading(false);
+          setLoadingProduct(false);
         }
       };
       fetchProduct();
     }
   }, [productId, initialProduct, getProduct]);
 
-  if (loading) {
+  useEffect(() => {
+    if (product?._id) {
+      setIsInWishlist(wishlist.some(item => item.productId === product._id));
+    }
+  }, [wishlist, product]);
+
+  if (loadingProduct) {
     return (
       <div className="w-full bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="animate-pulse">
@@ -113,6 +122,25 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         success: false,
         error: errorMessage
       });
+    }
+  };
+
+  const handleWishlistClick = async (e) => {
+    e.stopPropagation();
+    if (loading) return; // Prevent multiple clicks
+    try {
+      if (isInWishlist) {
+        await removeItemFromWishlist(product._id);
+        toast.success(`${product.title} removed from wishlist!`);
+        setIsInWishlist(false);
+      } else {
+        await addItemToWishlist(product._id);
+        toast.success(`${product.title} added to wishlist!`);
+        setIsInWishlist(true);
+      }
+    } catch (err) {
+      console.error('Wishlist action error:', err.message);
+      toast.error(err.message || 'Failed to update wishlist');
     }
   };
 
@@ -234,6 +262,18 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
               </span>
             )}
           </div>
+          <button
+            onClick={handleWishlistClick}
+            className="absolute top-2 right-2 p-1 rounded-full bg-white/80 hover:bg-white transition-colors"
+            aria-label={isInWishlist ? `Remove ${product.title} from wishlist` : `Add ${product.title} to wishlist`}
+            disabled={loading}
+          >
+            {isInWishlist ? (
+              <FaHeart className="text-red-600 text-lg" />
+            ) : (
+              <FaRegHeart className="text-gray-600 text-lg" />
+            )}
+          </button>
         </div>
 
         <div className="p-2 sm:p-4 flex flex-col gap-1 sm:gap-2 flex-grow">

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser } from 'react-icons/ci';
+import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser, CiHeart } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
 import { CategoryContext } from '../../../context/CategoryContext';
 import { ProductContext } from '../../../context/ProductContext';
+import { WishlistContext } from '../../../context/WishlistContext';
 import { useCart } from '../../../context/CartContext';
 import SocketService from '../../../services/socketService';
 import { toast } from 'react-toastify';
@@ -34,6 +35,7 @@ function Navbar() {
   const { cartItems } = useCart();
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
   const { products, fetchProducts } = useContext(ProductContext);
+  const { wishlistCount } = useContext(WishlistContext);
 
   // Calculate cart count from cartItems array
   const cartCount = Array.isArray(cartItems)
@@ -214,6 +216,12 @@ function Navbar() {
     e.stopPropagation();
   };
 
+  const handleWishlistClick = (e) => {
+    console.log('Navbar: Wishlist link clicked');
+    navigate('/wishlist');
+    e.stopPropagation();
+  };
+
   // Render category with subcategories for desktop dropdown
   const renderDesktopCategory = (category, level = 0) => {
     const hasSubcategories = category.subCategories?.length > 0;
@@ -339,6 +347,18 @@ function Navbar() {
             <CiSearch size={24} strokeWidth={1} />
           </button>
           <button
+            onClick={handleWishlistClick}
+            className="p-2 relative text-red-600"
+            aria-label="Wishlist"
+          >
+            <CiHeart size={24} strokeWidth={1} />
+            {wishlistCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                {wishlistCount}
+              </span>
+            )}
+          </button>
+          <button
             onClick={handleCartClick}
             className="p-2 relative text-red-600"
             aria-label="Cart"
@@ -426,7 +446,7 @@ function Navbar() {
                 Sign Up
               </Link>
             </div>
-            <div className="relative" id="category-dropdown">
+            <div className="relative" id="mobile-category-dropdown">
               <button
                 onClick={() => setShowDropdown(!showDropdown)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 text-gray-700 rounded-md border"
@@ -578,7 +598,19 @@ function Navbar() {
           </form>
         </div>
 
-        <div className="flex items-center gap-4 lg:gap-6">
+        <div className="flex items-center gap-2 lg:gap-3">
+          <button
+            onClick={handleWishlistClick}
+            className="p-2 text-red-600 hover:text-red-700 transition-colors relative cursor-pointer"
+            aria-label="Wishlist"
+          >
+            <CiHeart size={24} strokeWidth={1} />
+            {wishlistCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                {wishlistCount}
+              </span>
+            )}
+          </button>
           <button
             onClick={handleCartClick}
             className="p-2 text-red-600 hover:text-red-700 transition-colors relative cursor-pointer"

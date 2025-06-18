@@ -60,9 +60,7 @@ const AppRouter = () => {
           <Route
             path="wishlist"
             element={
-              <ProtectedRoute>
                 <Wishlist />
-              </ProtectedRoute>
             }
           />
           <Route

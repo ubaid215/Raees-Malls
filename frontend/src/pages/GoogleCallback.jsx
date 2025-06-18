@@ -14,7 +14,7 @@ const GoogleCallback = () => {
 
     const handleCallback = async () => {
       try {
-        console.log('GoogleCallback: Processing callback', location.search);
+        // console.log('GoogleCallback: Processing callback', location.search);
         const params = new URLSearchParams(location.search);
         const token = params.get('token');
         const refreshToken = params.get('refreshToken');
@@ -38,7 +38,7 @@ const GoogleCallback = () => {
 
         try {
           await fetchUser();
-          console.log('GoogleCallback: User fetched successfully');
+          // console.log('GoogleCallback: User fetched successfully');
         } catch (fetchError) {
           console.warn('GoogleCallback: fetchUser failed, retrying later', fetchError);
           // Allow navigation to proceed; retry fetchUser in AuthProvider
