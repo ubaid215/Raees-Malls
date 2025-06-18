@@ -16,7 +16,7 @@ function Wishlist() {
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center justify-center mb-4">
             <Heart className="text-red-500 mr-3" size={40} />
-            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold  bg-gradient-to-r from-red-600 to-pink-600 bg-clip-text text-transparent">
               Your Wishlist
             </h1>
           </div>
