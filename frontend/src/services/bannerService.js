@@ -6,7 +6,7 @@ const bannerSchema = yup.object().shape({
   title: yup
     .string()
     .trim()
-    .optional(), // Make title optional
+    .optional(),
   description: yup
     .string()
     .trim()
@@ -25,7 +25,7 @@ const bannerSchema = yup.object().shape({
   position: yup
     .string()
     .required('Position is required')
-    .oneOf(['hero-slider', 'featured-products-banner'], 'Invalid position'),
+    .oneOf(['hero-slider'], 'Invalid position'),
 });
 
 // Get active banners (public)
@@ -53,28 +53,26 @@ export const getBanners = async () => {
 };
 
 // Create banner (admin)
-export const createBanner = async (bannerData, image) => {
+export const createBanner = async (bannerData, image, videos = []) => {
   try {
     const validatedData = await bannerSchema.validate(bannerData, { abortEarly: false });
     const formData = new FormData();
+    
     Object.entries(validatedData).forEach(([key, value]) => {
       formData.append(key, value);
     });
+
+    // Only append image if provided
     if (image) {
-      console.log('Image to upload:', { name: image.name, type: image.type, size: image.size }); // Debug log
       formData.append('image', image);
-    } else {
-      console.log('No image provided'); // Debug log
     }
-    // Debug FormData content
-    for (let [key, value] of formData.entries()) {
-      console.log(`FormData entry: ${key}=${value}`);
-    }
+
+    // Append videos if provided (can be video-only)
+    videos.forEach(video => {
+      formData.append('videos', video);
+    });
+
     const response = await api.post('/admin/banners', formData, { isMultipart: true });
-    console.log('CreateBanner response:', response.data);
-    if (!response.data.success || !response.data.data.banner) {
-      throw new Error('Invalid response: Missing banner data');
-    }
     return response.data.data.banner;
   } catch (error) {
     console.error('CreateBanner error:', error.response?.data, error.message);
@@ -96,7 +94,7 @@ export const createBanner = async (bannerData, image) => {
 };
 
 // Update banner (admin)
-export const updateBanner = async (id, bannerData, image) => {
+export const updateBanner = async (id, bannerData, image, videos = []) => {
   try {
     const validatedData = await bannerSchema.validate(bannerData, { abortEarly: false });
     const formData = new FormData();
@@ -104,14 +102,22 @@ export const updateBanner = async (id, bannerData, image) => {
       formData.append(key, value);
     });
     if (image) {
-      console.log('Image to upload:', { name: image.name, type: image.type, size: image.size }); // Debug log
+      console.log('Image to upload:', { name: image.name, type: image.type, size: image.size });
       formData.append('image', image);
     } else {
-      console.log('No image provided'); // Debug log
+      console.log('No image provided');
+    }
+    if (videos.length > 0) {
+      videos.forEach((video, index) => {
+        console.log(`Video ${index + 1} to upload:`, { name: video.name, type: video.type, size: video.size });
+        formData.append('videos', video);
+      });
+    } else {
+      console.log('No videos provided');
     }
     // Debug FormData content
     for (let [key, value] of formData.entries()) {
-      console.log(`FormData entry: ${key}=${value}`);
+      console.log(`FormData entry: ${key}=${value instanceof File ? value.name : value}`);
     }
     const response = await api.put(`/admin/banners/${id}`, formData, { isMultipart: true });
     console.log('UpdateBanner response:', response.data);

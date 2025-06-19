@@ -13,11 +13,11 @@ export const BannerProvider = ({ children }) => {
     setLoading(true);
     try {
       const fetchedBanners = await getBanners();
-      console.log('Fetched banners:', fetchedBanners); // Debugging log
+      // console.log('Fetched banners:', JSON.stringify(fetchedBanners, null, 2));
       setBanners(fetchedBanners);
       setError(null);
     } catch (err) {
-      console.error('Fetch banners error:', err.message); // Debugging log
+      console.error('Fetch banners error:', err.message);
       setError(err.message);
     } finally {
       setLoading(false);

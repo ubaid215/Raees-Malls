@@ -18,6 +18,7 @@ const normalizeVariant = (variant) => {
     attributes: Array.isArray(variantData.attributes) ? variantData.attributes : [],
     images: Array.isArray(variantData.images) ? variantData.images : [],
     videos: Array.isArray(variantData.videos) ? variantData.videos : [],
+    specifications: Array.isArray(variantData.specifications) ? variantData.specifications : [],
     displayPrice: variantData.discountPrice
       ? Number.isFinite(parseFloat(variantData.discountPrice))
         ? parseFloat(variantData.discountPrice)
@@ -202,6 +203,14 @@ export const createProduct = async (productData, media = {}) => {
             console.log(`Appended seo[${subKey}]:`, subValue);
           }
         });
+      } else if (key === 'variants' && Array.isArray(value)) {
+        // Ensure variant specifications are stringified
+        const processedVariants = value.map(variant => ({
+          ...variant,
+          specifications: variant.specifications ? JSON.stringify(variant.specifications) : '[]',
+        }));
+        formData.append('variants', JSON.stringify(processedVariants));
+        console.log('Appended variants:', JSON.stringify(processedVariants));
       } else if (Array.isArray(value) || typeof value === 'object') {
         formData.append(key, JSON.stringify(value));
         console.log(`Appended ${key}:`, JSON.stringify(value));
@@ -307,6 +316,13 @@ export const updateProduct = async (id, productData, media = {}) => {
             formData.append(`seo[${subKey}]`, subValue);
           }
         });
+      } else if (key === 'variants' && Array.isArray(value)) {
+        // Ensure variant specifications are stringified
+        const processedVariants = value.map(variant => ({
+          ...variant,
+          specifications: variant.specifications ? JSON.stringify(variant.specifications) : '[]',
+        }));
+        formData.append('variants', JSON.stringify(processedVariants));
       } else if (Array.isArray(value) || typeof value === 'object') {
         formData.append(key, JSON.stringify(value));
       } else {

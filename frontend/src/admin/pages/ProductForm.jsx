@@ -10,9 +10,6 @@ import Select from '../../components/core/Select';
 import LoadingSpinner from '../../components/core/LoadingSpinner';
 import imageCompression from 'browser-image-compression';
 
-// Define allowed attribute keys (must match backend enum)
-const ALLOWED_ATTRIBUTE_KEYS = ['size', 'color', 'material', 'style', 'ram'];
-
 const ProductForm = ({
   product = null,
   onSubmit,
@@ -52,7 +49,8 @@ const ProductForm = ({
     product?.variants?.map(v => ({
       ...v,
       newImageFiles: [],
-      newVideoFiles: []
+      newVideoFiles: [],
+      specifications: Array.isArray(v.specifications) ? v.specifications : [],
     })) || []
   );
   const [categories, setCategories] = useState([]);
@@ -96,18 +94,16 @@ const ProductForm = ({
 
     for (const file of files) {
       try {
-        // Skip compression for non-image files
         if (!file.type.startsWith('image/')) {
           toast.error(`Invalid file type: ${file.name}. Only JPEG and PNG allowed.`);
           continue;
         }
 
-        // Compress images before upload
         const compressedFile = await imageCompression(file, {
-          maxSizeMB: 0.5, // Reduced to 0.5MB to minimize backend load
-          maxWidthOrHeight: 1280, // Reduced resolution for faster uploads
+          maxSizeMB: 0.5,
+          maxWidthOrHeight: 1280,
           useWebWorker: true,
-          fileType: file.type, // Preserve original MIME type
+          fileType: file.type,
         });
 
         if (compressedFile.size > 5 * 1024 * 1024) {
@@ -116,7 +112,6 @@ const ProductForm = ({
           continue;
         }
 
-        // Ensure correct MIME type and extension
         const fileExtension = file.name.split('.').pop().toLowerCase();
         const mimeType = fileExtension === 'png' ? 'image/png' : 'image/jpeg';
         const fileName = `${file.name.split('.')[0]}-compressed.${fileExtension}`;
@@ -187,7 +182,6 @@ const ProductForm = ({
           continue;
         }
 
-        // Ensure correct MIME type and extension
         const fileExtension = file.name.split('.').pop().toLowerCase();
         const mimeType = fileExtension === 'png' ? 'image/png' : 'image/jpeg';
         const fileName = `${file.name.split('.')[0]}-compressed.${fileExtension}`;
@@ -322,6 +316,47 @@ const ProductForm = ({
     setSpecifications(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleAddVariantSpecification = (variantIndex) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === variantIndex
+          ? {
+              ...v,
+              specifications: [...(v.specifications || []), { key: '', value: '' }]
+            }
+          : v
+      )
+    );
+  };
+
+  const handleVariantSpecificationChange = (variantIndex, specIndex, field, value) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === variantIndex
+          ? {
+              ...v,
+              specifications: v.specifications.map((spec, idx) =>
+                idx === specIndex ? { ...spec, [field]: value } : spec
+              )
+            }
+          : v
+      )
+    );
+  };
+
+  const handleRemoveVariantSpecification = (variantIndex, specIndex) => {
+    setVariants(prev =>
+      prev.map((v, i) =>
+        i === variantIndex
+          ? {
+              ...v,
+              specifications: v.specifications.filter((_, idx) => idx !== specIndex)
+            }
+          : v
+      )
+    );
+  };
+
   const handleAddFeature = () => {
     if (features.length >= 10) {
       toast.error('Maximum 10 features allowed');
@@ -355,6 +390,7 @@ const ProductForm = ({
         attributes: [{ key: '', value: '' }],
         images: [],
         videos: [],
+        specifications: [],
         newImageFiles: [],
         newVideoFiles: []
       }
@@ -438,6 +474,18 @@ const ProductForm = ({
       }
     }
 
+    for (let i = 0; i < specifications.length; i++) {
+      const spec = specifications[i];
+      if (spec.key.trim() && !spec.value.trim()) {
+        toast.error(`Specification ${i + 1}: Value is required when key is provided`);
+        return;
+      }
+      if (!spec.key.trim() && spec.value.trim()) {
+        toast.error(`Specification ${i + 1}: Key is required when value is provided`);
+        return;
+      }
+    }
+
     for (let i = 0; i < variants.length; i++) {
       const variant = variants[i];
       const price = parseFloat(variant.price) || 0;
@@ -458,13 +506,19 @@ const ProductForm = ({
       }
       for (let j = 0; j < variant.attributes.length; j++) {
         const attr = variant.attributes[j];
-        const key = attr.key.trim().toLowerCase();
-        if (!key || !attr.value.trim()) {
+        if (!attr.key.trim() || !attr.value.trim()) {
           toast.error(`Variant ${i + 1}, Attribute ${j + 1}: Both key and value are required`);
           return;
         }
-        if (!ALLOWED_ATTRIBUTE_KEYS.includes(key)) {
-          toast.error(`Variant ${i + 1}, Attribute ${j + 1}: Key must be one of: ${ALLOWED_ATTRIBUTE_KEYS.join(', ')}`);
+      }
+      for (let j = 0; j < (variant.specifications || []).length; j++) {
+        const spec = variant.specifications[j];
+        if (spec.key.trim() && !spec.value.trim()) {
+          toast.error(`Variant ${i + 1}, Specification ${j + 1}: Value is required when key is provided`);
+          return;
+        }
+        if (!spec.key.trim() && spec.value.trim()) {
+          toast.error(`Variant ${i + 1}, Specification ${j + 1}: Key is required when value is provided`);
           return;
         }
       }
@@ -488,6 +542,12 @@ const ProductForm = ({
           .map(a => ({
             key: a.key.trim().toLowerCase(),
             value: a.value.trim()
+          })),
+        specifications: (v.specifications || [])
+          .filter(s => s.key.trim() && s.value.trim())
+          .map(s => ({
+            key: s.key.trim(),
+            value: s.value.trim()
           })),
         sku: v.sku?.trim() || undefined
       })).filter(v =>
@@ -976,6 +1036,49 @@ const ProductForm = ({
                       </button>
                     </div>
                   ))}
+                </div>
+                <div className="mb-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-sm font-medium">Variant Specifications</h4>
+                    <Button
+                      type="button"
+                      onClick={() => handleAddVariantSpecification(vIndex)}
+                      variant="outline"
+                      size="sm"
+                    >
+                      Add Specification
+                    </Button>
+                  </div>
+                  {variant.specifications.length === 0 ? (
+                    <p className="text-gray-500 text-sm">No specifications added</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {variant.specifications.map((spec, sIndex) => (
+                        <div key={sIndex} className="flex items-end gap-4">
+                          <Input
+                            label="Key"
+                            value={spec.key}
+                            onChange={(e) => handleVariantSpecificationChange(vIndex, sIndex, 'key', e.target.value)}
+                            className="flex-1"
+                          />
+                          <Input
+                            label="Value"
+                            value={spec.value}
+                            onChange={(e) => handleVariantSpecificationChange(vIndex, sIndex, 'value', e.target.value)}
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            onClick={() => handleRemoveVariantSpecification(vIndex, sIndex)}
+                            variant="danger"
+                            size="sm"
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div className="flex justify-between items-center mb-2">

@@ -48,6 +48,9 @@ const CategoryManager = () => {
     },
   });
 
+  // Detect mobile device for conditional rendering and debugging
+  const isMobile = window.innerWidth < 768;
+
   // Fetch categories on mount
   useEffect(() => {
     console.log('CategoryManager: Fetching initial categories');
@@ -94,10 +97,22 @@ const CategoryManager = () => {
 
   const handleParentCategoryChange = useCallback(
     (selectedParents) => {
-      setValue('parentId', selectedParents[0]?._id || null);
+      const parentId = selectedParents[0]?._id || null;
+      console.log('CategoryManager: Parent category changed:', {
+        parentId,
+        selectedParents,
+        isMobile,
+      });
+      setValue('parentId', parentId);
     },
-    [setValue]
+    [setValue, isMobile]
   );
+
+  const handleNativeSelectChange = (e) => {
+    const parentId = e.target.value || null;
+    console.log('CategoryManager: Native select changed:', { parentId, isMobile });
+    setValue('parentId', parentId);
+  };
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -240,11 +255,13 @@ const CategoryManager = () => {
 
   const selectedCategory = useMemo(() => {
     const parentId = watch('parentId');
-    return parentId
+    const selected = parentId
       ? categories
           .filter((c) => c._id === parentId)
           .map((c) => ({ _id: c._id, name: c.name, image: c.image }))
       : [];
+    console.log('CategoryManager: Selected category:', { parentId, selected });
+    return selected;
   }, [watch, categories]);
 
   if (loading && categories.length === 0) {
@@ -323,18 +340,37 @@ const CategoryManager = () => {
             />
           </div>
           <div className="space-y-4">
-            <div>
+            <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Parent Category (Optional)
               </label>
-              <CategorySelector
-                selected={selectedCategory}
-                onChange={handleParentCategoryChange}
-                categories={availableParentCategories}
-                placeholder="Select parent category..."
-                maxSelections={1}
-                showImages
-              />
+              {isMobile ? (
+                <select
+                  {...register('parentId')}
+                  onChange={handleNativeSelectChange}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:outline-none"
+                  value={watch('parentId') || ''}
+                >
+                  <option value="">Select parent category...</option>
+                  {availableParentCategories.map((cat) => (
+                    <option key={cat._id} value={cat._id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <CategorySelector
+                  key={selectedCategory[0]?._id || 'no-selection'}
+                  selected={selectedCategory}
+                  onChange={handleParentCategoryChange}
+                  categories={availableParentCategories}
+                  placeholder="Select parent category..."
+                  maxSelections={1}
+                  showImages
+                  className="w-full touch-manipulation z-50"
+                  dropdownClassName="w-full max-h-60 overflow-y-auto touch-manipulation z-50 bg-white border border-gray-300 rounded-md shadow-lg"
+                />
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

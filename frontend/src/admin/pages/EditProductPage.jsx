@@ -76,7 +76,8 @@ const EditProductPage = () => {
         variants: formData.variants?.map(variant => ({
           ...variant,
           // Remove variant SKU if empty
-          sku: variant.sku?.trim() || undefined
+          sku: variant.sku?.trim() || undefined,
+          specifications: Array.isArray(variant.specifications) ? variant.specifications : [],
         }))
       };
 

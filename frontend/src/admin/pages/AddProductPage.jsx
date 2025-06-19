@@ -34,11 +34,15 @@ const AddProductPage = () => {
 
       if (productData.variants) {
         productData.variants = productData.variants.map(variant => {
+          const cleanedVariant = {
+            ...variant,
+            specifications: Array.isArray(variant.specifications) ? variant.specifications : [],
+          };
           if (!variant.sku || variant.sku.trim() === '') {
-            const { sku, ...rest } = variant;
+            const { sku, ...rest } = cleanedVariant;
             return rest;
           }
-          return variant;
+          return cleanedVariant;
         });
       }
 
