@@ -12,7 +12,7 @@ const checkValidationResult = (req, res, next) => {
 
 const bannerValidator = [
   body('title')
-    .optional() // Make title optional
+    .optional()
     .trim(),
   body('description')
     .optional()
@@ -32,7 +32,7 @@ const bannerValidator = [
     .trim()
     .notEmpty()
     .withMessage('Position is required')
-    .isIn(['hero-slider',  'featured-products-banner'])
+    .isIn(['hero-slider'])
     .withMessage('Invalid position'),
   checkValidationResult
 ];

@@ -148,6 +148,14 @@ const createProductValidator = [
         if (!variant.attributes.every(attr => attr.key && attr.value)) {
           throw new Error(`Variant ${i + 1}: Each attribute must have a key and value`);
         }
+        if (variant.specifications) {
+          if (!Array.isArray(variant.specifications)) {
+            throw new Error(`Variant ${i + 1}: Specifications must be an array`);
+          }
+          if (!variant.specifications.every(spec => spec.key && spec.value)) {
+            throw new Error(`Variant ${i + 1}: Each specification must have a key and value`);
+          }
+        }
       }
       return true;
     }),
@@ -270,12 +278,23 @@ const updateProductValidator = [
         if (!Array.isArray(variant.attributes) || variant.attributes.length === 0) {
           throw new Error(`Variant ${index + 1}: At least one attribute is required`);
         }
-        return variant.attributes.every((attr, attrIndex) => {
+        if (!variant.attributes.every((attr, attrIndex) => {
           if (!attr.key || !attr.value) {
             throw new Error(`Variant ${index + 1}, Attribute ${attrIndex + 1}: Both key and value are required`);
           }
           return true;
-        });
+        })) {
+          return false;
+        }
+        if (variant.specifications) {
+          if (!Array.isArray(variant.specifications)) {
+            throw new Error(`Variant ${index + 1}: Specifications must be an array`);
+          }
+          if (!variant.specifications.every(spec => spec.key && spec.value)) {
+            throw new Error(`Variant ${index + 1}: Each specification must have a key and value`);
+          }
+        }
+        return true;
       });
     }),
 
@@ -378,7 +397,7 @@ const getProductsValidator = [
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return next(new ApiError(400, 'Validation failed', errors.array()));
+      return next(new ApiError(400, 'Products validation failed', errors.array()));
     }
     next();
   },
@@ -395,7 +414,7 @@ const getProductsForCustomersValidator = [
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return next(new ApiError(400, 'Validation failed', errors.array()));
+      return next(new ApiError(400, 'Products validation failed', errors.array()));
     }
     next();
   },

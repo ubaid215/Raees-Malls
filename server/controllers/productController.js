@@ -96,10 +96,21 @@ exports.createProduct = async (req, res, next) => {
           throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
         }
       }
+
+      let parsedVariantSpecifications = variant.specifications;
+      if (typeof variant.specifications === 'string') {
+        try {
+          parsedVariantSpecifications = JSON.parse(variant.specifications);
+        } catch (error) {
+          return next(new ApiError(400, `Invalid specifications format for variant ${index + 1}`));
+        }
+      }
+
       return {
         ...variant,
         images: variantImages[index] || [],
         videos: variantVideos[index] || [],
+        specifications: parsedVariantSpecifications || [],
       };
     }) || [];
 
@@ -335,11 +346,21 @@ exports.updateProduct = async (req, res, next) => {
             throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
           }
         }
-        
+
+        let parsedVariantSpecifications = variant.specifications;
+        if (typeof variant.specifications === 'string') {
+          try {
+            parsedVariantSpecifications = JSON.parse(variant.specifications);
+          } catch (error) {
+            throw new ApiError(400, `Invalid specifications format for variant ${index + 1}`);
+          }
+        }
+
         return {
           ...variant,
           images: variantImages[index] || variant.images || [],
           videos: variantVideos[index] || variant.videos || [],
+          specifications: parsedVariantSpecifications || [],
         };
       });
     }

@@ -8,11 +8,10 @@ const getStorage = (folder) => new CloudinaryStorage({
   cloudinary: cloudinary,
   params: (req, file) => ({
     folder: `raees_mobiles/${folder}`,
-    resource_type: file.fieldname.includes('Videos') ? 'video' : 'image',
-    allowed_formats: file.fieldname.includes('Videos') 
+    resource_type: file.fieldname === 'videos' ? 'video' : 'image',
+    allowed_formats: file.fieldname === 'videos' 
       ? ['mp4', 'webm', 'mov'] 
       : ['jpg', 'jpeg', 'png', 'webp'],
-    // FIX: Generate truly unique public_id using timestamp + random string + original name
     public_id: `${file.fieldname}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${file.originalname.split('.')[0]}`
   })
 });
@@ -50,14 +49,14 @@ const upload = {
   single: (fieldName, folder = 'misc') => multer({
     storage: getStorage(folder),
     fileFilter: fileFilter,
-    limits: { fileSize: 30 * 1024 * 1024 } // INCREASED: 30MB 
+    limits: { fileSize: 30 * 1024 * 1024 } // 30MB 
   }).single(fieldName),
 
   // For single video uploads
   singleVideo: (fieldName, folder = 'videos') => multer({
     storage: getStorage(folder),
     fileFilter: videoFileFilter,
-    limits: { fileSize: 100 * 1024 * 1024 } // INCREASED: 100MB limit (was 50MB)
+    limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
   }).single(fieldName),
 
   // For multiple image uploads (e.g., products with baseImages)
@@ -74,13 +73,13 @@ const upload = {
     limits: { fileSize: 100 * 1024 * 1024 } 
   }).array(fieldName, maxCount),
 
-  // For multiple fields (e.g., products with baseImages, baseVideos, variantImages, variantVideos)
+  // For multiple fields (e.g., products with baseImages, baseVideos, variantImages, variantVideos, banners)
   fields: (fields, folder = 'products') => multer({
     storage: getStorage(folder),
     fileFilter: (req, file, cb) => {
-      if (file.fieldname.includes('Images')) {
+      if (file.fieldname === 'image') {
         fileFilter(req, file, cb);
-      } else if (file.fieldname.includes('Videos')) {
+      } else if (file.fieldname === 'videos') {
         videoFileFilter(req, file, cb);
       } else {
         cb(new ApiError(400, `Invalid field name: ${file.fieldname}`));

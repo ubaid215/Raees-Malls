@@ -11,10 +11,14 @@ const bannerSchema = new Schema({
     trim: true
   },
   image: {
-    url: { type: String, required: true },
-    public_id: { type: String, required: true },
+    url: { type: String },
+    public_id: { type: String },
     alt: { type: String }
   },
+ videos: [{
+    url: { type: String },
+    public_id: { type: String }
+  }],
   targetUrl: {
     type: String,
     trim: true
@@ -30,7 +34,7 @@ const bannerSchema = new Schema({
   },
   position: {
     type: String,
-    enum: ['hero-slider',  'featured-products-banner'],
+    enum: ['hero-slider'],
     required: true,
     trim: true
   },

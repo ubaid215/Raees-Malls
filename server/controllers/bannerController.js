@@ -8,26 +8,37 @@ exports.uploadBanner = async (req, res, next) => {
   try {
     const { title, description, targetUrl, priority, isActive, position } = req.body;
 
-    if (!req.file) {
-      throw new ApiError(400, 'Banner image is required');
+    if (!req.files?.image && !req.files?.videos) {
+      throw new ApiError(400, 'At least one banner image or video is required');
     }
 
-    console.log('Multer file metadata:', req.file); // Debugging log
-
-    const banner = new Banner({
+    const bannerData = {
       title,
       description,
       targetUrl,
       priority: priority ? parseInt(priority) : 0,
       isActive: isActive !== undefined ? isActive : true,
-      position,
-      image: {
-        url: req.file.path,
-        public_id: req.file.filename,
-        alt: title
-      }
-    });
+      position
+    };
 
+    // Handle image upload if exists
+    if (req.files?.image?.[0]) {
+      bannerData.image = {
+        url: req.files.image[0].path,
+        public_id: req.files.image[0].filename,
+        alt: title || 'Banner image'
+      };
+    }
+
+    // Handle video uploads if exist
+    if (req.files?.videos) {
+      bannerData.videos = req.files.videos.map(file => ({
+        url: file.path,
+        public_id: file.filename
+      }));
+    }
+
+    const banner = new Banner(bannerData);
     await banner.save();
 
     ApiResponse.success(res, 201, 'Banner uploaded successfully', { banner });
@@ -35,7 +46,6 @@ exports.uploadBanner = async (req, res, next) => {
     next(error);
   }
 };
-
 // Update an existing banner
 exports.updateBanner = async (req, res, next) => {
   try {
@@ -54,14 +64,31 @@ exports.updateBanner = async (req, res, next) => {
     banner.isActive = isActive !== undefined ? isActive : banner.isActive;
     banner.position = position || banner.position;
 
-    if (req.file) {
-      console.log('Updating file metadata:', req.file);
-      await cloudinary.uploader.destroy(banner.image.public_id);
+    if (req.files?.image?.[0]) {
+      console.log('Updating image metadata:', req.files.image[0]);
+      if (banner.image?.public_id) {
+        await cloudinary.uploader.destroy(banner.image.public_id);
+      }
       banner.image = {
-        url: req.file.path,
-        public_id: req.file.filename,
+        url: req.files.image[0].path,
+        public_id: req.files.image[0].filename,
         alt: title || banner.title
       };
+    }
+
+    if (req.files?.videos) {
+      console.log('Updating videos metadata:', req.files.videos);
+      // Delete existing videos from Cloudinary
+      if (banner.videos?.length > 0) {
+        for (const video of banner.videos) {
+          await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+        }
+      }
+      // Add new videos
+      banner.videos = req.files.videos.map(file => ({
+        url: file.path,
+        public_id: file.filename
+      }));
     }
 
     await banner.save();
@@ -82,7 +109,18 @@ exports.deleteBanner = async (req, res, next) => {
       throw new ApiError(404, 'Banner not found');
     }
 
-    await cloudinary.uploader.destroy(banner.image.public_id);
+    // Delete image from Cloudinary
+    if (banner.image?.public_id) {
+      await cloudinary.uploader.destroy(banner.image.public_id);
+    }
+
+    // Delete videos from Cloudinary
+    if (banner.videos?.length > 0) {
+      for (const video of banner.videos) {
+        await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
+      }
+    }
+
     await banner.deleteOne();
 
     ApiResponse.success(res, 200, 'Banner deleted successfully');

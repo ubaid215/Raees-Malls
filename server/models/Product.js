@@ -78,6 +78,18 @@ const variantSchema = new mongoose.Schema({
       },
     },
   ],
+  specifications: [
+    {
+      key: {
+        type: String,
+        required: true,
+      },
+      value: {
+        type: String,
+        required: true,
+      },
+    },
+  ],
 });
 
 const productSchema = new mongoose.Schema({

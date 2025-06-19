@@ -10,7 +10,10 @@ router.post(
   '/',
   authenticateJWT,
   authorizeRoles('admin'),
-  upload.single('image'),
+  upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'videos', maxCount: 5 } // Allow up to 5 videos
+  ], 'banners'),
   bannerValidator,
   bannerController.uploadBanner
 );
@@ -19,7 +22,10 @@ router.put(
   '/:bannerId',
   authenticateJWT,
   authorizeRoles('admin'),
-  upload.single('image'),
+  upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'videos', maxCount: 5 } // Allow up to 5 videos
+  ], 'banners'),
   bannerIdValidator,
   bannerValidator,
   bannerController.updateBanner
