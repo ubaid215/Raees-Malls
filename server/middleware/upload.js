@@ -8,8 +8,8 @@ const getStorage = (folder) => new CloudinaryStorage({
   cloudinary: cloudinary,
   params: (req, file) => ({
     folder: `raees_mobiles/${folder}`,
-    resource_type: file.fieldname === 'videos' ? 'video' : 'image',
-    allowed_formats: file.fieldname === 'videos' 
+    resource_type: file.fieldname === 'videos' || file.fieldname.includes('videos') || file.fieldname.includes('Videos') ? 'video' : 'image',
+    allowed_formats: file.fieldname === 'videos' || file.fieldname.includes('videos') || file.fieldname.includes('Videos')
       ? ['mp4', 'webm', 'mov'] 
       : ['jpg', 'jpeg', 'png', 'webp'],
     public_id: `${file.fieldname}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${file.originalname.split('.')[0]}`
@@ -41,6 +41,28 @@ const videoFileFilter = (req, file, cb) => {
   } else {
     cb(new ApiError(400, `Only MP4, WebM, and MOV videos are allowed (MIME: ${file.mimetype})`));
   }
+};
+
+// Helper function to determine if field is for video uploads
+const isVideoField = (fieldname) => {
+  const videoFields = ['videos', 'baseVideos', 'variantVideos'];
+  return videoFields.some(field => 
+    fieldname === field || 
+    fieldname.startsWith(`${field}[`) || 
+    fieldname.includes('videos') || 
+    fieldname.includes('Videos')
+  );
+};
+
+// Helper function to determine if field is for image uploads
+const isImageField = (fieldname) => {
+  const imageFields = ['image', 'images', 'baseImages', 'variantImages', 'banners'];
+  return imageFields.some(field => 
+    fieldname === field || 
+    fieldname.startsWith(`${field}[`) ||
+    fieldname.includes('image') ||
+    fieldname.includes('Image')
+  );
 };
 
 // Multer configurations for different use cases
@@ -77,12 +99,17 @@ const upload = {
   fields: (fields, folder = 'products') => multer({
     storage: getStorage(folder),
     fileFilter: (req, file, cb) => {
-      if (file.fieldname === 'image') {
-        fileFilter(req, file, cb);
-      } else if (file.fieldname === 'videos') {
+      // Check if it's a video field
+      if (isVideoField(file.fieldname)) {
         videoFileFilter(req, file, cb);
-      } else {
-        cb(new ApiError(400, `Invalid field name: ${file.fieldname}`));
+      } 
+      // Check if it's an image field
+      else if (isImageField(file.fieldname)) {
+        fileFilter(req, file, cb);
+      } 
+      // Reject unknown field names
+      else {
+        cb(new ApiError(400, `Invalid field name: ${file.fieldname}. Allowed fields include: image, images, baseImages, variantImages, banners, videos, baseVideos, variantVideos`));
       }
     },
     limits: {
