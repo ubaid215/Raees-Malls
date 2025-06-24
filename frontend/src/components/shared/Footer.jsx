@@ -23,6 +23,7 @@ const Footer = () => {
       title: 'Support',
       links: [
         { name: 'WhatsApp: +923006530063', path: 'https://wa.me/923006530063' },
+        { name: 'Complain : +923007246696', path: 'https://wa.me/923007246696' },
         { name: 'Shipping Info', path: '/refund-shipping' },
         { name: 'Returns', path: '/return-policy' },
       ],

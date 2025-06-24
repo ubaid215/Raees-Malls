@@ -636,7 +636,7 @@ function Navbar() {
       </nav>
 
       {/* Desktop Bottom Navigation */}
-      <nav className="hidden md:flex max-w-7xl mx-auto h-14 bg-white items-center justify-center px-4 lg:px-6">
+      <nav className="hidden md:flex max-w-7xl mx-auto h-14 bg-[#1e3a8a] items-center justify-center px-4 lg:px-6">
         <div className="flex items-center space-x-4 lg:space-x-8">
           {navLinks.map((link) => (
             <NavLink
@@ -644,7 +644,7 @@ function Navbar() {
               to={link.path}
               className={({ isActive }) =>
                 `px-3 py-2 text-sm font-medium hover:text-red-600 transition-colors ${
-                  isActive ? 'text-red-600 font-semibold' : 'text-gray-700'
+                  isActive ? 'text-red-600 font-semibold' : 'text-white'
                 }`
               }
             >
