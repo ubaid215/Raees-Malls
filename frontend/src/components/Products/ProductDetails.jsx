@@ -201,6 +201,13 @@ const ProductDetails = memo(() => {
     const stockInfo =
       currentStock > 0 ? `${currentStock} available` : "Out of stock";
     const sku = selectedVariant?.sku || product.sku || "N/A";
+    const colorInfo = selectedVariant
+      ? selectedVariant.color?.name
+        ? `Color: ${selectedVariant.color.name}`
+        : ""
+      : product.color?.name
+        ? `Color: ${product.color.name}`
+        : "";
 
     const message = `Hi! I'm interested in this product:
 
@@ -208,7 +215,7 @@ const ProductDetails = memo(() => {
 📦 SKU: ${sku}
 💰 Price: ${priceInfo}${originalPriceInfo}
 📋 Stock: ${stockInfo}
-
+${colorInfo ? `🎨 ${colorInfo}` : ""}
 
 Please provide more details and availability.`;
 
@@ -300,6 +307,23 @@ Please provide more details and availability.`;
     } else if (!variant && product.images?.[0]) {
       setActiveMedia({ type: "image", url: product.images[0].url });
     }
+  };
+
+  // Helper function to convert color name to CSS color
+  const getColorStyle = (colorName) => {
+    if (!colorName) return { backgroundColor: '#ffffff', border: '1px solid #ccc' };
+    // Try to use the color name directly if it's a valid CSS color
+    const div = document.createElement('div');
+    div.style.backgroundColor = colorName;
+    document.body.appendChild(div);
+    const computedColor = window.getComputedStyle(div).backgroundColor;
+    document.body.removeChild(div);
+    // If computed color is not transparent or invalid, use it
+    if (computedColor !== 'rgba(0, 0, 0, 0)' && computedColor !== '') {
+      return { backgroundColor: colorName, border: '1px solid #ccc' };
+    }
+    // Fallback to a default color if invalid
+    return { backgroundColor: '#ffffff', border: '1px solid #ccc' };
   };
 
   if (isLoading) {
@@ -622,6 +646,54 @@ Please provide more details and availability.`;
               </div>
             </div>
 
+            <div>
+              <h1 className="text-xl font-semibold pb-4">Color</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Base Product Color */}
+                {product.color?.name && (
+                  <button
+                    type="button"
+                    className={`p-3 border-2 rounded-md hover:bg-red-50 cursor-pointer transition-all text-sm flex items-center gap-2 ${
+                      !selectedVariant
+                        ? "border-red-600 bg-red-50"
+                        : "border-gray-200"
+                    }`}
+                    onClick={() => handleVariantSelect(null)}
+                    aria-label={`Select base product color ${product.color.name}`}
+                  >
+                    <span
+                      className="w-6 h-6 rounded-full"
+                      style={getColorStyle(product.color.name)}
+                    ></span>
+                    {product.color.name}
+                  </button>
+                )}
+
+                {/* Variant Colors */}
+                {product.variants?.map((variant, index) => (
+                  variant.color?.name && (
+                    <button
+                      key={variant._id}
+                      type="button"
+                      className={`p-3 border-2 rounded-md hover:bg-red-50 cursor-pointer transition-all text-sm flex items-center gap-2 ${
+                        selectedVariant?._id === variant._id
+                          ? "border-red-600 bg-red-50"
+                          : "border-gray-200"
+                      }`}
+                      onClick={() => handleVariantSelect(variant)}
+                      aria-label={`Select ${getVariantLabel(variant, index)} color ${variant.color.name}`}
+                    >
+                      <span
+                        className="w-6 h-6 rounded-full"
+                        style={getColorStyle(variant.color.name)}
+                      ></span>
+                      {variant.color.name}
+                    </button>
+                  )
+                ))}
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 mt-4">
               <Button
                 onClick={handleAddToCart}
@@ -682,38 +754,6 @@ Please provide more details and availability.`;
                 )}
               </div>
             )}
-
-            {/* {product.specifications?.length > 0 && (
-              <div className="mt-4">
-                <h3
-                  className="text-base sm:text-lg font-medium text-gray-900 mb-2 cursor-pointer flex justify-between items-center"
-                  onClick={() => toggleSection("specifications")}
-                >
-                  <span>Specifications</span>
-                  <span className="text-lg">
-                    {expandedSection === "specifications" ? "−" : "+"}
-                  </span>
-                </h3>
-                {expandedSection === "specifications" && (
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {product.specifications.map((spec, index) => (
-                          <tr key={index}>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50">
-                              {spec.key}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                              {spec.value}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )} */}
 
             {selectedVariant && (
               <div className="mt-4">
@@ -840,6 +880,9 @@ ProductDetails.propTypes = {
     _id: PropTypes.string,
     name: PropTypes.string,
   }),
+  color: PropTypes.shape({
+    name: PropTypes.string,
+  }),
   variants: PropTypes.arrayOf(
     PropTypes.shape({
       _id: PropTypes.string,
@@ -853,6 +896,9 @@ ProductDetails.propTypes = {
           value: PropTypes.string,
         })
       ),
+      color: PropTypes.shape({
+        name: PropTypes.string,
+      }),
       images: PropTypes.arrayOf(
         PropTypes.shape({
           url: PropTypes.string,

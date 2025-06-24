@@ -15,6 +15,7 @@ const normalizeVariant = (variant) => {
         : null
       : null,
     stock: Number.isFinite(parseInt(variantData.stock)) ? parseInt(variantData.stock) : 0,
+    color: variantData.color || { name: '' },
     attributes: Array.isArray(variantData.attributes) ? variantData.attributes : [],
     images: Array.isArray(variantData.images) ? variantData.images : [],
     videos: Array.isArray(variantData.videos) ? variantData.videos : [],
@@ -57,6 +58,7 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
     const validProducts = products.map(product => ({
       ...product,
       displayPrice: product.discountPrice || product.price,
+      color: product.color || { name: '' },
       variants: product.variants?.map(variant => normalizeVariant(variant)) || [],
     }));
 
@@ -76,7 +78,7 @@ export const getProducts = async (page = 1, limit = 10, sort = null, filters = {
   }
 };
 
-export const getFeaturedProducts = async (page = 1, limit = 10, sort = null) => {
+export const getFeaturedProducts = async (page = 1, limit = 10, sort = null, filters = {}) => {
   let endpoint;
   
   try {
@@ -85,6 +87,7 @@ export const getFeaturedProducts = async (page = 1, limit = 10, sort = null) => 
       limit,
       isFeatured: true,
       ...(sort && { sort }),
+      ...filters,
     }).toString();
 
     endpoint = `/products/public?${query}`;
@@ -105,6 +108,7 @@ export const getFeaturedProducts = async (page = 1, limit = 10, sort = null) => 
     const validProducts = products.map(product => ({
       ...product,
       displayPrice: product.discountPrice || product.price,
+      color: product.color || { name: '' },
       variants: product.variants?.map(variant => normalizeVariant(variant)) || [],
     }));
 
@@ -156,6 +160,7 @@ export const getProductById = async (id, options = {}) => {
           : null
         : null,
       stock: Number.isFinite(parseInt(product.stock)) ? parseInt(product.stock) : 0,
+      color: product.color || { name: '' },
       displayPrice: product.discountPrice
         ? Number.isFinite(parseFloat(product.discountPrice))
           ? parseFloat(product.discountPrice)
@@ -204,14 +209,18 @@ export const createProduct = async (productData, media = {}) => {
           }
         });
       } else if (key === 'variants' && Array.isArray(value)) {
-        // Ensure variant specifications are stringified
+        // Ensure variant specifications and color are stringified
         const processedVariants = value.map(variant => ({
           ...variant,
           specifications: variant.specifications ? JSON.stringify(variant.specifications) : '[]',
+          color: variant.color ? JSON.stringify(variant.color) : undefined,
         }));
         formData.append('variants', JSON.stringify(processedVariants));
         console.log('Appended variants:', JSON.stringify(processedVariants));
-      } else if (Array.isArray(value) || typeof value === 'object') {
+      } else if (key === 'color' && value) {
+        formData.append('color', JSON.stringify(value));
+        console.log('Appended color:', JSON.stringify(value));
+      } else if (Array.isArray(value) || (typeof value === 'object' && key !== 'color')) {
         formData.append(key, JSON.stringify(value));
         console.log(`Appended ${key}:`, JSON.stringify(value));
       } else {
@@ -317,13 +326,16 @@ export const updateProduct = async (id, productData, media = {}) => {
           }
         });
       } else if (key === 'variants' && Array.isArray(value)) {
-        // Ensure variant specifications are stringified
+        // Ensure variant specifications and color are stringified
         const processedVariants = value.map(variant => ({
           ...variant,
           specifications: variant.specifications ? JSON.stringify(variant.specifications) : '[]',
+          color: variant.color ? JSON.stringify(variant.color) : undefined,
         }));
         formData.append('variants', JSON.stringify(processedVariants));
-      } else if (Array.isArray(value) || typeof value === 'object') {
+      } else if (key === 'color' && value) {
+        formData.append('color', JSON.stringify(value));
+      } else if (Array.isArray(value) || (typeof value === 'object' && key !== 'color')) {
         formData.append(key, JSON.stringify(value));
       } else {
         formData.append(key, value);

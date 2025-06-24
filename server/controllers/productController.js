@@ -19,7 +19,7 @@ exports.createProduct = async (req, res, next) => {
       return next(new ApiError(400, 'Request body is missing or empty'));
     }
 
-    const { title, description, price, categoryId, stock, discountPrice, shippingCost, brand, specifications, features, variants, seo, isFeatured } = req.body;
+    const { title, description, price, categoryId, stock, discountPrice, shippingCost, brand, specifications, features, variants, seo, isFeatured, color } = req.body;
 
     if (!title || !description || !price || !categoryId || !stock) {
       return next(new ApiError(400, 'Title, description, price, categoryId, and stock are required'));
@@ -36,6 +36,16 @@ exports.createProduct = async (req, res, next) => {
       
       if (numericDiscountPrice >= numericPrice) {
         return next(new ApiError(400, 'Discount price must be less than the base price'));
+      }
+    }
+
+    // Parse color
+    let parsedColor = color;
+    if (typeof color === 'string') {
+      try {
+        parsedColor = JSON.parse(color);
+      } catch (error) {
+        return next(new ApiError(400, 'Invalid color format'));
       }
     }
 
@@ -106,8 +116,18 @@ exports.createProduct = async (req, res, next) => {
         }
       }
 
+      let parsedVariantColor = variant.color;
+      if (typeof variant.color === 'string') {
+        try {
+          parsedVariantColor = JSON.parse(variant.color);
+        } catch (error) {
+          return next(new ApiError(400, `Invalid color format for variant ${index + 1}`));
+        }
+      }
+
       return {
         ...variant,
+        color: parsedVariantColor,
         images: variantImages[index] || [],
         videos: variantVideos[index] || [],
         specifications: parsedVariantSpecifications || [],
@@ -149,6 +169,7 @@ exports.createProduct = async (req, res, next) => {
       price: parseFloat(price),
       discountPrice: discountPrice && discountPrice !== '' ? parseFloat(discountPrice) : undefined,
       shippingCost: shippingCost ? parseFloat(shippingCost) : 0,
+      color: parsedColor,
       images,
       videos,
       categoryId,
@@ -229,7 +250,7 @@ exports.updateProduct = async (req, res, next) => {
       return next(new ApiError(404, 'Product not found'));
     }
 
-    const { title, description, price, discountPrice, shippingCost, categoryId, brand, stock, specifications, features, variants, seo, isFeatured } = req.body;
+    const { title, description, price, discountPrice, shippingCost, categoryId, brand, stock, specifications, features, variants, seo, isFeatured, color } = req.body;
 
     // Fixed discount price validation logic
     if (discountPrice !== undefined && discountPrice !== null && discountPrice !== '') {
@@ -243,6 +264,16 @@ exports.updateProduct = async (req, res, next) => {
       
       if (currentDiscountPrice >= currentPrice) {
         return next(new ApiError(400, 'Discount price must be less than the base price'));
+      }
+    }
+
+    // Parse color
+    let parsedColor = color;
+    if (typeof color === 'string') {
+      try {
+        parsedColor = JSON.parse(color);
+      } catch (error) {
+        return next(new ApiError(400, 'Invalid color format'));
       }
     }
 
@@ -356,8 +387,18 @@ exports.updateProduct = async (req, res, next) => {
           }
         }
 
+        let parsedVariantColor = variant.color;
+        if (typeof variant.color === 'string') {
+          try {
+            parsedVariantColor = JSON.parse(variant.color);
+          } catch (error) {
+            throw new ApiError(400, `Invalid color format for variant ${index + 1}`);
+          }
+        }
+
         return {
           ...variant,
+          color: parsedVariantColor,
           images: variantImages[index] || variant.images || [],
           videos: variantVideos[index] || variant.videos || [],
           specifications: parsedVariantSpecifications || [],
@@ -408,6 +449,7 @@ exports.updateProduct = async (req, res, next) => {
     if (parsedFeatures !== undefined) product.features = parsedFeatures;
     if (parsedSeo !== undefined) product.seo = parsedSeo;
     if (isFeatured !== undefined) product.isFeatured = isFeatured === 'true' || isFeatured === true;
+    if (parsedColor !== undefined) product.color = parsedColor;
 
     await product.save();
 
@@ -465,7 +507,7 @@ exports.updateProduct = async (req, res, next) => {
 
 exports.getAllProducts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search, isFeatured } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search, isFeatured, color } = req.query;
 
     const query = {};
     if (categoryId) query.categoryId = categoryId;
@@ -476,6 +518,9 @@ exports.getAllProducts = async (req, res, next) => {
     }
     if (attributeKey && attributeValue) {
       query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
+    }
+    if (color) {
+      query['color.name'] = { $regex: color, $options: 'i' };
     }
     if (search) {
       query.$or = [
@@ -585,7 +630,7 @@ exports.deleteProduct = async (req, res, next) => {
 
 exports.getAllProductsForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, attributeKey, attributeValue, isFeatured } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, attributeKey, attributeValue, isFeatured, color } = req.query;
 
     const query = { stock: { $gt: 0 } };
     if (categoryId) query.categoryId = categoryId;
@@ -615,6 +660,9 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
     }
     if (attributeKey && attributeValue) {
       query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
+    }
+    if (color) {
+      query['color.name'] = { $regex: color, $options: 'i' };
     }
     if (isFeatured !== undefined) {
       query.isFeatured = isFeatured === 'true';
@@ -686,9 +734,12 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
 
 exports.getFeaturedProducts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort } = req.query;
+    const { page = 1, limit = 10, sort, color } = req.query;
 
     const query = { isFeatured: true, stock: { $gt: 0 } };
+    if (color) {
+      query['color.name'] = { $regex: color, $options: 'i' };
+    }
     const sortOption = sort || '-createdAt';
     const skip = (page - 1) * limit;
 

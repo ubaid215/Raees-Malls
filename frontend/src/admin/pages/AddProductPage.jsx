@@ -21,6 +21,7 @@ const AddProductPage = () => {
         productData: {
           ...productData,
           shippingCost: productData.shippingCost,
+          color: productData.color,
         },
         baseImagesCount: media.baseImages?.length || 0,
         baseVideosCount: media.baseVideos?.length || 0,
@@ -37,6 +38,7 @@ const AddProductPage = () => {
           const cleanedVariant = {
             ...variant,
             specifications: Array.isArray(variant.specifications) ? variant.specifications : [],
+            color: variant.color || undefined,
           };
           if (!variant.sku || variant.sku.trim() === '') {
             const { sku, ...rest } = cleanedVariant;
@@ -44,6 +46,10 @@ const AddProductPage = () => {
           }
           return cleanedVariant;
         });
+      }
+
+      if (!productData.color) {
+        delete productData.color;
       }
 
       setCurrentStage('Uploading product data...');

@@ -47,6 +47,13 @@ const variantSchema = new mongoose.Schema({
     required: [true, 'Variant stock quantity is required'],
     min: [0, 'Variant stock cannot be negative'],
   },
+  color: {
+    name: {
+      type: String,
+      trim: true,
+      maxlength: [50, 'Color name cannot exceed 50 characters'],
+    },
+  },
   attributes: [attributeSchema],
   images: [
     {
@@ -126,6 +133,13 @@ const productSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: [0, 'Shipping cost cannot be negative'],
+  },
+  color: {
+    name: {
+      type: String,
+      trim: true,
+      maxlength: [50, 'Color name cannot exceed 50 characters'],
+    },
   },
   images: [
     {

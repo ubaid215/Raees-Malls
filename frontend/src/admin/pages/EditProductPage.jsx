@@ -61,6 +61,7 @@ const EditProductPage = () => {
         productData: {
           ...formData,
           shippingCost: formData.shippingCost,
+          color: formData.color,
         },
         baseImagesCount: media.baseImages?.length || 0,
         baseVideosCount: media.baseVideos?.length || 0,
@@ -73,10 +74,12 @@ const EditProductPage = () => {
         ...formData,
         // Remove SKU if empty to allow auto-generation
         sku: formData.sku?.trim() || undefined,
+        color: formData.color || undefined,
         variants: formData.variants?.map(variant => ({
           ...variant,
           // Remove variant SKU if empty
           sku: variant.sku?.trim() || undefined,
+          color: variant.color || undefined,
           specifications: Array.isArray(variant.specifications) ? variant.specifications : [],
         }))
       };

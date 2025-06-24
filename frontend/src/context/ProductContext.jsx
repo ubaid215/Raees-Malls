@@ -89,7 +89,8 @@ export const ProductProvider = ({ children }) => {
       if (!data.product?.isFeatured) {
         setProducts(prev => [...prev, {
           ...data.product,
-          displayPrice: data.displayPrice
+          displayPrice: data.displayPrice,
+          color: data.product.color || { name: '' }
         }]);
       }
       clearRelatedCaches();
@@ -100,7 +101,7 @@ export const ProductProvider = ({ children }) => {
       if (!data.product?.isFeatured) {
         setProducts(prev => prev.map(p => 
           p._id === data.product._id 
-            ? { ...data.product, displayPrice: data.displayPrice }
+            ? { ...data.product, displayPrice: data.displayPrice, color: data.product.color || { name: '' } }
             : p
         ));
       }
@@ -146,12 +147,13 @@ export const ProductProvider = ({ children }) => {
         minPrice = null,
         maxPrice = null,
         sort = '-createdAt',
-        isFeatured = null
+        isFeatured = null,
+        color = null
       } = params;
   
       const { isPublic = true, skipCache = false } = options;
   
-      const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}_${isFeatured || ''}`;
+      const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}_${isFeatured || ''}_${color || ''}`;
   
       if (!skipCache) {
         const cached = getCache(cacheKey);
@@ -177,6 +179,7 @@ export const ProductProvider = ({ children }) => {
         if (minPrice) filters.minPrice = minPrice;
         if (maxPrice) filters.maxPrice = maxPrice;
         if (isFeatured !== null) filters.isFeatured = isFeatured;
+        if (color) filters.color = color;
   
         const result = await withRetry(() =>
           getProducts(page, limit, sort, filters, { isPublic })
@@ -219,10 +222,11 @@ export const ProductProvider = ({ children }) => {
         page = 1,
         limit = 10,
         sort = '-createdAt',
+        color = null
       } = params;
   
       const { skipCache = false } = options;
-      const cacheKey = `featured_products_${page}_${limit}_${sort}`;
+      const cacheKey = `featured_products_${page}_${limit}_${sort}_${color || ''}`;
   
       if (!skipCache) {
         const cached = getCache(cacheKey);
@@ -242,8 +246,11 @@ export const ProductProvider = ({ children }) => {
       setError(null);
   
       try {
+        const filters = {};
+        if (color) filters.color = color;
+        
         const result = await withRetry(() =>
-          getFeaturedProducts(page, limit, sort)
+          getFeaturedProducts(page, limit, sort, filters)
         );
   
         const responseData = {

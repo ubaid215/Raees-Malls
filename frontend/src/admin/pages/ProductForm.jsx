@@ -28,6 +28,7 @@ const ProductForm = ({
       brand: product?.brand || '',
       stock: product?.stock || 0,
       sku: product?.sku || '',
+      color: product?.color?.name || '',
       seo: {
         title: product?.seo?.title || '',
         description: product?.seo?.description || ''
@@ -51,6 +52,7 @@ const ProductForm = ({
       newImageFiles: [],
       newVideoFiles: [],
       specifications: Array.isArray(v.specifications) ? v.specifications : [],
+      color: v.color?.name || ''
     })) || []
   );
   const [categories, setCategories] = useState([]);
@@ -387,6 +389,7 @@ const ProductForm = ({
         price: 0,
         discountPrice: undefined,
         stock: 0,
+        color: '',
         attributes: [{ key: '', value: '' }],
         images: [],
         videos: [],
@@ -414,6 +417,12 @@ const ProductForm = ({
           if (stock < 0) {
             toast.error(`Variant ${i + 1}: Stock must be a positive integer`);
             updatedVariant.stock = 0;
+          }
+        }
+        if (field === 'color') {
+          if (value.length > 50) {
+            toast.error(`Variant ${i + 1}: Color name cannot exceed 50 characters`);
+            updatedVariant.color = value.slice(0, 50);
           }
         }
         return updatedVariant;
@@ -466,6 +475,11 @@ const ProductForm = ({
       return;
     }
 
+    if (data.color && data.color.length > 50) {
+      toast.error('Base product color name cannot exceed 50 characters');
+      return;
+    }
+
     for (let i = 0; i < features.length; i++) {
       const feature = features[i].trim();
       if (feature && (feature.length < 1 || feature.length > 200)) {
@@ -481,7 +495,7 @@ const ProductForm = ({
         return;
       }
       if (!spec.key.trim() && spec.value.trim()) {
-        toast.error(`Specification ${i + 1}: Key is required when value is provided`);
+        toast.error(`Specification ${i + 1}: Key is required ketika value is provided`);
         return;
       }
     }
@@ -491,6 +505,11 @@ const ProductForm = ({
       const price = parseFloat(variant.price) || 0;
       const discountPrice = parseFloat(variant.discountPrice) || 0;
       const stock = parseInt(variant.stock) || 0;
+
+      if (variant.color && variant.color.length > 50) {
+        toast.error(`Variant ${i + 1}: Color name cannot exceed 50 characters`);
+        return;
+      }
 
       if (discountPrice && discountPrice >= price) {
         toast.error(`Variant ${i + 1}: Discount price must be less than the price`);
@@ -530,6 +549,7 @@ const ProductForm = ({
       discountPrice: data.discountPrice ? parseFloat(data.discountPrice) : undefined,
       shippingCost: parseFloat(data.shippingCost) || 0,
       stock: parseInt(data.stock),
+      color: data.color ? { name: data.color.trim() } : undefined,
       specifications: specifications.filter(s => s.key.trim() && s.value.trim()),
       features: features.filter(f => f.trim()),
       variants: variants.map(v => ({
@@ -537,6 +557,7 @@ const ProductForm = ({
         price: parseFloat(v.price),
         discountPrice: v.discountPrice ? parseFloat(v.discountPrice) : undefined,
         stock: parseInt(v.stock),
+        color: v.color ? { name: v.color.trim() } : undefined,
         attributes: v.attributes
           .filter(a => a.key.trim() && a.value.trim())
           .map(a => ({
@@ -647,6 +668,14 @@ const ProductForm = ({
               min: { value: 0, message: "Must be positive" }
             })}
             error={errors.stock?.message}
+          />
+          <Input
+            label="Color"
+            {...register("color", {
+              maxLength: { value: 50, message: "Color name cannot exceed 50 characters" }
+            })}
+            error={errors.color?.message}
+            placeholder="Enter color name (optional)"
           />
           <div className="flex items-center mt-6">
             <input
@@ -937,6 +966,12 @@ const ProductForm = ({
                     min="0"
                     value={variant.stock}
                     onChange={(e) => handleVariantChange(vIndex, 'stock', e.target.value)}
+                  />
+                  <Input
+                    label="Color"
+                    value={variant.color}
+                    onChange={(e) => handleVariantChange(vIndex, 'color', e.target.value)}
+                    placeholder="Enter variant color (optional)"
                   />
                 </div>
                 <div className="mb-4">

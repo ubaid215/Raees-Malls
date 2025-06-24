@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import LoadingSpinner from '../components/core/LoadingSpinner';
+import ScrollToTop from '../components/core/ScrollToTop'; // Add this import
 import CustomerLayout from '../components/layout/CustomerLayout';
 import AdminLayout from '../admin/components/AdminLayout';
 import ProtectedRoute from '../context/ProtectedRoute';
@@ -39,6 +40,7 @@ const WarrantyTerms = lazy(() => import('../pages/WarrantyTerms'));
 const AppRouter = () => {
   return (
     <Suspense fallback={<LoadingSpinner fullScreen />}>
+      <ScrollToTop /> {/* Add this component here */}
       <Routes>
         {/* Customer Routes */}
         <Route path="/" element={<CustomerLayout />}>

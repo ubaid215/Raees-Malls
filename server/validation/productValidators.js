@@ -79,6 +79,16 @@ const createProductValidator = [
     .isLength({ max: 20 })
     .withMessage('SKU must not exceed 20 characters'),
 
+  body('color')
+    .optional()
+    .customSanitizer(parseJsonField)
+    .custom((value) => {
+      if (value && (!value.name || typeof value.name !== 'string' || value.name.length > 50)) {
+        throw new Error('Color must have a name property with max 50 characters');
+      }
+      return true;
+    }),
+
   body('seo.title')
     .optional()
     .trim()
@@ -154,6 +164,11 @@ const createProductValidator = [
           }
           if (!variant.specifications.every(spec => spec.key && spec.value)) {
             throw new Error(`Variant ${i + 1}: Each specification must have a key and value`);
+          }
+        }
+        if (variant.color) {
+          if (!variant.color.name || typeof variant.color.name !== 'string' || variant.color.name.length > 50) {
+            throw new Error(`Variant ${i + 1}: Color must have a name property with max 50 characters`);
           }
         }
       }
@@ -245,6 +260,16 @@ const updateProductValidator = [
       return true;
     }),
 
+  body('color')
+    .optional()
+    .customSanitizer(parseJsonField)
+    .custom((value) => {
+      if (value && (!value.name || typeof value.name !== 'string' || value.name.length > 50)) {
+        throw new Error('Color must have a name property with max 50 characters');
+      }
+      return true;
+    }),
+
   body('isFeatured')
     .optional()
     .isBoolean()
@@ -292,6 +317,11 @@ const updateProductValidator = [
           }
           if (!variant.specifications.every(spec => spec.key && spec.value)) {
             throw new Error(`Variant ${index + 1}: Each specification must have a key and value`);
+          }
+        }
+        if (variant.color) {
+          if (!variant.color.name || typeof variant.color.name !== 'string' || variant.color.name.length > 50) {
+            throw new Error(`Variant ${index + 1}: Color must have a name property with max 50 characters`);
           }
         }
         return true;
@@ -385,6 +415,13 @@ const commonQueryValidators = [
     .optional()
     .isString()
     .withMessage('Attribute value must be a string'),
+
+  query('color')
+    .optional()
+    .isString()
+    .withMessage('Color must be a string')
+    .isLength({ max: 50 })
+    .withMessage('Color name cannot exceed 50 characters'),
 
   query('isFeatured')
     .optional()

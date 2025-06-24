@@ -69,134 +69,158 @@ export const OrderProvider = ({ children }) => {
     return errors;
   };
 
-  const clearOrdersCache = useCallback(() => {
-    if (user) {
-      const cacheKeyPattern = `orders_user_${user?._id}_page_*`;
-      // Note: Redis or localStorage doesn't support wildcards natively in localStorage
-      // For simplicity, clear known cache keys
+  // Fixed cache clearing function
+  const clearAllOrdersCache = useCallback(() => {
+    console.log('Clearing all orders cache...');
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('orders_') || key.includes('_orders_')) {
+        localStorage.removeItem(key);
+        localStorage.removeItem(`${key}_timestamp`);
+        console.log('Removed cache key:', key);
+      }
+    });
+  }, []);
+
+  const clearUserOrdersCache = useCallback(() => {
+    if (user?._id) {
+      console.log('Clearing user orders cache for:', user._id);
       Object.keys(localStorage).forEach(key => {
-        if (key.startsWith(`orders_user_${user?._id}_page_`)) {
+        if (key.includes(`user_${user._id}`)) {
           localStorage.removeItem(key);
           localStorage.removeItem(`${key}_timestamp`);
+          console.log('Removed user cache key:', key);
         }
       });
-      console.log('Orders cache cleared for user:', user?._id);
     }
-  }, [user]);
+  }, [user?._id]);
 
-  const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '') => {
+  const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '', forceRefresh = false) => {
     if (!isRegularUser && !isAdmin) {
       return;
     }
 
-    // Check cache
     const cacheKey = `orders_user_${user?._id}_page_${page}_limit_${limit}_status_${status || 'all'}`;
-    const cached = localStorage.getItem(cacheKey);
-    const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-    const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes
+    
+    // Skip cache if forceRefresh is true
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 2 * 60 * 1000; // Reduced to 2 minutes
 
-    if (cached && cacheValid) {
-      console.log('fetchUserOrders: Using cached orders');
-      const { orders, pagination } = JSON.parse(cached);
-      setOrders(orders);
-      setPagination(pagination);
-      return;
+      if (cached && cacheValid) {
+        console.log('fetchUserOrders: Using cached orders');
+        const { orders, pagination } = JSON.parse(cached);
+        setOrders(orders || []);
+        setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
+        return;
+      }
     }
 
     setLoading(true);
     setError('');
     try {
+      console.log('fetchUserOrders: Fetching from API...', { page, limit, status });
       const response = await getUserOrders(page, limit, status);
-      const { orders, total, page: currentPage, limit: currentLimit, totalPages } = response.data;
-      if (!Array.isArray(orders)) {
-        setError('Invalid orders data received');
-        setOrders([]);
-        return;
-      }
-      const filteredOrders = orders.filter(order => order && order.orderId);
+      const { orders = [], total = 0, page: currentPage = 1, limit: currentLimit = 10, totalPages = 1 } = response.data || {};
+      
+      console.log('fetchUserOrders: API response:', { orders: orders.length, total });
+      
+      const filteredOrders = Array.isArray(orders) ? orders.filter(order => order && order.orderId) : [];
       setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
-      // Cache response
-      localStorage.setItem(cacheKey, JSON.stringify({
-        orders: filteredOrders,
-        pagination: { total, page: currentPage, limit: currentLimit, totalPages }
-      }));
-      localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      
+      // Cache response only if not forcing refresh
+      if (!forceRefresh) {
+        localStorage.setItem(cacheKey, JSON.stringify({
+          orders: filteredOrders,
+          pagination: { total, page: currentPage, limit: currentLimit, totalPages }
+        }));
+        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      }
     } catch (err) {
-      await handleOrderError(err, isRegularUser, () => fetchUserOrders(page, limit, status));
+      console.error('fetchUserOrders error:', err);
+      await handleOrderError(err, isRegularUser, () => fetchUserOrders(page, limit, status, true));
     } finally {
       setLoading(false);
     }
-  }, [isRegularUser, isAdmin, refreshToken, user?._id]);
+  }, [isRegularUser, isAdmin, user?._id]);
 
-  const debouncedFetchUserOrders = useCallback(
-    debounce((page, limit, status) => {
-      return new Promise((resolve, reject) => {
-        fetchUserOrders(page, limit, status).then(resolve).catch(reject);
-      });
-    }, 1000),
-    [fetchUserOrders]
-  );
-
-  const fetchAllOrders = useCallback(async (page = 1, limit = 10, status = '', userId = '') => {
+  const fetchAllOrders = useCallback(async (page = 1, limit = 10, status = '', userId = '', forceRefresh = false) => {
     if (!isAdmin) {
       return;
     }
 
-    // Check cache
     const cacheKey = `orders_all_page_${page}_limit_${limit}_status_${status || 'all'}_user_${userId || 'all'}`;
-    const cached = localStorage.getItem(cacheKey);
-    const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-    const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes
+    
+    // Skip cache if forceRefresh is true
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 2 * 60 * 1000; // Reduced to 2 minutes
 
-    if (cached && cacheValid) {
-      console.log('fetchAllOrders: Using cached orders');
-      const { orders, pagination } = JSON.parse(cached);
-      setOrders(orders);
-      setPagination(pagination);
-      return;
+      if (cached && cacheValid) {
+        console.log('fetchAllOrders: Using cached orders');
+        const { orders, pagination } = JSON.parse(cached);
+        setOrders(orders || []);
+        setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
+        return;
+      }
     }
 
     setLoading(true);
     setError('');
     try {
+      console.log('fetchAllOrders: Fetching from API...', { page, limit, status, userId });
       const response = await getAllOrders(page, limit, status, userId);
-      const { orders, total, page: currentPage, limit: currentLimit, totalPages } = response.data;
-      if (!Array.isArray(orders)) {
-        setError('Invalid orders data received');
-        setOrders([]);
-        return;
-      }
-      const filteredOrders = orders.filter(order => order && order.orderId);
+      const { orders = [], total = 0, page: currentPage = 1, limit: currentLimit = 10, totalPages = 1 } = response.data || {};
+      
+      console.log('fetchAllOrders: API response:', { orders: orders.length, total });
+      
+      const filteredOrders = Array.isArray(orders) ? orders.filter(order => order && order.orderId) : [];
       setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
-      // Cache response
-      localStorage.setItem(cacheKey, JSON.stringify({
-        orders: filteredOrders,
-        pagination: { total, page: currentPage, limit: currentLimit, totalPages }
-      }));
-      localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      
+      // Cache response only if not forcing refresh
+      if (!forceRefresh) {
+        localStorage.setItem(cacheKey, JSON.stringify({
+          orders: filteredOrders,
+          pagination: { total, page: currentPage, limit: currentLimit, totalPages }
+        }));
+        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      }
     } catch (err) {
-      await handleOrderError(err, isAdmin, () => fetchAllOrders(page, limit, status, userId));
+      console.error('fetchAllOrders error:', err);
+      await handleOrderError(err, isAdmin, () => fetchAllOrders(page, limit, status, userId, true));
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, refreshAdminToken]);
+  }, [isAdmin]);
+
+  const debouncedFetchUserOrders = useCallback(
+    debounce((page, limit, status, forceRefresh = false) => {
+      return fetchUserOrders(page, limit, status, forceRefresh);
+    }, 500), // Reduced debounce time
+    [fetchUserOrders]
+  );
 
   const debouncedFetchAllOrders = useCallback(
-    debounce((page, limit, status, userId) => {
-      return new Promise((resolve, reject) => {
-        fetchAllOrders(page, limit, status, userId).then(resolve).catch(reject);
-      });
-    }, 1000),
+    debounce((page, limit, status, userId, forceRefresh = false) => {
+      return fetchAllOrders(page, limit, status, userId, forceRefresh);
+    }, 500), // Reduced debounce time
     [fetchAllOrders]
   );
 
   useEffect(() => {
     if (!userRole) return;
 
-    const fetchData = isAdmin ? debouncedFetchAllOrders : debouncedFetchUserOrders;
-    fetchData(1, 10);
+    console.log('OrderProvider: Setting up for role:', userRole);
+
+    // Force refresh on initial load
+    const fetchData = isAdmin ? 
+      () => debouncedFetchAllOrders(1, 10, '', '', true) : 
+      () => debouncedFetchUserOrders(1, 10, '', true);
+    
+    fetchData();
 
     let pollingInterval = null;
 
@@ -204,62 +228,80 @@ export const OrderProvider = ({ children }) => {
       socketService.connect(admin?._id, 'admin');
 
       const handleSocketError = (error) => {
+        console.error('Socket error:', error);
         setError('Failed to connect to real-time updates. Using fallback polling.');
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
             if (!socketService.getConnectionState()) {
-              debouncedFetchAllOrders(1, 10);
+              console.log('Polling: Fetching orders due to socket disconnect');
+              debouncedFetchAllOrders(1, 10, '', '', true);
             }
-          }, 30000);
+          }, 15000); // Reduced polling interval
         }
       };
 
       socketService.on('connect_error', handleSocketError);
 
-      if (socketService.getConnectionState()) {
-        socketService.on('orderCreated', () => debouncedFetchAllOrders(1, 10));
-        socketService.on('orderStatusUpdated', () => debouncedFetchAllOrders(1, 10));
-      }
+      socketService.on('orderCreated', (newOrder) => {
+        console.log('Socket: New order created:', newOrder);
+        clearAllOrdersCache();
+        debouncedFetchAllOrders(1, 10, '', '', true);
+      });
+
+      socketService.on('orderStatusUpdated', (updatedOrder) => {
+        console.log('Socket: Order status updated:', updatedOrder);
+        clearAllOrdersCache();
+        debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
+      });
 
       socketService.on('connect', () => {
+        console.log('Socket: Connected successfully');
         if (pollingInterval) {
           clearInterval(pollingInterval);
           pollingInterval = null;
           setError('');
         }
-        socketService.on('orderCreated', () => debouncedFetchAllOrders(1, 10));
-        socketService.on('orderStatusUpdated', () => debouncedFetchAllOrders(1, 10));
       });
 
       socketService.on('disconnect', () => {
+        console.log('Socket: Disconnected');
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
-            if (!socketService.getConnectionState()) {
-              debouncedFetchAllOrders(1, 10);
-            }
-          }, 30000);
+            console.log('Polling: Fetching orders due to socket disconnect');
+            debouncedFetchAllOrders(1, 10, '', '', true);
+          }, 15000);
         }
       });
     } else if (isRegularUser) {
       socketService.connect(user?._id, 'user');
-      socketService.on('orderCreated', () => debouncedFetchUserOrders(1, 10));
-      socketService.on('orderStatusUpdated', () => debouncedFetchUserOrders(1, 10));
+      
+      socketService.on('orderCreated', (newOrder) => {
+        console.log('Socket: User order created:', newOrder);
+        clearUserOrdersCache();
+        debouncedFetchUserOrders(1, 10, '', true);
+      });
+
+      socketService.on('orderStatusUpdated', (updatedOrder) => {
+        console.log('Socket: User order status updated:', updatedOrder);
+        clearUserOrdersCache();
+        debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
+      });
     }
 
     return () => {
+      console.log('OrderProvider: Cleaning up...');
       socketService.off('orderCreated');
       socketService.off('orderStatusUpdated');
       socketService.off('connect');
       socketService.off('connect_error');
       socketService.off('disconnect');
-      socketService.disconnect();
       if (pollingInterval) {
         clearInterval(pollingInterval);
       }
       debouncedFetchUserOrders.cancel();
       debouncedFetchAllOrders.cancel();
     };
-  }, [isAdmin, isRegularUser, userRole, debouncedFetchAllOrders, debouncedFetchUserOrders, admin?._id, user?._id]);
+  }, [isAdmin, isRegularUser, userRole, admin?._id, user?._id]);
 
   const handleOrderError = async (err, isUser, retryFn) => {
     console.error('Order error:', {
@@ -303,11 +345,15 @@ export const OrderProvider = ({ children }) => {
         totalShippingCost: orderData.totalShippingCost || 0,
       });
 
+      console.log('Order placed successfully:', order);
+      
+      // Clear cache and force refresh
+      clearAllOrdersCache();
+      
       if (isAdmin) {
-        await debouncedFetchAllOrders(1, 10);
+        await debouncedFetchAllOrders(1, 10, '', '', true);
       } else if (isRegularUser) {
-        clearOrdersCache(); // Invalidate cache
-        await debouncedFetchUserOrders(1, 10);
+        await debouncedFetchUserOrders(1, 10, '', true);
       }
       
       return order;
@@ -342,8 +388,11 @@ export const OrderProvider = ({ children }) => {
 
     try {
       const order = await updateOrderStatus(orderId, status);
-      clearOrdersCache(); // Invalidate cache
-      await debouncedFetchAllOrders(1, 10);
+      console.log('Order status updated:', order);
+      
+      // Clear cache and force refresh
+      clearAllOrdersCache();
+      await debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
       return order;
     } catch (err) {
       await handleOrderError(err, isAdmin, () => updateStatus(orderId, status));
@@ -370,8 +419,11 @@ export const OrderProvider = ({ children }) => {
 
     try {
       const order = await apiCancelOrder(orderId);
-      clearOrdersCache(); // Invalidate cache
-      await debouncedFetchUserOrders(1, 10);
+      console.log('Order cancelled:', order);
+      
+      // Clear cache and force refresh
+      clearUserOrdersCache();
+      await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
       toast.success('Order cancelled successfully');
       return order;
     } catch (err) {
@@ -422,6 +474,17 @@ export const OrderProvider = ({ children }) => {
     }
   };
 
+  // Add a force refresh function
+  const forceRefreshOrders = useCallback(() => {
+    console.log('Force refreshing orders...');
+    clearAllOrdersCache();
+    if (isAdmin) {
+      return debouncedFetchAllOrders(1, 10, '', '', true);
+    } else if (isRegularUser) {
+      return debouncedFetchUserOrders(1, 10, '', true);
+    }
+  }, [isAdmin, isRegularUser, debouncedFetchAllOrders, debouncedFetchUserOrders]);
+
   const value = {
     orders,
     pagination,
@@ -433,6 +496,7 @@ export const OrderProvider = ({ children }) => {
     updateStatus,
     cancelOrder: cancelUserOrder,
     downloadOrderInvoice,
+    forceRefreshOrders, // Add this new function
     isAdmin,
     isRegularUser
   };
