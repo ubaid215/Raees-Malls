@@ -142,24 +142,24 @@ function HomePage() {
           {/* Categories Grid */}
           {loading ? (
             // Loading Skeleton
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+            <div className="grid grid-cols-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 sm:gap-4">
               {[...Array(8)].map((_, index) => (
                 <div key={index} className="flex flex-col items-center">
-                  <div className="w-20 h-20 md:w-24 md:h-24 bg-gray-200 rounded-full animate-pulse mb-3"></div>
-                  <div className="w-16 h-4 bg-gray-200 rounded animate-pulse"></div>
+                  <div className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 bg-gray-200 rounded-full animate-pulse mb-2 sm:mb-3"></div>
+                  <div className="w-12 sm:w-16 h-3 sm:h-4 bg-gray-200 rounded animate-pulse"></div>
                 </div>
               ))}
             </div>
           ) : displayCategories.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+            <div className="grid grid-cols-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 sm:gap-4">
               {displayCategories.map((category) => (
                 <Link
                   key={category._id}
                   to={`/products?category=${category.slug || category._id}`}
-                  className="group flex flex-col items-center p-3 rounded-lg hover:bg-gray-50 transition-all duration-300"
+                  className="group flex flex-col items-center p-1 sm:p-3 rounded-lg hover:bg-gray-50 transition-all duration-300"
                 >
                   {/* Category Image/Icon Container */}
-                  <div className="relative w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-red-500 transition-all duration-300 bg-gray-100">
+                  <div className="relative w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-red-500 transition-all duration-300 bg-gray-100">
                     {category.image ? (
                       <img
                         src={category.image}
@@ -177,12 +177,12 @@ function HomePage() {
                       className="w-full h-full flex items-center justify-center"
                       style={{ display: category.image ? 'none' : 'flex' }}
                     >
-                      <FiGrid className="w-8 h-8 md:w-10 md:h-10 text-gray-400 group-hover:text-red-500 transition-colors duration-300" />
+                      <FiGrid className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10 text-gray-400 group-hover:text-red-500 transition-colors duration-300" />
                     </div>
                   </div>
                   
                   {/* Category Name */}
-                  <h3 className="mt-3 text-sm md:text-base font-medium text-gray-900 group-hover:text-red-600 transition-colors duration-300 text-center line-clamp-2">
+                  <h3 className="mt-1 sm:mt-3 text-xs sm:text-sm md:text-base font-medium text-gray-900 group-hover:text-red-600 transition-colors duration-300 text-center line-clamp-2 leading-tight">
                     {category.name}
                   </h3>
                 </Link>

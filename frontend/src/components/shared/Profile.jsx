@@ -230,12 +230,12 @@ const Profile = () => {
 
     return (
       <span
-        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs sm:text-sm font-medium ${statusStyles[status] || "bg-gray-100 text-gray-800"}`}
+        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${statusStyles[status] || "bg-gray-100 text-gray-800"}`}
       >
-        {status === "pending" && <FiAlertCircle className="mr-1" />}
-        {status === "processing" && <FiClock className="mr-1" />}
-        {status === "shipped" && <FiTruck className="mr-1" />}
-        {status === "delivered" && <FiCheckCircle className="mr-1" />}
+        {status === "pending" && <FiAlertCircle className="mr-1 text-xs" />}
+        {status === "processing" && <FiClock className="mr-1 text-xs" />}
+        {status === "shipped" && <FiTruck className="mr-1 text-xs" />}
+        {status === "delivered" && <FiCheckCircle className="mr-1 text-xs" />}
         <span className="capitalize">{status || "Unknown"}</span>
       </span>
     );
@@ -428,7 +428,7 @@ const Profile = () => {
           </h1>
           <Button
             onClick={handleLogout}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-red-600 text-white hover:bg-red-700"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-red-600 text-white hover:bg-red-700 px-4 py-2 text-sm"
           >
             <FiLogOut />
             <span>Logout</span>
@@ -495,47 +495,46 @@ const Profile = () => {
               </div>
               <Button
                 onClick={() => setIsEditModalOpen(true)}
-                className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                className="w-full bg-blue-600 text-white hover:bg-blue-700 px-4 py-2 text-sm"
               >
                 Edit Profile
               </Button>
             </div>
           </div>
 
-          {/* Updated Order Summary Section */}
-          {/* Updated Order Summary Section */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 md:col-span-2">
-            <div className="flex items-center gap-4 mb-4">
-              <div className="bg-blue-100 p-3 rounded-full">
-                <FiPackage className="text-blue-600 text-xl sm:text-2xl" />
+          {/* Updated Responsive Recent Orders Section */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6 md:col-span-2">
+            <div className="flex items-center gap-3 sm:gap-4 mb-4">
+              <div className="bg-blue-100 p-2 sm:p-3 rounded-full">
+                <FiPackage className="text-blue-600 text-lg sm:text-xl md:text-2xl" />
               </div>
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900">
+              <h2 className="text-base sm:text-lg md:text-xl font-semibold text-gray-900">
                 Recent Orders
               </h2>
             </div>
             {orderLoading ? (
-              <div className="space-y-4">
-                <LoadingSkeleton type="text" width="w-full" height="h-16" />
-                <LoadingSkeleton type="text" width="w-full" height="h-16" />
+              <div className="space-y-3 sm:space-y-4">
+                <LoadingSkeleton type="text" width="w-full" height="h-12 sm:h-16" />
+                <LoadingSkeleton type="text" width="w-full" height="h-12 sm:h-16" />
               </div>
             ) : orderError ? (
-              <div className="p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-gray-600">{orderError}</p>
+              <div className="p-3 sm:p-4 bg-gray-50 rounded-lg text-center">
+                <p className="text-gray-600 text-sm sm:text-base">{orderError}</p>
                 <Button
                   onClick={() => fetchUserOrders(pagination.page)}
-                  className="mt-2 bg-blue-600 text-white hover:bg-blue-700"
+                  className="mt-2 bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 text-sm"
                 >
                   Retry
                 </Button>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {(() => {
                   const validOrders = (orders || []).filter(
                     (order) => order && order.orderId
                   );
                   return validOrders.length === 0 ? (
-                    <p className="text-gray-600">No orders found</p>
+                    <p className="text-gray-600 text-sm sm:text-base">No orders found</p>
                   ) : (
                     validOrders.slice(0, 3).map((order) => {
                       // Get the first item from the order for display
@@ -550,11 +549,11 @@ const Profile = () => {
                       return (
                         <div
                           key={order.orderId}
-                          className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                          className="border border-gray-200 rounded-lg p-3 sm:p-4 hover:bg-gray-50 cursor-pointer transition-colors"
                           onClick={() => navigate(`/orders/${order.orderId}`)}
                         >
-                          <div className="flex gap-4">
-                            {/* Product Image */}
+                          <div className="flex gap-2 sm:gap-4">
+                            {/* Product Image - Smaller on mobile */}
                             {firstItem && (
                               <div className="flex-shrink-0">
                                 <img
@@ -564,7 +563,7 @@ const Profile = () => {
                                     firstItem.title ||
                                     "Product"
                                   }
-                                  className="w-12 h-12 object-contain rounded-md border border-gray-200"
+                                  className="w-10 h-10 sm:w-12 sm:h-12 object-contain rounded-md border border-gray-200"
                                   onError={(e) => {
                                     console.warn(
                                       `Order: Image failed to load for ${firstItem.productId?.title || firstItem.title || "unknown"}:`,
@@ -578,42 +577,41 @@ const Profile = () => {
                               </div>
                             )}
 
-                            {/* Order Details */}
+                            {/* Order Details - Compact layout */}
                             <div className="flex-1 min-w-0">
-                              <div className="flex justify-between items-start mb-2">
-                                <div>
-                                  <h3 className="font-medium text-gray-900 truncate">
+                              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2 mb-2">
+                                <div className="min-w-0">
+                                  <h3 className="font-medium text-gray-900 text-sm sm:text-base truncate">
                                     {firstItem?.productId?.title || "Product"}
                                     {additionalItemsCount > 0 && (
-                                      <span className="text-sm text-gray-500 ml-2">
-                                        +{additionalItemsCount} more item
-                                        {additionalItemsCount > 1 ? "s" : ""}
+                                      <span className="text-xs sm:text-sm text-gray-500 ml-1 sm:ml-2">
+                                        +{additionalItemsCount} more
                                       </span>
                                     )}
                                   </h3>
-                                  <p className="text-sm text-gray-600">
-                                    Order #{order.orderId}
+                                  <p className="text-xs sm:text-sm text-gray-600">
+                                    #{order.orderId}
                                   </p>
-                                  <p className="text-sm text-gray-500">
+                                  <p className="text-xs text-gray-500">
                                     {new Date(
                                       order.createdAt || Date.now()
                                     ).toLocaleDateString()}
                                   </p>
                                 </div>
-                                <div className="text-right">
-                                  <p className="font-semibold text-gray-900">
+                                <div className="flex flex-row sm:flex-col items-start sm:items-end gap-2 sm:gap-1">
+                                  <p className="font-semibold text-gray-900 text-sm sm:text-base">
                                     {formatPrice(order.totalPrice)}
                                   </p>
                                   {getOrderStatusBadge(order.status)}
                                 </div>
                               </div>
 
-                              {/* Quantity info */}
+                              {/* Quantity info - Smaller on mobile */}
                               {firstItem && (
-                                <p className="text-sm text-gray-600">
+                                <p className="text-xs sm:text-sm text-gray-600">
                                   Qty: {firstItem.quantity || 1}
                                   {firstItem.variantId && (
-                                    <span className="ml-2">
+                                    <span className="ml-1 sm:ml-2">
                                       • {firstItem.variantValue || "Variant"}
                                     </span>
                                   )}
@@ -628,7 +626,7 @@ const Profile = () => {
                 })()}
                 <Button
                   onClick={() => navigate("/orders")}
-                  className="w-full border border-blue-600 text-blue-600 hover:bg-blue-50"
+                  className="w-full border border-blue-600 text-blue-600 hover:bg-blue-50 px-3 py-2 text-sm"
                   disabled={orderError}
                 >
                   View All Orders
@@ -656,7 +654,7 @@ const Profile = () => {
                 <p className="text-gray-600">{orderError}</p>
                 <Button
                   onClick={() => fetchUserOrders(pagination.page)}
-                  className="mt-2 bg-blue-600 text-white hover:bg-blue-700"
+                  className="mt-2 bg-blue-600 text-white hover:bg-blue-700 px-4 py-2 text-sm"
                 >
                   Retry
                 </Button>

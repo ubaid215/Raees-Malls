@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   FiHome,
@@ -8,12 +8,64 @@ import {
 } from 'react-icons/fi';
 import { History, Image, ImagePlus, ListChecks, ShoppingBasket, UserCircle } from 'lucide-react';
 import { useAdminAuth } from '../../context/AdminAuthContext';
+import { useOrder } from '../../context/OrderContext';
+import socketService from '../../services/socketService';
 
 const Sidebar = () => {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [newOrderCount, setNewOrderCount] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const { admin, logoutAdmin } = useAdminAuth();
+  const { orders } = useOrder();
+
+  // Calculate pending orders count
+  const pendingOrdersCount = (orders || []).filter(
+    (order) => order && order.status === 'pending'
+  ).length;
+
+  useEffect(() => {
+    const setupSocket = () => {
+      try {
+        if (admin && !socketService.getConnectionState()) {
+          socketService.connect(admin._id, admin.role);
+        }
+
+        // Listen for new orders
+        socketService.on('orderCreated', (newOrder) => {
+          if (newOrder && newOrder.orderId) {
+            setNewOrderCount(prev => prev + 1);
+          }
+        });
+
+        // Reset count when order status is updated
+        socketService.on('orderStatusUpdated', (updatedOrder) => {
+          if (updatedOrder && updatedOrder.status !== 'pending') {
+            setNewOrderCount(prev => Math.max(0, prev - 1));
+          }
+        });
+
+      } catch (err) {
+        console.error('Sidebar: Socket setup error:', err);
+      }
+    };
+
+    if (admin) {
+      setupSocket();
+    }
+
+    return () => {
+      socketService.off('orderCreated');
+      socketService.off('orderStatusUpdated');
+    };
+  }, [admin]);
+
+  // Reset new order count when visiting orders page
+  useEffect(() => {
+    if (location.pathname === '/admin/orders') {
+      setNewOrderCount(0);
+    }
+  }, [location.pathname]);
 
   const navSections = [
     {
@@ -29,7 +81,12 @@ const Sidebar = () => {
       items: [
         { path: '/admin/add-products', icon: FiShoppingBag, label: 'ProductForm' },
         { path: '/admin/inventory', icon: ShoppingBasket, label: 'All Products' },
-        { path: '/admin/orders', icon: FiDollarSign, label: 'Orders' },
+        { 
+          path: '/admin/orders', 
+          icon: FiDollarSign, 
+          label: 'Orders',
+          count: newOrderCount > 0 ? newOrderCount : (pendingOrdersCount > 0 ? pendingOrdersCount : null)
+        },
       ]
     },
     {
@@ -90,7 +147,7 @@ const Sidebar = () => {
                 <li key={item.path}>
                   <Link
                     to={item.path}
-                    className={`flex items-center px-4 py-2.5 mx-2 rounded-md transition-colors
+                    className={`flex items-center px-4 py-2.5 mx-2 rounded-md transition-colors relative
                       ${location.pathname === item.path ? 
                         'bg-[#FFE6E8] text-[#E63946]' : 
                         'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -107,11 +164,17 @@ const Sidebar = () => {
                           </span>
                         )}
                         {item.count && (
-                          <span className="ml-auto bg-gray-100 text-gray-800 text-xs px-2 py-0.5 rounded-full">
-                            {item.count}
+                          <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-medium min-w-[20px] text-center">
+                            {item.count > 99 ? '99+' : item.count}
                           </span>
                         )}
                       </>
+                    )}
+                    {/* Count badge for collapsed sidebar */}
+                    {!isExpanded && item.count && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full font-medium min-w-[18px] text-center leading-none">
+                        {item.count > 9 ? '9+' : item.count}
+                      </span>
                     )}
                   </Link>
                 </li>
