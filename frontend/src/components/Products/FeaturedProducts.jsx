@@ -9,10 +9,6 @@ import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../shared/config';
 import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
-import { Swiper, SwiperSlide } from 'swiper/react';
-import { Navigation, Autoplay } from 'swiper/modules';
-import 'swiper/css';
-import 'swiper/css/navigation';
 
 function FeaturedProducts() {
   const { products, loading: productsLoading, error: productsError, fetchFeaturedProducts } = useContext(ProductContext);
@@ -205,50 +201,12 @@ function FeaturedProducts() {
       </div>
 
       <div className="w-full">
-        <style>
-          {`
-            .swiper-button-next,
-            .swiper-button-prev {
-              color: #e53e3e;
-              background-color: rgba(255, 255, 255, 0.8);
-              border-radius: 50%;
-              width: 32px;
-              height: 32px;
-              top: 50%;
-              transform: translateY(-50%);
-            }
-            .swiper-button-next:after,
-            .swiper-button-prev:after {
-              font-size: 16px;
-            }
-            .swiper-button-next {
-              right: 10px;
-            }
-            .swiper-button-prev {
-              left: 10px;
-            }
-          `}
-        </style>
         {memoizedProducts.length > 0 ? (
-          <Swiper
-            modules={[Navigation, Autoplay]}
-            spaceBetween={16}
-            slidesPerView={2}
-            navigation
-            autoplay={{ delay: 3000, disableOnInteraction: false }}
-            breakpoints={{
-              640: { slidesPerView: 2 },
-              768: { slidesPerView: 3 },
-              1024: { slidesPerView: 4 }
-            }}
-            className="mySwiper"
-          >
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {memoizedProducts.map((product) => (
-              <SwiperSlide key={product._id}>
-                <ProductCard product={product} />
-              </SwiperSlide>
+              <ProductCard key={product._id} product={product} />
             ))}
-          </Swiper>
+          </div>
         ) : (
           <div className="text-center py-8 sm:py-10">
             <p className="text-gray-500 text-sm sm:text-base">No featured products available</p>

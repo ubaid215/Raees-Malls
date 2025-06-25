@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import { Helmet } from 'react-helmet';
-import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ProductContext } from '../../context/ProductContext';
 import ProductCard from './ProductCard';
@@ -10,30 +10,54 @@ import { API_BASE_URL } from '../shared/config';
 import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
 
-function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
+function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) { 
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isAutoPlaying, setIsAutoPlaying] = useState(true);
-  const [visibleItems, setVisibleItems] = useState(4);
-  const [needsFetch, setNeedsFetch] = useState(true);
+  const [localProducts, setLocalProducts] = useState([]); 
   const [isMobile, setIsMobile] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
-  const carouselRef = useRef(null);
-  const intervalRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const locationRef = useRef(location.pathname);
 
-  const memoizedProducts = useMemo(() => {
-    // Only log once when products actually change, not on every render
-    if (!hasInitialized && products && products.length > 0) {
-      console.log('Products loaded for ProductRowSlider:', products.length);
-      setHasInitialized(true);
+  // ✅ Reduced debug logging - only log when products actually change
+  useEffect(() => {
+    if (products?.length > 0) {
+      console.log('ProductRowSlider - Products loaded:', {
+        isFeatured,
+        productsLength: products.length,
+        categoryId,
+        hasInitialized
+      });
     }
-    
-    const productArray = Array.isArray(products) ? products : [];
+  }, [products?.length]); // Only depend on products length, not the full products array
 
-    const mappedProducts = productArray.map((product) => {
+  // ✅ Simplified memoized products with reduced logging
+  const memoizedProducts = useMemo(() => {
+    if (!products || !Array.isArray(products)) {
+      return [];
+    }
+
+    // ✅ Apply filters based on component props
+    const filteredProducts = products.filter(product => {
+      // Filter by featured status
+      const featuredMatch = isFeatured ? product.isFeatured : !product.isFeatured;
+      
+      // Filter by category if specified
+      const categoryMatch = categoryId ? product.categoryId === categoryId : true;
+      
+      // Filter by stock (optional - only show in-stock items)
+      const stockMatch = product.stock > 0;
+      
+      return featuredMatch && categoryMatch && stockMatch;
+    });
+
+    // ✅ Log only the final count, not each product
+    if (filteredProducts.length > 0) {
+      console.log(`ProductRowSlider - Filtered ${filteredProducts.length} products (${isFeatured ? 'featured' : 'regular'})`);
+    }
+
+    // ✅ Process images and format data
+    const processedProducts = filteredProducts.map((product) => {
       const images = Array.isArray(product.images) ? product.images : [];
 
       const processedImages = images.map(img => {
@@ -65,181 +89,106 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         stock: product.stock || 0,
         sku: product.sku || '',
         categoryId: product.categoryId || null,
-        isFeatured: product.isFeatured || false
+        isFeatured: product.isFeatured || false,
+        createdAt: product.createdAt
       };
     });
 
-    return mappedProducts;
-  }, [products, hasInitialized]);
+    // ✅ Sort and limit
+    const finalProducts = processedProducts
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+      .slice(0, 16);
 
-  // Handle location changes separately to avoid repeated logs
+    return finalProducts;
+  }, [products, isFeatured, categoryId]);
+
+  // ✅ Update local products when memoized products change
   useEffect(() => {
-    if (locationRef.current !== location.pathname) {
-      console.log('Location changed, clearing cache');
-      locationRef.current = location.pathname;
-      
-      const clearProductCaches = () => {
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('products_') || key.startsWith('product_') || key.startsWith('featured_products_')) {
-            localStorage.removeItem(key);
-          }
-        });
-      };
-
-      clearProductCaches();
-      setNeedsFetch(true);
-      setHasInitialized(false);
+    if (memoizedProducts.length > 0 && !hasInitialized) {
+      setLocalProducts(memoizedProducts);
+      setHasInitialized(true);
+      console.log('ProductRowSlider - Products initialized:', memoizedProducts.length);
+    } else if (memoizedProducts.length > 0) {
+      setLocalProducts(memoizedProducts);
     }
-  }, [location.pathname]);
+  }, [memoizedProducts, hasInitialized]);
 
-  // Fetch products only when needed
+  // ✅ Simplified fetch function
   const handleFetchProducts = useCallback(async () => {
     try {
       const params = {
         page: 1,
-        limit: 12,
+        limit: 50, // ✅ Fetch more to ensure we have enough after filtering
         sort: '-createdAt',
-        ...(categoryId ? { category: categoryId } : {}),
-        ...(isFeatured ? { isFeatured: true } : {})
+        // ✅ Don't filter by featured in API call - let frontend handle it
+        ...(categoryId ? { category: categoryId } : {})
       };
-      await fetchProducts(params, { isPublic: true, skipCache: true });
-      setNeedsFetch(false);
-    } catch (err) {
-      console.error('Fetch error:', err);
-      toast.error(err.message || 'Failed to load products');
-      setNeedsFetch(false);
-    }
-  }, [fetchProducts, categoryId, isFeatured]);
 
-  // Only fetch when actually needed
+      await fetchProducts(params, { isPublic: true, skipCache: true });
+    } catch (err) {
+      console.error('ProductRowSlider - Fetch error:', err);
+      toast.error(err.message || 'Failed to load products');
+    }
+  }, [fetchProducts, categoryId]); // ✅ Removed isFeatured from dependency
+
+  // ✅ Initial fetch on mount
   useEffect(() => {
-    if (needsFetch && !loading) {
+    if (!hasInitialized && !loading) {
+      console.log('ProductRowSlider - Initial fetch triggered');
       handleFetchProducts();
     }
-  }, [needsFetch, loading, handleFetchProducts]);
+  }, [hasInitialized, loading, handleFetchProducts]);
 
-  // Socket connection - only set up once
+  // ✅ Handle location changes
   useEffect(() => {
-    SocketService.connect();
-
-    const handleProductCreated = (data) => {
-      if (data.product.stock > 0 &&
-          (isFeatured ? data.product.isFeatured : true) &&
-          (categoryId ? data.product.categoryId === categoryId : true)) {
-        setNeedsFetch(true);
-        setHasInitialized(false);
-        toast.success(`New product added: ${data.product.title}`);
-      }
-    };
-
-    const handleProductUpdated = (data) => {
-      if ((isFeatured ? data.product.isFeatured : true) &&
-          (categoryId ? data.product.categoryId === categoryId : true)) {
-        setNeedsFetch(true);
-        setHasInitialized(false);
-        toast.info(`Product updated: ${data.product.title}`);
-      }
-    };
-
-    const handleProductDeleted = () => {
-      setNeedsFetch(true);
+    if (locationRef.current !== location.pathname) {
+      console.log('ProductRowSlider - Location changed, resetting');
+      locationRef.current = location.pathname;
       setHasInitialized(false);
-      toast.warn('Product removed');
+      setLocalProducts([]);
+    }
+  }, [location.pathname]);
+
+  // ✅ Simplified socket handling
+  useEffect(() => {
+    const connectSocket = () => {
+      SocketService.connect();
+
+      const handleProductUpdate = (eventType, data) => {
+        console.log(`ProductRowSlider - Product ${eventType}:`, data?.title || data?._id);
+        // ✅ Simple refresh - let the memoization handle filtering
+        setHasInitialized(false);
+        handleFetchProducts();
+      };
+
+      SocketService.on('productCreated', (data) => handleProductUpdate('created', data));
+      SocketService.on('productUpdated', (data) => handleProductUpdate('updated', data));
+      SocketService.on('productDeleted', (data) => handleProductUpdate('deleted', data));
     };
 
-    SocketService.on('productCreated', handleProductCreated);
-    SocketService.on('productUpdated', handleProductUpdated);
-    SocketService.on('productDeleted', handleProductDeleted);
+    connectSocket();
 
     return () => {
-      SocketService.off('productCreated', handleProductCreated);
-      SocketService.off('productUpdated', handleProductUpdated);
-      SocketService.off('productDeleted', handleProductDeleted);
+      SocketService.off('productCreated');
+      SocketService.off('productUpdated');
+      SocketService.off('productDeleted');
       SocketService.disconnect();
     };
-  }, []); // Empty dependency array - only run once
+  }, [handleFetchProducts]);
 
-  const getVisibleItemsCount = useCallback(() => {
-    if (typeof window === 'undefined') return 4;
-    const width = window.innerWidth;
-    if (width < 640) return 2;
-    if (width < 768) return 2;
-    if (width < 1024) return 3;
-    return 4;
-  }, []);
-
-  // Handle window resize
+  // ✅ Handle window resize
   useEffect(() => {
     const handleResize = () => {
-      const newVisibleItems = getVisibleItemsCount();
-      setVisibleItems(newVisibleItems);
       setIsMobile(window.innerWidth < 768);
-      
-      const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / newVisibleItems) - 1);
-      if (currentIndex > maxIndex && maxIndex >= 0) {
-        setCurrentIndex(maxIndex);
-      }
     };
 
-    // Set initial values
-    setVisibleItems(getVisibleItemsCount());
     setIsMobile(window.innerWidth < 768);
-
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [getVisibleItemsCount, memoizedProducts.length, currentIndex]);
-
-  const handlePrev = useCallback(() => {
-    const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
-
-    setCurrentIndex((prev) => {
-      if (prev === 0) return maxIndex;
-      return Math.max(0, prev - 1);
-    });
-
-    setIsAutoPlaying(false);
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  }, [memoizedProducts.length, visibleItems]);
-
-  const handleNext = useCallback(() => {
-    const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
-
-    setCurrentIndex((prev) => {
-      if (prev >= maxIndex) return 0;
-      return Math.min(maxIndex, prev + 1);
-    });
-
-    setIsAutoPlaying(false);
-    setTimeout(() => setIsAutoPlaying(true), 10000);
-  }, [memoizedProducts.length, visibleItems]);
-
-  const goToSlide = useCallback((index) => {
-    setCurrentIndex(index);
-    setIsAutoPlaying(false);
-    setTimeout(() => setIsAutoPlaying(true), 10000);
   }, []);
 
-  // Auto-play functionality
-  useEffect(() => {
-    if (!isAutoPlaying || memoizedProducts.length === 0 || memoizedProducts.length <= visibleItems) {
-      return;
-    }
-
-    intervalRef.current = setInterval(() => {
-      setCurrentIndex((prev) => {
-        const maxIndex = Math.max(0, Math.ceil(memoizedProducts.length / visibleItems) - 1);
-        return prev >= maxIndex ? 0 : prev + 1;
-      });
-    }, 5000);
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [isAutoPlaying, memoizedProducts.length, visibleItems]);
-
-  if (loading && memoizedProducts.length === 0) {
+  // ✅ Show loading state
+  if (loading && localProducts.length === 0) {
     return (
       <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
@@ -252,7 +201,8 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     );
   }
 
-  if (error || memoizedProducts.length === 0) {
+  // ✅ Show error or empty state
+  if (error || localProducts.length === 0) {
     return (
       <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
@@ -271,7 +221,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         </div>
         <div className="text-center">
           <p className="text-lg text-gray-500 mb-4">
-            {error ? `Failed to load products: ${error}` : 'No products found.'}
+            {error ? `Failed to load products: ${error}` : `No ${isFeatured ? 'featured' : 'regular'} products found.`}
           </p>
           <Button
             onClick={handleFetchProducts}
@@ -280,6 +230,14 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
           >
             {loading ? 'Loading...' : error ? 'Retry Now' : 'Load Products'}
           </Button>
+          {/* ✅ Debug info - only show in development */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-4 text-xs text-gray-400">
+              <p>Total products: {products?.length || 0}</p>
+              <p>Looking for: {isFeatured ? 'Featured' : 'Regular'} products</p>
+              <p>Category: {categoryId || 'All'}</p>
+            </div>
+          )}
         </div>
       </section>
     );
@@ -289,7 +247,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     <section className="relative w-full px-4 py-8 rounded-lg shadow-sm" aria-live="polite">
       <Helmet>
         <title>{title || 'Products'} | Raees Malls</title>
-        <meta name="description" content={`Explore our ${title?.toLowerCase() || 'selected products'} with exclusive deals and limited stock.`} />
+        <meta name="description" content={`Explore our ${title?.toLowerCase() || 'products'} with exclusive deals and limited stock.`} />
       </Helmet>
 
       <div className="flex justify-between items-center mb-6 px-4">
@@ -307,63 +265,26 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         </nav>
       </div>
 
-      <div className="relative overflow-hidden group">
-        <div
-          ref={carouselRef}
-          className="flex transition-transform duration-500 ease-in-out"
-          style={{
-            transform: `translateX(-${currentIndex * (100 / visibleItems)}%)`,
-          }}
-        >
-          {memoizedProducts.map((product) => (
-            <div
-              key={product._id}
-              className="flex-shrink-0 px-2"
-              style={{ width: `${100 / visibleItems}%` }}
-            >
-              <div className="p-1">
-                <ProductCard 
-                  product={product} 
-                  compact={isMobile} 
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <button
-          onClick={handlePrev}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg"
-          aria-label="Previous products"
-        >
-          <ChevronLeft size={24} className="text-gray-700" />
-        </button>
-        <button
-          onClick={handleNext}
-          className="absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg"
-          aria-label="Next products"
-        >
-          <ChevronRight size={24} className="text-gray-700" />
-        </button>
+      {/* Product Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-4">
+        {localProducts.map((product) => (
+          <div key={product._id} className="w-full">
+            <ProductCard 
+              product={product} 
+              compact={isMobile} 
+            />
+          </div>
+        ))}
       </div>
 
-      {memoizedProducts.length > visibleItems && (
-        <div className="flex justify-center mt-6 space-x-2">
-          {Array.from({ length: Math.ceil(memoizedProducts.length / visibleItems) }).map(
-            (_, index) => (
-              <button
-                key={index}
-                onClick={() => goToSlide(index)}
-                className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                  index === currentIndex ? 'bg-red-500 w-6' : 'bg-gray-300'
-                }`}
-                aria-label={`Go to slide ${index + 1}`}
-                aria-current={index === currentIndex ? 'true' : 'false'}
-              />
-            )
-          )}
+      {/* Show total count - only in development
+      {process.env.NODE_ENV === 'development' && localProducts.length > 0 && (
+        <div className="text-center mt-6 px-4">
+          <p className="text-sm text-gray-600">
+            Showing {localProducts.length} {isFeatured ? 'featured' : 'newest'} products
+          </p>
         </div>
-      )}
+      )} */}
     </section>
   );
 }

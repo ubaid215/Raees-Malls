@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import MiniBanner from '../components/layout/MiniBanner';
 import HeroSection from '../components/layout/Home/HeroSection';
 import FeaturedProducts from '../components/Products/FeaturedProducts';
 import ProductRowSlider from '../components/Products/ProductRowSlider';
+import { CategoryContext } from '../context/CategoryContext';
+import { FiGrid, FiArrowRight } from 'react-icons/fi';
 
 // WhatsApp Icon Component
 const WhatsAppIcon = () => (
@@ -90,10 +93,120 @@ const WhatsAppFloatButton = () => {
 };
 
 function HomePage() {
+  const { categories, loading, fetchCategories } = useContext(CategoryContext);
+
+  // Fetch categories on component mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        await fetchCategories({ isPublic: true });
+      } catch (err) {
+        console.error("Category fetch error:", err);
+      }
+    };
+    if (categories.length === 0 && !loading) {
+      loadCategories();
+    }
+  }, [fetchCategories, categories.length, loading]);
+
+  // Display only first 8 categories for homepage
+  const displayCategories = categories.slice(0, 8);
+
   return (
     <div className='bg-[#F5F5F5] relative'>
       <MiniBanner />
       <HeroSection />
+      
+      {/* Popular Categories Section */}
+      <section className="py-8 px-4 bg-[#FAFAFA]">
+        <div className="max-w-7xl mx-auto">
+          {/* Section Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
+                Explore Popular Categories
+              </h2>
+              <p className="text-gray-600">
+                Discover our wide range of product categories
+              </p>
+            </div>
+            <Link
+              to="/products"
+              className="inline-flex items-center text-red-600 hover:text-red-700 font-medium mt-4 sm:mt-0 group"
+            >
+              View All
+              <FiArrowRight className="ml-2 w-4 h-4 transform group-hover:translate-x-1 transition-transform duration-200" />
+            </Link>
+          </div>
+
+          {/* Categories Grid */}
+          {loading ? (
+            // Loading Skeleton
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+              {[...Array(8)].map((_, index) => (
+                <div key={index} className="flex flex-col items-center">
+                  <div className="w-20 h-20 md:w-24 md:h-24 bg-gray-200 rounded-full animate-pulse mb-3"></div>
+                  <div className="w-16 h-4 bg-gray-200 rounded animate-pulse"></div>
+                </div>
+              ))}
+            </div>
+          ) : displayCategories.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+              {displayCategories.map((category) => (
+                <Link
+                  key={category._id}
+                  to={`/products?category=${category.slug || category._id}`}
+                  className="group flex flex-col items-center p-3 rounded-lg hover:bg-gray-50 transition-all duration-300"
+                >
+                  {/* Category Image/Icon Container */}
+                  <div className="relative w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden border-2 border-transparent group-hover:border-red-500 transition-all duration-300 bg-gray-100">
+                    {category.image ? (
+                      <img
+                        src={category.image}
+                        alt={category.name}
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                        loading="lazy"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.nextSibling.style.display = 'flex';
+                        }}
+                      />
+                    ) : null}
+                    {/* Fallback Icon */}
+                    <div 
+                      className="w-full h-full flex items-center justify-center"
+                      style={{ display: category.image ? 'none' : 'flex' }}
+                    >
+                      <FiGrid className="w-8 h-8 md:w-10 md:h-10 text-gray-400 group-hover:text-red-500 transition-colors duration-300" />
+                    </div>
+                  </div>
+                  
+                  {/* Category Name */}
+                  <h3 className="mt-3 text-sm md:text-base font-medium text-gray-900 group-hover:text-red-600 transition-colors duration-300 text-center line-clamp-2">
+                    {category.name}
+                  </h3>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            // No Categories Available
+            <div className="text-center py-12">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <FiGrid className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Categories Available</h3>
+              <p className="text-gray-500 mb-6">Categories will appear here once they are added.</p>
+              <Link
+                to="/products"
+                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+              >
+                Browse All Products
+              </Link>
+            </div>
+          )}
+        </div>
+      </section>
+      
       <FeaturedProducts />
       <ProductRowSlider title="New Products" />
       
