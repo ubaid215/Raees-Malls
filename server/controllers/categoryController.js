@@ -49,7 +49,7 @@ exports.createCategory = async (req, res, next) => {
 
 exports.getAllCategories = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, parentId } = req.query;
+    const { page = 1, limit, sort, parentId } = req.query; // Removed default limit = 10
 
     const query = {};
     if (parentId) {
@@ -57,23 +57,34 @@ exports.getAllCategories = async (req, res, next) => {
     }
 
     const sortOption = sort || 'name';
-    const skip = (page - 1) * limit;
+    const skip = (page - 1) * (limit || 0); // Handle undefined limit
 
-    const categories = await Category.find(query)
+    let categoryQuery = Category.find(query)
       .populate('parentId', 'name slug')
       .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit));
+      .skip(skip);
 
+    // Only apply limit if specified
+    if (limit) {
+      categoryQuery = categoryQuery.limit(parseInt(limit));
+    }
+
+    const categories = await categoryQuery;
     const total = await Category.countDocuments(query);
 
-    ApiResponse.success(res, 200, 'Categories retrieved successfully', {
+    const response = {
       categories,
       total,
       page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit),
-    });
+    };
+
+    // Only add pagination info if limit is specified
+    if (limit) {
+      response.limit = parseInt(limit);
+      response.totalPages = Math.ceil(total / parseInt(limit));
+    }
+
+    ApiResponse.success(res, 200, 'Categories retrieved successfully', response);
   } catch (error) {
     next(error);
   }
@@ -254,7 +265,7 @@ exports.deleteCategory = async (req, res, next) => {
 
 exports.getAllCategoriesForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, parentId } = req.query;
+    const { page = 1, limit, sort, parentId } = req.query; // Removed default limit = 10
 
     const query = {};
     if (parentId) {
@@ -262,24 +273,35 @@ exports.getAllCategoriesForCustomers = async (req, res, next) => {
     }
 
     const sortOption = sort || 'name';
-    const skip = (page - 1) * limit;
+    const skip = (page - 1) * (limit || 0); // Handle undefined limit
 
-    const categories = await Category.find(query)
+    let categoryQuery = Category.find(query)
       .select('-__v')
       .populate('parentId', 'name slug')
       .sort(sortOption)
-      .skip(skip)
-      .limit(parseInt(limit));
+      .skip(skip);
 
+    // Only apply limit if specified
+    if (limit) {
+      categoryQuery = categoryQuery.limit(parseInt(limit));
+    }
+
+    const categories = await categoryQuery;
     const total = await Category.countDocuments(query);
 
-    ApiResponse.success(res, 200, 'Categories retrieved successfully', {
+    const response = {
       categories,
       total,
       page: parseInt(page),
-      limit: parseInt(limit),
-      totalPages: Math.ceil(total / limit),
-    });
+    };
+
+    // Only add pagination info if limit is specified
+    if (limit) {
+      response.limit = parseInt(limit);
+      response.totalPages = Math.ceil(total / parseInt(limit));
+    }
+
+    ApiResponse.success(res, 200, 'Categories retrieved successfully', response);
   } catch (error) {
     next(error);
   }
