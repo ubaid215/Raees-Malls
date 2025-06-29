@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser, CiHeart } from 'react-icons/ci';
+import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser, CiHeart, CiCircleRemove } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
 import { CategoryContext } from '../../../context/CategoryContext';
 import { ProductContext } from '../../../context/ProductContext';
@@ -9,6 +9,7 @@ import { useCart } from '../../../context/CartContext';
 import SocketService from '../../../services/socketService';
 import { toast } from 'react-toastify';
 import Logo from '../../../assets/images/Raees Malls.png';
+import { useAuth } from '../../../context/AuthContext'; // Import useAuth
 
 // Navigation links
 const navLinks = [
@@ -30,6 +31,7 @@ function Navbar() {
   const [isSearching, setIsSearching] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState({});
   const navigate = useNavigate();
+  const { isAuthenticated, user, fetchUser } = useAuth(); // Use auth context
 
   // Cart context
   const { cartItems } = useCart();
@@ -46,7 +48,8 @@ function Navbar() {
   useEffect(() => {
     console.log('Navbar: cartItems:', cartItems);
     console.log('Navbar: cartCount:', cartCount);
-  }, [cartItems, cartCount]);
+    console.log('Navbar: isAuthenticated:', isAuthenticated);
+  }, [cartItems, cartCount, isAuthenticated]);
 
   // Create hierarchical category structure
   const categoriesWithSubcategories = React.useMemo(() => {
@@ -85,7 +88,12 @@ function Navbar() {
       }
     };
     loadCategories();
-  }, [fetchCategories]);
+
+    // Fetch user data on mount if tokens exist
+    if (!user && !isAuthenticated) {
+      fetchUser().catch(err => console.error('Initial user fetch failed:', err));
+    }
+  }, [fetchCategories, fetchUser, user, isAuthenticated]);
 
   // Socket.IO integration for category events
   useEffect(() => {
@@ -119,7 +127,8 @@ function Navbar() {
   useEffect(() => {
     const handleClickOutside = (event) => {
       const dropdown = document.getElementById('category-dropdown');
-      if (dropdown && !dropdown.contains(event.target)) {
+      const mobileDropdown = document.getElementById('mobile-category-dropdown');
+      if (dropdown && !dropdown.contains(event.target) && mobileDropdown && !mobileDropdown.contains(event.target)) {
         setShowDropdown(false);
       }
     };
@@ -333,10 +342,12 @@ function Navbar() {
           className="p-2 text-red-600"
           aria-label="Toggle menu"
         >
-          <CiMenuBurger size={24} strokeWidth={1} />
+          {showMobileMenu ? <CiCircleRemove size={24} strokeWidth={1} /> : <CiMenuBurger size={24} strokeWidth={1} />}
         </button>
 
-        <img src={Logo} alt="Raees Malls Logo" className="h-8 w-auto" />
+        <Link to="/">
+          <img src={Logo} alt="Raees Malls Logo" className="h-8 w-auto" />
+        </Link>
 
         <div className="flex items-center gap-4">
           <button
@@ -430,21 +441,35 @@ function Navbar() {
       {showMobileMenu && (
         <div className="md:hidden bg-white shadow-lg">
           <div className="px-4 py-3 border-b">
-            <div className="flex gap-4 mb-4">
-              <Link
-                to="/login"
-                className="flex-1 py-2 bg-gray-100 rounded-md font-medium text-center"
-                onClick={closeMobileMenu}
-              >
-                Sign In
-              </Link>
-              <Link
-                to="/register"
-                className="flex-1 py-2 bg-red-600 text-white rounded-md font-medium text-center"
-                onClick={closeMobileMenu}
-              >
-                Sign Up
-              </Link>
+            <div className="flex flex-col gap-2 mb-4">
+              {isAuthenticated ? (
+                <button
+                  onClick={(e) => {
+                    handleAccountClick(e);
+                    closeMobileMenu();
+                  }}
+                  className="w-full py-2 bg-red-600 text-white rounded-md font-medium text-center"
+                >
+                  Account
+                </button>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="w-full py-2 bg-gray-100 rounded-md font-medium text-center text-gray-800"
+                    onClick={closeMobileMenu}
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="w-full py-2 bg-red-600 text-white rounded-md font-medium text-center"
+                    onClick={closeMobileMenu}
+                  >
+                    Sign Up
+                  </Link>
+                </>
+              )}
             </div>
             <div className="relative" id="mobile-category-dropdown">
               <button
@@ -461,7 +486,7 @@ function Navbar() {
                 />
               </button>
               {showDropdown && (
-                <div className="mt-1 w-full bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
+                <div className="mt-1 w-full bg-white rounded-md shadow-lg z-60 max-h-96 overflow-y-auto">
                   {loading ? (
                     <div className="px-4 py-2 text-gray-800">Loading categories...</div>
                   ) : categoriesWithSubcategories.length > 0 ? (
@@ -481,22 +506,15 @@ function Navbar() {
                 key={link.name}
                 to={link.path}
                 className={({ isActive }) =>
-                  `block px-2 py-3 text-gray-700 border-b ${isActive ? 'text-red-600 font-medium' : ''}`
+                  `block px-2 py-3 text-gray-700 hover:text-red-600 transition-colors ${
+                    isActive ? 'text-red-600 font-medium' : ''
+                  }`
                 }
                 onClick={closeMobileMenu}
               >
                 {link.name}
               </NavLink>
             ))}
-            <button
-              onClick={(e) => {
-                handleAccountClick(e);
-                closeMobileMenu();
-              }}
-              className="block w-full text-left px-2 py-3 text-gray-700 border-b"
-            >
-              Account
-            </button>
           </div>
         </div>
       )}
@@ -527,7 +545,7 @@ function Navbar() {
             </button>
 
             {showDropdown && (
-              <div className="absolute left-0 mt-1 w-64 bg-white rounded-md shadow-lg z-10 max-h-96 overflow-y-auto">
+              <div className="absolute left-0 mt-1 w-64 bg-white rounded-md shadow-lg z-50 max-h-96 overflow-y-auto">
                 {loading ? (
                   <div className="px-4 py-2 text-gray-800">Loading categories...</div>
                 ) : categoriesWithSubcategories.length > 0 ? (
@@ -624,14 +642,31 @@ function Navbar() {
             )}
           </button>
 
-          <button
-            onClick={handleAccountClick}
-            className="flex items-center gap-1 p-2 text-red-600 hover:text-red-700 transition-colors cursor-pointer"
-            aria-label="Account"
-          >
-            <CiUser size={24} strokeWidth={1} />
-            <span className="text-sm">Account</span>
-          </button>
+          {isAuthenticated ? (
+            <button
+              onClick={handleAccountClick}
+              className="flex items-center gap-1 p-2 text-red-600 hover:text-red-700 transition-colors cursor-pointer"
+              aria-label="Account"
+            >
+              <CiUser size={24} strokeWidth={1} />
+              <span className="text-sm">Account</span>
+            </button>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="px-4 py-2 text-sm text-red-600 hover:text-red-700 transition-colors"
+              >
+                Sign In
+              </Link>
+              <Link
+                to="/register"
+                className="px-4 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors"
+              >
+                Sign Up
+              </Link>
+            </>
+          )}
         </div>
       </nav>
 

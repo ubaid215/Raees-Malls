@@ -121,16 +121,27 @@ exports.updateCategory = async (req, res, next) => {
       throw new ApiError(404, 'Category not found');
     }
 
-    const { name, slug, description, parentId } = req.body;
+    const { name, slug, description, parentId, removeImage } = req.body;
 
+    // Handle image operations
     if (req.file) {
+      // New image uploaded - remove old image if exists and set new one
       if (category.imagePublicId) {
         await cloudinary.uploader.destroy(category.imagePublicId);
       }
       category.image = req.file.path;
       category.imagePublicId = req.file.filename;
+    } else if (removeImage === 'true' || removeImage === true) {
+      // Image removal requested - remove from cloudinary and clear from database
+      if (category.imagePublicId) {
+        await cloudinary.uploader.destroy(category.imagePublicId);
+      }
+      category.image = null;
+      category.imagePublicId = null;
     }
+    // If neither new image nor removal, keep existing image unchanged
 
+    // Update other fields
     category.name = name || category.name;
     category.slug = slug || category.slug;
     category.description = description || category.description;
@@ -152,25 +163,20 @@ exports.updateCategory = async (req, res, next) => {
     });
 
     const io = req.app.get('socketio');
+    const categoryData = {
+      _id: category._id,
+      name: category.name,
+      slug: category.slug,
+      description: category.description,
+      parentId: category.parentId,
+      image: category.image, // This will be null if removed
+    };
+
     io.to('adminRoom').emit('categoryUpdated', {
-      category: {
-        _id: category._id,
-        name: category.name,
-        slug: category.slug,
-        description: category.description,
-        parentId: category.parentId,
-        image: category.image,
-      },
+      category: categoryData,
     });
     io.to('publicRoom').emit('categoryUpdated', {
-      category: {
-        _id: category._id,
-        name: category.name,
-        slug: category.slug,
-        description: category.description,
-        parentId: category.parentId,
-        image: category.image,
-      },
+      category: categoryData,
     });
 
     ApiResponse.success(res, 200, 'Category updated successfully', {
@@ -265,7 +271,7 @@ exports.deleteCategory = async (req, res, next) => {
 
 exports.getAllCategoriesForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit, sort, parentId } = req.query; // Removed default limit = 10
+    const { page = 1, limit, sort, parentId } = req.query; 
 
     const query = {};
     if (parentId) {
@@ -273,7 +279,7 @@ exports.getAllCategoriesForCustomers = async (req, res, next) => {
     }
 
     const sortOption = sort || 'name';
-    const skip = (page - 1) * (limit || 0); // Handle undefined limit
+    const skip = (page - 1) * (limit || 0);
 
     let categoryQuery = Category.find(query)
       .select('-__v')

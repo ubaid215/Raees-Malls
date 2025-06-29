@@ -8,58 +8,66 @@ const AdminAuthContext = createContext();
 const AdminAuthProvider = ({ children }) => {
   const [authState, setAuthState] = useState({
     admin: null,
-    loading: false,
+    loading: true, // Start with loading true to prevent premature redirects
     error: null,
     errors: [],
     isRateLimited: false,
     retryAfter: null,
     isRefreshingToken: false,
     isAdminAuthenticated: false,
+    isInitialized: false, // Add initialization flag
   });
 
   const initializationRef = useRef(false);
   const verificationTimeoutRef = useRef(null);
 
   useEffect(() => {
-  if (initializationRef.current) return;
-  initializationRef.current = true;
+    if (initializationRef.current) return;
+    initializationRef.current = true;
 
-  const initializeAuth = async () => {
-    const adminToken = localStorage.getItem('adminToken');
-    const adminRefreshToken = localStorage.getItem('adminRefreshToken');
+    const initializeAuth = async () => {
+      const adminToken = localStorage.getItem('adminToken');
+      const adminRefreshToken = localStorage.getItem('adminRefreshToken');
 
-    if (!adminToken && !adminRefreshToken) {
-      setAuthState(prev => ({ ...prev, loading: false, isAdminAuthenticated: false }));
-      return;
-    }
+      if (!adminToken && !adminRefreshToken) {
+        setAuthState(prev => ({ 
+          ...prev, 
+          loading: false, 
+          isAdminAuthenticated: false,
+          isInitialized: true // Mark as initialized
+        }));
+        return;
+      }
 
-    try {
-      setAuthState(prev => ({ ...prev, loading: true }));
-      const response = await API.get('/admin/verify-token', { withCredentials: true });
-      const { user } = response.data.data;
+      try {
+        setAuthState(prev => ({ ...prev, loading: true }));
+        const response = await API.get('/admin/verify-token', { withCredentials: true });
+        const { user } = response.data.data;
 
-      setAuthState(prev => ({
-        ...prev,
-        admin: user,
-        isAdminAuthenticated: true,
-        loading: false
-      }));
+        setAuthState(prev => ({
+          ...prev,
+          admin: user,
+          isAdminAuthenticated: true,
+          loading: false,
+          isInitialized: true, // Mark as initialized
+          error: null,
+          errors: []
+        }));
 
-      setupSocketConnection(user);
-      scheduleTokenVerification();
-    } catch (err) {
-      console.error('Auth Init Failed:', err);
-      resetAuthState();
-    }
-  };
+        setupSocketConnection(user);
+        scheduleTokenVerification();
+      } catch (err) {
+        console.error('Auth Init Failed:', err);
+        resetAuthState(true); // Pass true to indicate initialization is complete
+      }
+    };
 
-  initializeAuth();
+    initializeAuth();
 
-  return () => {
-    clearTimeout(verificationTimeoutRef.current);
-  };
-}, []);
-
+    return () => {
+      clearTimeout(verificationTimeoutRef.current);
+    };
+  }, []);
 
   const scheduleTokenVerification = () => {
     // Clear existing timeout
@@ -121,11 +129,11 @@ const AdminAuthProvider = ({ children }) => {
     }));
 
     if (!isRateLimitError) {
-      resetAuthState();
+      resetAuthState(true);
     }
   };
 
-  const resetAuthState = () => {
+  const resetAuthState = (isInitialized = false) => {
     // Clear periodic verification
     if (verificationTimeoutRef.current) {
       clearTimeout(verificationTimeoutRef.current);
@@ -141,6 +149,7 @@ const AdminAuthProvider = ({ children }) => {
       retryAfter: null,
       isRefreshingToken: false,
       isAdminAuthenticated: false,
+      isInitialized: isInitialized, // Preserve initialization state
     });
     
     localStorage.removeItem('adminToken');
@@ -171,6 +180,7 @@ const AdminAuthProvider = ({ children }) => {
         retryAfter: null,
         isRefreshingToken: false,
         isAdminAuthenticated: true,
+        isInitialized: true,
       });
       
       setupSocketConnection(adminData.user);
@@ -189,10 +199,10 @@ const AdminAuthProvider = ({ children }) => {
     setAuthState(prev => ({ ...prev, loading: true }));
     try {
       await AdminAuthService.logout();
-      resetAuthState();
+      resetAuthState(true);
     } catch (err) {
       // Even if logout API fails, clear local state
-      resetAuthState();
+      resetAuthState(true);
       console.error('Logout API failed, but cleared local state:', err);
     } finally {
       setAuthState(prev => ({ ...prev, loading: false }));
@@ -218,6 +228,7 @@ const AdminAuthProvider = ({ children }) => {
         isRateLimited: false,
         retryAfter: null,
         isAdminAuthenticated: true,
+        isInitialized: true,
       }));
       
       setupSocketConnection(adminData.user);

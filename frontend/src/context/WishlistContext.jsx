@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 import { addToWishlist, getWishlist, removeFromWishlist } from '../services/wishlistService';
 import socketService from '../services/socketService';
 import { v4 as uuidv4 } from 'uuid';
@@ -27,7 +27,6 @@ export const WishlistProvider = ({ children }) => {
     };
   };
 
-  // Safe value extraction with proper null checks
   const safeExtractValue = (obj, path, defaultValue = null) => {
     try {
       const keys = path.split('.');
@@ -51,9 +50,6 @@ export const WishlistProvider = ({ children }) => {
       setError('');
       try {
         const wishlistData = await getWishlist();
-        // console.log('fetchWishlist wishlistData:', JSON.stringify(wishlistData, null, 2));
-        
-        // Handle empty or invalid data
         if (!wishlistData) {
           console.log('No wishlist data received, setting empty array');
           setWishlist([]);
@@ -67,7 +63,6 @@ export const WishlistProvider = ({ children }) => {
           return;
         }
 
-        // Handle empty array
         if (wishlistData.length === 0) {
           console.log('Wishlist is empty');
           setWishlist([]);
@@ -77,9 +72,6 @@ export const WishlistProvider = ({ children }) => {
         const transformedData = wishlistData
           .map((item, index) => {
             try {
-              // console.log(`Transforming item ${index}:`, JSON.stringify(item, null, 2));
-              
-              // Handle different possible data structures
               const product = item?.productId || item?.product || item;
               
               if (!product) {
@@ -87,7 +79,6 @@ export const WishlistProvider = ({ children }) => {
                 return null;
               }
 
-              // Extract product ID
               const productId = product._id || product.id || safeExtractValue(item, 'productId._id') || safeExtractValue(item, 'productId');
               
               if (!productId) {
@@ -95,7 +86,6 @@ export const WishlistProvider = ({ children }) => {
                 return null;
               }
 
-              // Safe extraction of product data with fallbacks
               const title = safeExtractValue(product, 'title') || 
                            safeExtractValue(product, 'name') || 
                            'Unknown Product';
@@ -105,18 +95,15 @@ export const WishlistProvider = ({ children }) => {
                 ? (images[0]?.url || images[0]?.src || images[0])
                 : '/placeholder-product.png';
 
-              // Handle price with proper fallbacks
               const originalPrice = Number(safeExtractValue(product, 'price', 0)) || 0;
               const discountPrice = Number(safeExtractValue(product, 'discountPrice')) || null;
               const finalPrice = discountPrice && discountPrice > 0 ? discountPrice : originalPrice;
 
-              // Handle rating and reviews
               const rating = Number(safeExtractValue(product, 'averageRating', 0)) || 
                            Number(safeExtractValue(product, 'rating', 0)) || 0;
               const reviews = Number(safeExtractValue(product, 'numReviews', 0)) || 
                             Number(safeExtractValue(product, 'reviewCount', 0)) || 0;
 
-              // Handle stock
               const stock = Number(safeExtractValue(product, 'stock', 0)) || 
                           Number(safeExtractValue(product, 'quantity', 0)) || 0;
 
@@ -132,7 +119,6 @@ export const WishlistProvider = ({ children }) => {
                 variantId: safeExtractValue(item, 'variantId'),
               };
 
-              console.log(`Transformed item ${index}:`, transformedItem);
               return transformedItem;
             } catch (transformError) {
               console.error(`Error transforming item ${index}:`, transformError, item);
@@ -141,13 +127,11 @@ export const WishlistProvider = ({ children }) => {
           })
           .filter(item => item !== null && item.productId);
 
-        // console.log('Final transformed wishlist:', JSON.stringify(transformedData, null, 2));
         setWishlist(transformedData);
-        
       } catch (err) {
         console.error('fetchWishlist error:', err);
         setError(err.message || 'Failed to fetch wishlist');
-        setWishlist([]); // Set empty array on error to prevent blank page
+        setWishlist([]);
       } finally {
         setLoading(false);
       }
@@ -160,9 +144,7 @@ export const WishlistProvider = ({ children }) => {
       const deviceId = getDeviceId();
       socketService.connect(deviceId);
       
-      // Add error handling for socket events
-      socketService.on('wishlistUpdated', (data) => {
-        // console.log('Socket wishlistUpdated event:', JSON.stringify(data, null, 2));
+      socketService.on('wishlistUpdated', () => {
         try {
           fetchWishlist();
         } catch (socketError) {
@@ -170,9 +152,7 @@ export const WishlistProvider = ({ children }) => {
         }
       });
 
-      // Initial fetch
       fetchWishlist();
-
     } catch (initError) {
       console.error('Error initializing wishlist:', initError);
       setError('Failed to initialize wishlist');
@@ -243,4 +223,13 @@ export const WishlistProvider = ({ children }) => {
   };
 
   return <WishlistContext.Provider value={value}>{children}</WishlistContext.Provider>;
+};
+
+// Custom hook to use the Wishlist context
+export const useWishlist = () => {
+  const context = useContext(WishlistContext);
+  if (!context) {
+    throw new Error('useWishlist must be used within a WishlistProvider');
+  }
+  return context;
 };

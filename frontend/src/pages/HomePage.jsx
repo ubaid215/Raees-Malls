@@ -109,8 +109,13 @@ function HomePage() {
     }
   }, [fetchCategories, categories.length, loading]);
 
-  // Display only first 8 categories for homepage
-  const displayCategories = categories.slice(0, 8);
+  // Filter to show only parent categories (categories without a parent)
+  const parentCategories = categories.filter(category => 
+    !category.parent && !category.parentId && !category.parentCategory
+  );
+
+  // Display only first 8 parent categories for homepage
+  const displayCategories = parentCategories.slice(0, 8);
 
   return (
     <div className='bg-[#F5F5F5] relative'>
@@ -131,7 +136,7 @@ function HomePage() {
               </p>
             </div>
             <Link
-              to="/products"
+              to="/all-categories"
               className="inline-flex items-center text-red-600 hover:text-red-700 font-medium mt-4 sm:mt-0 group"
             >
               View All

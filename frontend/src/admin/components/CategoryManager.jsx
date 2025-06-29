@@ -1,19 +1,87 @@
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useContext,
-} from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
-import { FiPlus, FiTrash2, FiEdit2, FiX, FiImage } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiEdit2, FiX, FiImage, FiChevronDown } from 'react-icons/fi';
 import Button from '../../components/core/Button';
 import Input from '../../components/core/Input';
-import CategorySelector from '../../admin/pages/CategorySelector';
 import ImagePreview from '../../components/core/ImagePreview';
 import { CategoryContext } from '../../context/CategoryContext';
 import SocketService from '../../services/socketService';
+
+const CategorySelector = ({ selected, onChange, categories, placeholder, maxSelections, showImages, className, dropdownClassName }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Force re-render when selected prop changes
+  useEffect(() => {
+    console.log('CategorySelector: Selected prop changed:', selected);
+  }, [selected]);
+
+  const handleSelect = (category) => {
+    console.log('CategorySelector: Selecting category:', category);
+    const newSelection = selected.some((item) => item._id === category._id)
+      ? selected.filter((item) => item._id !== category._id)
+      : maxSelections === 1
+      ? [{ _id: category._id, name: category.name, image: category.image }]
+      : [...selected, { _id: category._id, name: category.name, image: category.image }].slice(0, maxSelections);
+    
+    console.log('CategorySelector: New selection:', newSelection);
+    onChange(newSelection);
+    if (maxSelections === 1) setIsOpen(false);
+  };
+
+  return (
+    <div className={`relative ${className}`} ref={dropdownRef}>
+      <button
+        type="button"
+        className="w-full p-2 border border-gray-300 rounded-md bg-white text-left text-sm text-gray-700 flex items-center justify-between focus:ring-2 focus:ring-red-500 focus:outline-none"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className="truncate">
+          {selected.length > 0 ? selected.map((cat) => cat.name).join(', ') : placeholder}
+        </span>
+        <FiChevronDown className={`h-5 w-5 transform transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen && (
+        <div className={`absolute mt-1 ${dropdownClassName}`}>
+          {categories.map((category) => (
+            <div
+              key={category._id}
+              className={`flex items-center p-2 cursor-pointer hover:bg-gray-100 transition-colors ${
+                selected.some((s) => s._id === category._id) ? 'bg-red-50 border-l-2 border-red-500' : ''
+              }`}
+              onClick={() => handleSelect(category)}
+            >
+              {showImages && category.image && (
+                <img
+                  src={category.image}
+                  alt={category.name}
+                  className="h-6 w-6 rounded object-cover mr-2"
+                  onError={(e) => (e.target.src = '/placeholder-category.png')}
+                />
+              )}
+              <span className="text-sm">{category.name}</span>
+              {selected.some((s) => s._id === category._id) && (
+                <span className="ml-auto text-red-500 text-xs">✓</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const CategoryManager = () => {
   const {
@@ -31,6 +99,7 @@ const CategoryManager = () => {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
   const [isImageRemoved, setIsImageRemoved] = useState(false);
+  const [selectedParentCategories, setSelectedParentCategories] = useState([]);
 
   const {
     register,
@@ -48,8 +117,17 @@ const CategoryManager = () => {
     },
   });
 
-  // Detect mobile device for conditional rendering and debugging
-  const isMobile = window.innerWidth < 768;
+  // Detect mobile device for conditional rendering
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Fetch categories on mount
   useEffect(() => {
@@ -95,23 +173,38 @@ const CategoryManager = () => {
     console.log('CategoryManager: Categories updated:', categories.map(c => ({ _id: c._id, name: c.name })));
   }, [categories]);
 
+  // Update selected parent categories when form parentId changes
+  useEffect(() => {
+    const parentId = watch('parentId');
+    console.log('CategoryManager: ParentId changed:', parentId);
+    
+    if (parentId) {
+      const parentCategory = categories.find(c => c._id === parentId);
+      if (parentCategory) {
+        const newSelection = [{ _id: parentCategory._id, name: parentCategory.name, image: parentCategory.image }];
+        console.log('CategoryManager: Setting selected parent categories:', newSelection);
+        setSelectedParentCategories(newSelection);
+      }
+    } else {
+      console.log('CategoryManager: Clearing selected parent categories');
+      setSelectedParentCategories([]);
+    }
+  }, [watch('parentId'), categories]);
+
   const handleParentCategoryChange = useCallback(
     (selectedParents) => {
+      console.log('CategoryManager: Parent category changed via selector:', selectedParents);
       const parentId = selectedParents[0]?._id || null;
-      console.log('CategoryManager: Parent category changed:', {
-        parentId,
-        selectedParents,
-        isMobile,
-      });
-      setValue('parentId', parentId);
+      setValue('parentId', parentId, { shouldDirty: true });
+      setSelectedParentCategories(selectedParents);
     },
-    [setValue, isMobile]
+    [setValue]
   );
 
   const handleNativeSelectChange = (e) => {
     const parentId = e.target.value || null;
-    console.log('CategoryManager: Native select changed:', { parentId, isMobile });
-    setValue('parentId', parentId);
+    console.log('CategoryManager: Native select changed:', parentId);
+    setValue('parentId', parentId, { shouldDirty: true });
   };
 
   const handleImageChange = (e) => {
@@ -153,41 +246,63 @@ const CategoryManager = () => {
     }
   }, [nameValue, setValue, editCategory]);
 
-  const onSubmit = async (data) => {
-    setIsSubmitting(true);
-    try {
-      const categoryData = {
-        name: data.name,
-        slug: data.slug,
-        description: data.description || undefined,
-        parentId: data.parentId || undefined,
-        image: imageFile || undefined,
-      };
-      if (isImageRemoved && editCategory?.image) {
-        categoryData.removeImage = 'true';
-      }
+const onSubmit = async (data) => {
+  setIsSubmitting(true);
+  try {
+    const categoryData = {
+      name: data.name,
+      slug: data.slug,
+      description: data.description || undefined,
+      parentId: data.parentId || undefined,
+    };
 
-      if (editCategory) {
-        console.log('CategoryManager: Updating category:', editCategory._id, categoryData);
-        await updateExistingCategory(editCategory._id, categoryData);
-      } else {
-        console.log('CategoryManager: Creating category:', categoryData);
-        await createNewCategory(categoryData);
+    // Handle image logic
+    if (editCategory) {
+      // For updates
+      if (isImageRemoved) {
+        // User explicitly removed the image
+        categoryData.removeImage = true;
+        console.log('CategoryManager: Image removal flag set');
+      } else if (imageFile) {
+        // User uploaded a new image
+        categoryData.image = imageFile;
+        console.log('CategoryManager: New image file set');
       }
-
-      resetForm();
-    } catch (err) {
-      console.error('CategoryManager: Submit error:', err);
-      const errorMessage =
-        err.response?.data?.errors?.map((e) => e.msg).join(', ') ||
-        err.response?.data?.message ||
-        err.message ||
-        'Failed to save category';
-      toast.error(errorMessage);
-    } finally {
-      setIsSubmitting(false);
+      // If neither removed nor new image, don't include image fields
+    } else {
+      // For new categories
+      if (imageFile) {
+        categoryData.image = imageFile;
+        console.log('CategoryManager: New category with image');
+      }
     }
-  };
+
+    console.log('CategoryManager: Category data being sent:', {
+      ...categoryData,
+      image: categoryData.image ? 'File object' : undefined
+    });
+
+    if (editCategory) {
+      console.log('CategoryManager: Updating category:', editCategory._id, categoryData);
+      await updateExistingCategory(editCategory._id, categoryData);
+    } else {
+      console.log('CategoryManager: Creating category:', categoryData);
+      await createNewCategory(categoryData);
+    }
+
+    resetForm();
+  } catch (err) {
+    console.error('CategoryManager: Submit error:', err);
+    const errorMessage =
+      err.response?.data?.errors?.map((e) => e.msg).join(', ') ||
+      err.response?.data?.message ||
+      err.message ||
+      'Failed to save category';
+    toast.error(errorMessage);
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   const resetForm = () => {
     console.log('CategoryManager: Resetting form');
@@ -201,11 +316,12 @@ const CategoryManager = () => {
     setImagePreview('');
     setEditCategory(null);
     setIsImageRemoved(false);
+    setSelectedParentCategories([]);
   };
 
   const handleEditCategory = useCallback(
     (category) => {
-      console.log('CategoryManager: Editing category:', category._id);
+      console.log('CategoryManager: Editing category:', category._id, category);
       setEditCategory(category);
       setValue('name', category.name);
       setValue('slug', category.slug);
@@ -214,6 +330,17 @@ const CategoryManager = () => {
       setImageFile(null);
       setImagePreview(category.image || '');
       setIsImageRemoved(false);
+      
+      // Set selected parent categories for the selector
+      if (category.parentId) {
+        setSelectedParentCategories([{
+          _id: category.parentId._id,
+          name: category.parentId.name,
+          image: category.parentId.image
+        }]);
+      } else {
+        setSelectedParentCategories([]);
+      }
     },
     [setValue]
   );
@@ -253,20 +380,11 @@ const CategoryManager = () => {
     );
   }, [categories, editCategory]);
 
-  const selectedCategory = useMemo(() => {
-    const parentId = watch('parentId');
-    const selected = parentId
-      ? categories
-          .filter((c) => c._id === parentId)
-          .map((c) => ({ _id: c._id, name: c.name, image: c.image }))
-      : [];
-    console.log('CategoryManager: Selected category:', { parentId, selected });
-    return selected;
-  }, [watch, categories]);
-
   if (loading && categories.length === 0) {
     return (
-      <div className="flex justify-center items-center h-64">Loading...</div>
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-500"></div>
+      </div>
     );
   }
 
@@ -286,7 +404,7 @@ const CategoryManager = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto px-4 py-6 max-w-7xl">
       <h1 className="text-2xl font-bold text-gray-800 mb-6">
         Category Management
       </h1>
@@ -294,7 +412,7 @@ const CategoryManager = () => {
         onSubmit={handleSubmit(onSubmit)}
         className="mb-8 bg-white rounded-lg shadow p-6"
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="space-y-4">
             <Input
               label="Category Name*"
@@ -311,6 +429,7 @@ const CategoryManager = () => {
               })}
               error={errors.name?.message}
               placeholder="Enter category name"
+              className="w-full"
             />
             <Input
               label="URL Slug*"
@@ -324,6 +443,7 @@ const CategoryManager = () => {
               })}
               error={errors.slug?.message}
               placeholder="Enter URL slug"
+              className="w-full"
             />
             <Input
               label="Description (Optional)"
@@ -337,6 +457,7 @@ const CategoryManager = () => {
               rows={3}
               placeholder="Enter category description"
               error={errors.description?.message}
+              className="w-full"
             />
           </div>
           <div className="space-y-4">
@@ -348,7 +469,7 @@ const CategoryManager = () => {
                 <select
                   {...register('parentId')}
                   onChange={handleNativeSelectChange}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:outline-none"
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-red-500 focus:outline-none text-sm"
                   value={watch('parentId') || ''}
                 >
                   <option value="">Select parent category...</option>
@@ -360,15 +481,14 @@ const CategoryManager = () => {
                 </select>
               ) : (
                 <CategorySelector
-                  key={selectedCategory[0]?._id || 'no-selection'}
-                  selected={selectedCategory}
+                  selected={selectedParentCategories}
                   onChange={handleParentCategoryChange}
                   categories={availableParentCategories}
                   placeholder="Select parent category..."
                   maxSelections={1}
                   showImages
-                  className="w-full touch-manipulation z-50"
-                  dropdownClassName="w-full max-h-60 overflow-y-auto touch-manipulation z-50 bg-white border border-gray-300 rounded-md shadow-lg"
+                  className="w-full"
+                  dropdownClassName="w-full max-h-60 overflow-y-auto bg-white border border-gray-300 rounded-md shadow-lg z-50"
                 />
               )}
             </div>
@@ -377,7 +497,7 @@ const CategoryManager = () => {
                 Category Image (Optional)
               </label>
               <div className="mt-1 flex items-center">
-                <label className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                <label className="cursor-pointer bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
                   <FiImage className="inline mr-2" />
                   {imageFile ? 'Change Image' : 'Upload Image'}
                   <input
@@ -391,7 +511,7 @@ const CategoryManager = () => {
                   <button
                     type="button"
                     onClick={clearImage}
-                    className="ml-2 p-1 text-red-600 hover:text-red-800"
+                    className="ml-2 p-1 text-red-600 hover:text-red-800 transition-colors"
                     title="Remove image"
                   >
                     <FiX className="h-5 w-5" />
@@ -413,11 +533,11 @@ const CategoryManager = () => {
             </div>
           </div>
         </div>
-        <div className="mt-6 flex space-x-3">
+        <div className="mt-6 flex flex-col sm:flex-row sm:space-x-3 space-y-3 sm:space-y-0">
           <Button
             type="submit"
             isLoading={isSubmitting}
-            className="flex items-center"
+            className="flex items-center w-full sm:w-auto"
           >
             {editCategory ? (
               <>
@@ -435,6 +555,7 @@ const CategoryManager = () => {
               onClick={resetForm}
               variant="outline"
               disabled={isSubmitting}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
@@ -479,7 +600,7 @@ const CategoryManager = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {categories.map((category) => (
-                  <tr key={category._id}>
+                  <tr key={category._id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         {category.image && (
@@ -518,14 +639,14 @@ const CategoryManager = () => {
                       <div className="flex justify-end space-x-2">
                         <button
                           onClick={() => handleEditCategory(category)}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="text-blue-600 hover:text-blue-900 transition-colors"
                           title="Edit"
                         >
                           <FiEdit2 className="h-5 w-5" />
                         </button>
                         <button
                           onClick={() => handleDeleteCategory(category._id)}
-                          className="text-red-600 hover:text-red-900"
+                          className="text-red-600 hover:text-red-900 transition-colors"
                           title="Delete"
                         >
                           <FiTrash2 className="h-5 w-5" />
