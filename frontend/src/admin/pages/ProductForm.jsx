@@ -4,7 +4,7 @@ import { XMarkIcon } from "@heroicons/react/24/outline";
 import { getCategories } from "../../services/categoryService";
 import Button from "../../components/core/Button";
 import Input from "../../components/core/Input";
-import Textarea from "../../components/core/Textarea";
+import Textarea from "../../components/core/TextArea";
 import Select from "../../components/core/Select";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 import imageCompression from "browser-image-compression";
