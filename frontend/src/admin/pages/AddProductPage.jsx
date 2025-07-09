@@ -1,10 +1,11 @@
+// AddProductPage.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "react-toastify";
 import ProductForm from "./ProductForm";
 import { createProduct } from "../../services/productService";
 import socketService from "../../services/socketService";
 import UploadProgressBar from "../../components/core/UploadProgressBar";
+import { toastSuccess, toastError } from "../../components/core/ToastNotification";
 
 const AddProductPage = () => {
   const navigate = useNavigate();
@@ -12,45 +13,87 @@ const AddProductPage = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentStage, setCurrentStage] = useState('');
 
+  const safeParseNumber = (value) => {
+    if (value === null || value === undefined) return undefined;
+    const num = parseFloat(value);
+    return isNaN(num) ? undefined : num;
+  };
+
+  const safeParseInt = (value) => {
+    if (value === null || value === undefined) return undefined;
+    const num = parseInt(value);
+    return isNaN(num) ? undefined : num;
+  };
+
   const handleSubmit = async (productData, media) => {
     setLoading(true);
-    setCurrentStage('Preparing files...');
-    
+    setCurrentStage('Preparing product data...');
+
     try {
-      console.log('Submitting product:', {
-        productData: {
-          ...productData,
-          shippingCost: productData.shippingCost,
-          color: productData.color,
-        },
-        baseImagesCount: media.baseImages?.length || 0,
-        baseVideosCount: media.baseVideos?.length || 0,
-        variantImagesCount: media.variantImages?.map(v => v?.length || 0) || [],
-        variantVideosCount: media.variantVideos?.map(v => v?.length || 0) || []
-      });
+      const processedVariants = productData.variants?.map(variant => {
+        const processed = {
+          color: variant.color && variant.color.name ? { name: variant.color.name.trim() } : undefined,
+          images: variant.images || [],
+          videos: variant.videos || []
+        };
 
-      if (!productData.sku || productData.sku.trim() === '') {
-        delete productData.sku;
-      }
+        if (variant.price !== undefined && variant.stock !== undefined) {
+          processed.price = safeParseNumber(variant.price) || 0;
+          processed.discountPrice = safeParseNumber(variant.discountPrice);
+          processed.stock = safeParseInt(variant.stock) || 0;
+          processed.sku = variant.sku?.trim() || undefined;
+        }
 
-      if (productData.variants) {
-        productData.variants = productData.variants.map(variant => {
-          const cleanedVariant = {
-            ...variant,
-            specifications: Array.isArray(variant.specifications) ? variant.specifications : [],
-            color: variant.color || undefined,
-          };
-          if (!variant.sku || variant.sku.trim() === '') {
-            const { sku, ...rest } = cleanedVariant;
-            return rest;
-          }
-          return cleanedVariant;
-        });
-      }
+        if (variant.storageOptions?.length > 0) {
+          processed.storageOptions = variant.storageOptions
+            .filter(opt => opt.capacity && opt.price && opt.stock !== undefined)
+            .map(opt => ({
+              capacity: opt.capacity.trim(),
+              price: safeParseNumber(opt.price) || 0,
+              discountPrice: safeParseNumber(opt.discountPrice),
+              stock: safeParseInt(opt.stock) || 0,
+              sku: opt.sku?.trim() || undefined
+            }));
+        }
 
-      if (!productData.color) {
-        delete productData.color;
-      }
+        if (variant.sizeOptions?.length > 0) {
+          processed.sizeOptions = variant.sizeOptions
+            .filter(opt => opt.size && opt.price && opt.stock !== undefined)
+            .map(opt => ({
+              size: opt.size.trim(),
+              price: safeParseNumber(opt.price) || 0,
+              discountPrice: safeParseNumber(opt.discountPrice),
+              stock: safeParseInt(opt.stock) || 0,
+              sku: opt.sku?.trim() || undefined
+            }));
+        }
+
+        return processed;
+      }) || [];
+
+      const processColor = (color) => {
+        if (!color) return undefined;
+        if (typeof color === 'object' && color.name) {
+          return { name: color.name.trim() };
+        }
+        if (typeof color === 'string') {
+          return { name: color.trim() };
+        }
+        return undefined;
+      };
+
+      const submissionData = {
+        ...productData,
+        price: safeParseNumber(productData.price),
+        discountPrice: safeParseNumber(productData.discountPrice),
+        shippingCost: safeParseNumber(productData.shippingCost) || 0,
+        stock: safeParseInt(productData.stock),
+        color: processColor(productData.color),
+        specifications: productData.specifications || [],
+        features: productData.features || [],
+        variants: processedVariants,
+        sku: productData.sku?.trim() || undefined
+      };
 
       setCurrentStage('Uploading product data...');
       const config = {
@@ -59,11 +102,12 @@ const AddProductPage = () => {
             (progressEvent.loaded * 100) / progressEvent.total
           );
           setUploadProgress(percentCompleted);
+          setCurrentStage(`Uploading: ${percentCompleted}% complete`);
         },
-        timeout: 300000 // 5 minutes
+        timeout: 300000,
       };
 
-      const product = await createProduct(productData, media, config);
+      const product = await createProduct(submissionData, media, config);
 
       if (!product || !product._id) {
         throw new Error('Failed to create product: Invalid product data returned');
@@ -71,24 +115,21 @@ const AddProductPage = () => {
 
       if (socketService && typeof socketService.emit === 'function') {
         socketService.emit("productAdded", product);
-        console.log('Emitted productAdded event:', product._id);
-      } else {
-        console.warn('Socket service not available, skipping productAdded event');
       }
 
-      toast.success("Product created successfully");
+      toastSuccess("Product created successfully");
       navigate("/admin/inventory");
     } catch (err) {
       console.error('AddProductPage submit error:', {
         message: err.message,
         stack: err.stack,
-        response: err.response?.data
+        response: err.response?.data,
       });
-      
-      const errorMessage = err.response?.data?.message || 
-                         err.message || 
-                         'Something went wrong during upload';
-      toast.error(errorMessage);
+
+      const errorMessage = err.response?.data?.errors 
+        ? err.response.data.errors.map(e => e.message || e.msg).join(', ')
+        : err.response?.data?.message || err.message || 'Something went wrong during upload';
+      toastError(errorMessage);
     } finally {
       setLoading(false);
       setUploadProgress(0);
@@ -97,7 +138,7 @@ const AddProductPage = () => {
   };
 
   return (
-    <section className="container mx-auto px-4 py-6">
+    <section className="container mx-auto px-4 sm:px-6 lg:px-8 py-6">
       <h1 className="text-2xl font-bold text-[#E63946] mb-6">Add New Product</h1>
       {currentStage && (
         <div className="mb-4">

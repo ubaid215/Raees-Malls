@@ -1,189 +1,304 @@
 const mongoose = require('mongoose');
 const Product = require('../models/Product');
 const AuditLog = require('../models/AuditLog');
+const { validationResult } = require('express-validator');
 const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const cloudinary = require('../config/cloudinary');
 
 exports.createProduct = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new ApiError(400, 'Validation failed', errors.array()));
+    }
+
     const userId = req.user?.userId;
     if (!userId) {
       return next(new ApiError(401, 'User not authenticated'));
     }
 
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
-    console.log('Request files:', JSON.stringify(req.files, null, 2));
-
-    if (!req.body || Object.keys(req.body).length === 0) {
-      return next(new ApiError(400, 'Request body is missing or empty'));
-    }
-
-    const { title, description, price, categoryId, stock, discountPrice, shippingCost, brand, specifications, features, variants, seo, isFeatured, color } = req.body;
-
-    if (!title || !description || !price || !categoryId || !stock) {
-      return next(new ApiError(400, 'Title, description, price, categoryId, and stock are required'));
-    }
-
-    // Fixed discount price validation
-    if (discountPrice !== undefined && discountPrice !== null && discountPrice !== '') {
-      const numericPrice = parseFloat(price);
-      const numericDiscountPrice = parseFloat(discountPrice);
-      
-      if (isNaN(numericPrice) || isNaN(numericDiscountPrice)) {
-        return next(new ApiError(400, 'Price and discount price must be valid numbers'));
+    // Helper function to parse JSON fields
+    const parseJsonField = (value) => {
+      if (typeof value === 'string' && value) {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value;
+        }
       }
-      
-      if (numericDiscountPrice >= numericPrice) {
-        return next(new ApiError(400, 'Discount price must be less than the base price'));
+      return value;
+    };
+
+    // Extract fields from request
+    const {
+      title, description, price, categoryId, stock, discountPrice, shippingCost,
+      brand, specifications, features, variants, seo, isFeatured, color
+    } = req.body;
+
+    // Parse complex fields
+    const parsedVariants = variants ? parseJsonField(variants) : [];
+    const parsedColor = color ? parseJsonField(color) : undefined;
+    const parsedSeo = seo ? parseJsonField(seo) : {};
+    const parsedSpecifications = specifications ? parseJsonField(specifications) : [];
+    const parsedFeatures = features ? parseJsonField(features) : [];
+
+    // Validate product must have either base pricing or variants
+    const hasBasePricing = price !== undefined && price !== null && stock !== undefined && stock !== null;
+    const hasVariants = Array.isArray(parsedVariants) && parsedVariants.length > 0;
+
+    if (!hasBasePricing && !hasVariants) {
+      return next(new ApiError(400, 'Product must have either base price/stock or variants'));
+    }
+
+    if (hasBasePricing && hasVariants) {
+      return next(new ApiError(400, 'Product cannot have both base pricing and variants'));
+    }
+
+    // Validate discount price logic for base pricing
+    if (hasBasePricing && discountPrice !== undefined && discountPrice !== null) {
+      const basePrice = parseFloat(price);
+      const baseDiscountPrice = parseFloat(discountPrice);
+      if (baseDiscountPrice >= basePrice) {
+        return next(new ApiError(400, 'Base discount price must be less than base price'));
       }
     }
 
-    // Parse color
-    let parsedColor = color;
-    if (typeof color === 'string') {
-      try {
-        parsedColor = JSON.parse(color);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid color format'));
-      }
-    }
+    // Process media uploads
+    const processMediaFiles = (files) => {
+      return files?.map(file => ({
+        url: file.path,
+        public_id: file.filename,
+        alt: file.originalname
+      })) || [];
+    };
 
-    const images = req.files?.baseImages?.map(file => ({
-      url: file.path,
-      public_id: file.filename,
-      alt: file.originalname,
-    })) || [];
+    // Base product media
+    const images = processMediaFiles(req.files?.baseImages);
+    const videos = processMediaFiles(req.files?.baseVideos);
 
-    const videos = req.files?.baseVideos?.map(file => ({
-      url: file.path,
-      public_id: file.filename,
-      alt: file.originalname,
-    })) || [];
-
+    // Process variant media
     const variantImages = {};
     const variantVideos = {};
+
     if (req.files) {
       Object.keys(req.files).forEach(key => {
         if (key.startsWith('variantImages[')) {
-          const index = key.match(/\[(\d+)\]/)[1];
-          variantImages[index] = req.files[key].map(file => ({
-            url: file.path,
-            public_id: file.filename,
-            alt: file.originalname,
-          }));
+          const match = key.match(/\[(\d+)\]/);
+          if (match) {
+            const index = match[1];
+            variantImages[index] = processMediaFiles(req.files[key]);
+          }
         } else if (key.startsWith('variantVideos[')) {
-          const index = key.match(/\[(\d+)\]/)[1];
-          variantVideos[index] = req.files[key].map(file => ({
-            url: file.path,
-            public_id: file.filename,
-            alt: file.originalname,
-          }));
+          const match = key.match(/\[(\d+)\]/);
+          if (match) {
+            const index = match[1];
+            variantVideos[index] = processMediaFiles(req.files[key]);
+          }
         }
       });
     }
 
-    let parsedVariants = variants;
-    if (typeof variants === 'string') {
-      try {
-        parsedVariants = JSON.parse(variants);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid variants format'));
+    // Helper functions for validation
+    const validateRequiredField = (value, fieldName) => {
+      if (value === undefined || value === null || value === '') {
+        throw new ApiError(400, `${fieldName} is required`);
       }
-    }
+    };
 
-    // Process variants with proper validation
-    const processedVariants = parsedVariants?.map((variant, index) => {
-      if (variant.discountPrice !== undefined && variant.discountPrice !== null && variant.discountPrice !== '') {
-        const variantPrice = parseFloat(variant.price);
-        const variantDiscountPrice = parseFloat(variant.discountPrice);
-        
-        if (isNaN(variantPrice) || isNaN(variantDiscountPrice)) {
-          throw new ApiError(400, `Variant ${index + 1} price and discount price must be valid numbers`);
-        }
-        
-        if (variantDiscountPrice >= variantPrice) {
-          throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
-        }
+    const validateNumericField = (value, fieldName, min = 0) => {
+      const numValue = parseFloat(value);
+      if (isNaN(numValue) || numValue < min) {
+        throw new ApiError(400, `${fieldName} must be a valid number >= ${min}`);
       }
+      return numValue;
+    };
 
-      let parsedVariantSpecifications = variant.specifications;
-      if (typeof variant.specifications === 'string') {
-        try {
-          parsedVariantSpecifications = JSON.parse(variant.specifications);
-        } catch (error) {
-          return next(new ApiError(400, `Invalid specifications format for variant ${index + 1}`));
-        }
+    const validateIntegerField = (value, fieldName, min = 0) => {
+      const intValue = parseInt(value);
+      if (isNaN(intValue) || intValue < min) {
+        throw new ApiError(400, `${fieldName} must be a valid integer >= ${min}`);
+      }
+      return intValue;
+    };
+
+    // Process variants with comprehensive validation
+    const processedVariants = parsedVariants.map((variant, index) => {
+      // Validate color is provided
+      if (!variant.color || (!variant.color.name && typeof variant.color !== 'string')) {
+        throw new ApiError(400, `Variant ${index + 1}: Color is required`);
       }
 
-      let parsedVariantColor = variant.color;
-      if (typeof variant.color === 'string') {
-        try {
-          parsedVariantColor = JSON.parse(variant.color);
-        } catch (error) {
-          return next(new ApiError(400, `Invalid color format for variant ${index + 1}`));
-        }
-      }
-
-      return {
-        ...variant,
-        color: parsedVariantColor,
+      const newVariant = {
+        color: typeof variant.color === 'string' ? { name: variant.color } : variant.color,
         images: variantImages[index] || [],
-        videos: variantVideos[index] || [],
-        specifications: parsedVariantSpecifications || [],
+        videos: variantVideos[index] || []
       };
-    }) || [];
 
-    let parsedSeo = seo;
-    if (typeof seo === 'string') {
-      try {
-        parsedSeo = JSON.parse(seo);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid SEO format'));
+      // FIXED: Better logic for detecting variant types
+      // Check if storage options exist and are valid
+      const hasStorageOptions = variant.storageOptions && 
+        Array.isArray(variant.storageOptions) && 
+        variant.storageOptions.length > 0;
+      
+      // Check if size options exist and are valid
+      const hasSizeOptions = variant.sizeOptions && 
+        Array.isArray(variant.sizeOptions) && 
+        variant.sizeOptions.length > 0;
+
+      // Check if direct pricing is intended (not just having default 0 values)
+      // Direct pricing is intended if:
+      // 1. Either price or stock is explicitly provided (not 0 or undefined)
+      // 2. AND there are no storage/size options
+      const hasDirectPricing = !hasStorageOptions && 
+        !hasSizeOptions && 
+        (
+          (variant.price !== undefined && variant.price !== null && variant.price > 0) ||
+          (variant.stock !== undefined && variant.stock !== null && variant.stock > 0) ||
+          (variant.price !== undefined && variant.stock !== undefined && 
+           typeof variant.price === 'number' && typeof variant.stock === 'number')
+        );
+
+      // Count variant types
+      const variantTypesCount = [hasDirectPricing, hasStorageOptions, hasSizeOptions].filter(Boolean).length;
+
+      // Must have exactly one variant type
+      if (variantTypesCount === 0) {
+        throw new ApiError(400, `Variant ${index + 1}: Must have either direct pricing, storage options, or size options`);
       }
-    } else if (typeof seo === 'object') {
-      parsedSeo = seo;
+      if (variantTypesCount > 1) {
+        throw new ApiError(400, `Variant ${index + 1}: Cannot have multiple variant types (direct pricing, storage options, and size options are mutually exclusive)`);
+      }
+
+      // Simple color variant with direct pricing
+      if (hasDirectPricing) {
+        const variantPrice = validateNumericField(variant.price, `Variant ${index + 1} price`);
+        const variantStock = validateIntegerField(variant.stock, `Variant ${index + 1} stock`);
+        
+        // Validate discount price if provided
+        let variantDiscountPrice;
+        if (variant.discountPrice !== undefined && variant.discountPrice !== null && variant.discountPrice !== '') {
+          variantDiscountPrice = validateNumericField(variant.discountPrice, `Variant ${index + 1} discount price`);
+          if (variantDiscountPrice >= variantPrice) {
+            throw new ApiError(400, `Variant ${index + 1}: Discount price must be less than variant price`);
+          }
+        }
+
+        return {
+          ...newVariant,
+          price: variantPrice,
+          discountPrice: variantDiscountPrice,
+          stock: variantStock,
+          sku: variant.sku?.toUpperCase().trim()
+        };
+      }
+
+      // Storage options variant
+      if (hasStorageOptions) {
+        const validatedStorageOptions = variant.storageOptions.map((opt, optIndex) => {
+          validateRequiredField(opt.capacity, `Variant ${index + 1}, Storage option ${optIndex + 1}: Capacity`);
+          
+          const optPrice = validateNumericField(opt.price, `Variant ${index + 1}, Storage option ${optIndex + 1}: Price`);
+          const optStock = validateIntegerField(opt.stock, `Variant ${index + 1}, Storage option ${optIndex + 1}: Stock`);
+          
+          // Validate discount price if provided
+          let optDiscountPrice;
+          if (opt.discountPrice !== undefined && opt.discountPrice !== null && opt.discountPrice !== '') {
+            optDiscountPrice = validateNumericField(opt.discountPrice, `Variant ${index + 1}, Storage option ${optIndex + 1}: Discount price`);
+            if (optDiscountPrice >= optPrice) {
+              throw new ApiError(400, `Variant ${index + 1}, Storage option ${optIndex + 1}: Discount price must be less than option price`);
+            }
+          }
+
+          return {
+            capacity: opt.capacity.trim(),
+            price: optPrice,
+            discountPrice: optDiscountPrice,
+            stock: optStock,
+            sku: opt.sku?.toUpperCase().trim()
+          };
+        });
+
+        return {
+          ...newVariant,
+          storageOptions: validatedStorageOptions
+        };
+      }
+
+      // Size options variant
+      if (hasSizeOptions) {
+        const validatedSizeOptions = variant.sizeOptions.map((opt, optIndex) => {
+          validateRequiredField(opt.size, `Variant ${index + 1}, Size option ${optIndex + 1}: Size`);
+          
+          const optPrice = validateNumericField(opt.price, `Variant ${index + 1}, Size option ${optIndex + 1}: Price`);
+          const optStock = validateIntegerField(opt.stock, `Variant ${index + 1}, Size option ${optIndex + 1}: Stock`);
+          
+          // Validate discount price if provided
+          let optDiscountPrice;
+          if (opt.discountPrice !== undefined && opt.discountPrice !== null && opt.discountPrice !== '') {
+            optDiscountPrice = validateNumericField(opt.discountPrice, `Variant ${index + 1}, Size option ${optIndex + 1}: Discount price`);
+            if (optDiscountPrice >= optPrice) {
+              throw new ApiError(400, `Variant ${index + 1}, Size option ${optIndex + 1}: Discount price must be less than option price`);
+            }
+          }
+
+          return {
+            size: opt.size.toString().toUpperCase().trim(),
+            price: optPrice,
+            discountPrice: optDiscountPrice,
+            stock: optStock,
+            sku: opt.sku?.toUpperCase().trim()
+          };
+        });
+
+        return {
+          ...newVariant,
+          sizeOptions: validatedSizeOptions
+        };
+      }
+    });
+
+    // Validate at least one image exists
+    if (hasVariants) {
+      const hasVariantImages = processedVariants.some(v => v.images.length > 0);
+      if (!hasVariantImages && images.length === 0) {
+        return next(new ApiError(400, 'Products with variants must have at least one variant image or base image'));
+      }
+    } else if (images.length === 0) {
+      return next(new ApiError(400, 'Products without variants must have at least one base image'));
     }
 
-    let parsedSpecifications = specifications;
-    if (typeof specifications === 'string') {
-      try {
-        parsedSpecifications = JSON.parse(specifications);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid specifications format'));
-      }
-    }
-
-    let parsedFeatures = features;
-    if (typeof features === 'string') {
-      try {
-        parsedFeatures = JSON.parse(features);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid features format'));
-      }
-    }
-
-    const product = new Product({
+    // Prepare product data
+    const productData = {
       title,
       description,
-      price: parseFloat(price),
-      discountPrice: discountPrice && discountPrice !== '' ? parseFloat(discountPrice) : undefined,
       shippingCost: shippingCost ? parseFloat(shippingCost) : 0,
       color: parsedColor,
       images,
       videos,
       categoryId,
       brand,
-      stock: parseInt(stock),
       specifications: parsedSpecifications,
-      features: parsedFeatures || [],
+      features: parsedFeatures,
       variants: processedVariants,
       seo: parsedSeo,
       isFeatured: isFeatured === 'true' || isFeatured === true,
-    });
+    };
 
+    // Add base pricing if present
+    if (hasBasePricing) {
+      productData.price = parseFloat(price);
+      productData.stock = parseInt(stock);
+      if (discountPrice !== undefined && discountPrice !== null && discountPrice !== '') {
+        productData.discountPrice = parseFloat(discountPrice);
+      }
+    }
+
+    // Create the product
+    const product = new Product(productData);
     await product.save();
 
+    // Log the action
     await AuditLog.create({
       userId,
       action: 'PRODUCT_CREATE',
@@ -192,50 +307,77 @@ exports.createProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent'],
     });
 
+    // Notify via socket if available
     if (req.io) {
+      // Calculate display price for socket notification
+      let displayPrice = null;
+      if (product.price !== undefined) {
+        displayPrice = product.discountPrice || product.price;
+      } else if (product.variants.length > 0) {
+        // Find the lowest price from variants
+        const prices = [];
+        product.variants.forEach(variant => {
+          if (variant.price !== undefined) {
+            prices.push(variant.discountPrice || variant.price);
+          }
+          if (variant.storageOptions) {
+            variant.storageOptions.forEach(opt => {
+              prices.push(opt.discountPrice || opt.price);
+            });
+          }
+          if (variant.sizeOptions) {
+            variant.sizeOptions.forEach(opt => {
+              prices.push(opt.discountPrice || opt.price);
+            });
+          }
+        });
+        if (prices.length > 0) {
+          displayPrice = Math.min(...prices);
+        }
+      }
+
       req.io.emit('productCreated', {
         product: product.toObject(),
-        displayPrice: product.discountPrice || product.price,
+        displayPrice,
       });
     }
 
     return ApiResponse.success(res, 201, 'Product created successfully', { product });
-    
   } catch (error) {
     console.error('Create product error:', error);
     
-    // Handle validation errors
+    // Handle custom ApiError instances
+    if (error instanceof ApiError) {
+      return next(error);
+    }
+    
+    // Handle mongoose validation errors
     if (error.name === 'ValidationError') {
-      const errors = {};
-      Object.keys(error.errors).forEach(key => {
-        errors[key] = {
-          message: error.errors[key].message,
-          path: key,
-        };
-      });
-      return res.status(400).json({ message: 'Validation failed', errors });
+      const errors = Object.keys(error.errors).reduce((acc, key) => {
+        acc[key] = error.errors[key].message;
+        return acc;
+      }, {});
+      return next(new ApiError(400, 'Validation failed', errors));
     }
     
     // Handle duplicate key errors
     if (error.code === 11000) {
-      return next(new ApiError(400, 'Duplicate SKU detected'));
+      const duplicateField = Object.keys(error.keyPattern)[0];
+      return next(new ApiError(400, `Duplicate ${duplicateField} detected`));
     }
     
-    // Handle ApiError instances
-    if (error instanceof ApiError) {
-      return res.status(error.statusCode).json({ 
-        message: error.message, 
-        errors: error.errors || [] 
-      });
-    }
-    
-    // Handle other errors
     return next(error);
   }
 };
 
 exports.updateProduct = async (req, res, next) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.error('UpdateProduct: Validation errors:', JSON.stringify(errors.array(), null, 2));
+      return next(new ApiError(400, 'Validation failed', errors.array()));
+    }
+
     const userId = req.user?.userId;
     if (!userId) {
       return next(new ApiError(401, 'User not authenticated'));
@@ -250,188 +392,212 @@ exports.updateProduct = async (req, res, next) => {
       return next(new ApiError(404, 'Product not found'));
     }
 
-    const { title, description, price, discountPrice, shippingCost, categoryId, brand, stock, specifications, features, variants, seo, isFeatured, color } = req.body;
+    // Parse JSON fields
+    const parseJsonField = (value) => {
+      if (typeof value === 'string' && value) {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return value;
+        }
+      }
+      return value;
+    };
 
-    // Fixed discount price validation logic
-    if (discountPrice !== undefined && discountPrice !== null && discountPrice !== '') {
-      // Use the new price if provided, otherwise use the existing product price
-      const currentPrice = price !== undefined ? parseFloat(price) : product.price;
-      const currentDiscountPrice = parseFloat(discountPrice);
-      
-      if (isNaN(currentPrice) || isNaN(currentDiscountPrice)) {
-        return next(new ApiError(400, 'Price and discount price must be valid numbers'));
-      }
-      
-      if (currentDiscountPrice >= currentPrice) {
-        return next(new ApiError(400, 'Discount price must be less than the base price'));
-      }
+    const {
+      title, description, price, discountPrice, shippingCost, categoryId, brand,
+      stock, specifications, features, variants, seo, isFeatured, color, 
+      removeBaseImages, imagesToKeep, imagesToDelete
+    } = req.body;
+
+    const shouldRemoveBaseImages = String(removeBaseImages).toLowerCase() === 'true';
+
+    // Parse complex fields
+    const parsedVariants = variants ? parseJsonField(variants) : undefined;
+    const parsedColor = color ? parseJsonField(color) : undefined;
+    const parsedSeo = seo ? parseJsonField(seo) : undefined;
+    const parsedSpecifications = specifications ? parseJsonField(specifications) : undefined;
+    const parsedFeatures = features ? parseJsonField(features) : undefined;
+    const parsedImagesToKeep = imagesToKeep ? parseJsonField(imagesToKeep) : undefined;
+    const parsedImagesToDelete = imagesToDelete ? parseJsonField(imagesToDelete) : undefined;
+
+    // Validate product must have either base pricing or variants
+    const hasBasePricing = price !== undefined && stock !== undefined;
+    const existingHasBasePricing = product.price !== undefined && product.stock !== undefined;
+    const hasVariants = parsedVariants && parsedVariants.length > 0;
+    const existingHasVariants = product.variants && product.variants.length > 0;
+
+    if (!hasBasePricing && !hasVariants && !existingHasBasePricing && !existingHasVariants) {
+      return next(new ApiError(400, 'Product must have either base price/stock or variants'));
     }
 
-    // Parse color
-    let parsedColor = color;
-    if (typeof color === 'string') {
-      try {
-        parsedColor = JSON.parse(color);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid color format'));
-      }
+    // Process media uploads
+    const processMediaFiles = (files) => {
+      return files?.map(file => ({
+        url: file.path,
+        public_id: file.filename,
+        alt: file.originalname
+      })) || [];
+    };
+
+    // Handle individual image deletions
+    if (parsedImagesToDelete && parsedImagesToDelete.length > 0) {
+      const imagesToDeleteFromCloudinary = product.images.filter(img => 
+        parsedImagesToDelete.includes(img._id.toString())
+      );
+      
+      const deletionResults = await Promise.all(
+        imagesToDeleteFromCloudinary.map(img =>
+          cloudinary.uploader.destroy(img.public_id)
+            .then(result => ({ public_id: img.public_id, status: 'success', result }))
+            .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
+        )
+      );
+      
+      product.images = product.images.filter(img => 
+        !parsedImagesToDelete.includes(img._id.toString())
+      );
+      product.markModified('images');
     }
 
-    // Handle base images update
+    // Handle keeping specific images
+    if (parsedImagesToKeep && parsedImagesToKeep.length > 0) {
+      const imagesToDeleteFromCloudinary = product.images.filter(img => 
+        !parsedImagesToKeep.includes(img._id.toString())
+      );
+      
+      const deletionResults = await Promise.all(
+        imagesToDeleteFromCloudinary.map(img =>
+          cloudinary.uploader.destroy(img.public_id)
+            .then(result => ({ public_id: img.public_id, status: 'success', result }))
+            .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
+        )
+      );
+      
+      product.images = product.images.filter(img => 
+        parsedImagesToKeep.includes(img._id.toString())
+      );
+      product.markModified('images');
+    }
+
+    // Handle base images
     if (req.files?.baseImages?.length > 0) {
-      for (const image of product.images) {
-        try {
-          await cloudinary.uploader.destroy(image.public_id);
-        } catch (cloudinaryError) {
-          console.warn('Failed to delete old image:', cloudinaryError.message);
-        }
+      if (!parsedImagesToKeep && !parsedImagesToDelete) {
+        // Replace all images
+        const deletionResults = await Promise.all(
+          product.images.map(img =>
+            cloudinary.uploader.destroy(img.public_id)
+              .then(result => ({ public_id: img.public_id, status: 'success', result }))
+              .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
+          )
+        );
+        product.images = processMediaFiles(req.files.baseImages);
+      } else {
+        // Add new images to existing ones
+        const newImages = processMediaFiles(req.files.baseImages);
+        product.images = [...product.images, ...newImages];
       }
-      product.images = req.files.baseImages.map(file => ({
-        url: file.path,
-        public_id: file.filename,
-        alt: file.originalname,
-      }));
+      product.markModified('images');
+    } else if (shouldRemoveBaseImages) {
+      // Remove all base images
+      const deletionResults = await Promise.all(
+        product.images.map(img =>
+          cloudinary.uploader.destroy(img.public_id)
+            .then(result => ({ public_id: img.public_id, status: 'success', result }))
+            .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
+        )
+      );
+      product.images = [];
+      product.markModified('images');
     }
 
-    // Handle base videos update
-    if (req.files?.baseVideos?.length > 0) {
-      for (const video of product.videos) {
-        try {
-          await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
-        } catch (cloudinaryError) {
-          console.warn('Failed to delete old video:', cloudinaryError.message);
-        }
-      }
-      product.videos = req.files.baseVideos.map(file => ({
-        url: file.path,
-        public_id: file.filename,
-        alt: file.originalname,
-      }));
-    } else {
-      product.videos = product.videos || [];
-    }
-
-    // Handle variant files
+    // Process variant media
     const variantImages = {};
     const variantVideos = {};
+
     if (req.files) {
       Object.keys(req.files).forEach(key => {
         if (key.startsWith('variantImages[')) {
-          const index = key.match(/\[(\d+)\]/)[1];
-          variantImages[index] = req.files[key].map(file => ({
-            url: file.path,
-            public_id: file.filename,
-            alt: file.originalname,
-          }));
+          const match = key.match(/\[(\d+)\]/);
+          if (match) {
+            const index = match[1];
+            variantImages[index] = processMediaFiles(req.files[key]);
+          }
         } else if (key.startsWith('variantVideos[')) {
-          const index = key.match(/\[(\d+)\]/)[1];
-          variantVideos[index] = req.files[key].map(file => ({
-            url: file.path,
-            public_id: file.filename,
-            alt: file.originalname,
-          }));
+          const match = key.match(/\[(\d+)\]/);
+          if (match) {
+            const index = match[1];
+            variantVideos[index] = processMediaFiles(req.files[key]);
+          }
         }
       });
     }
 
-    // Handle variants
-    let parsedVariants = variants;
-    if (typeof variants === 'string') {
-      try {
-        parsedVariants = JSON.parse(variants);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid variants format'));
-      }
-    }
-
-    if (parsedVariants) {
-      // Delete old variant media
-      for (const variant of product.variants) {
-        for (const image of variant.images || []) {
-          try {
-            await cloudinary.uploader.destroy(image.public_id);
-          } catch (cloudinaryError) {
-            console.warn('Failed to delete old variant image:', cloudinaryError.message);
-          }
-        }
-        for (const video of variant.videos || []) {
-          try {
-            await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
-          } catch (cloudinaryError) {
-            console.warn('Failed to delete old variant video:', cloudinaryError.message);
-          }
-        }
-      }
-
-      // Process new variants with validation
-      product.variants = parsedVariants.map((variant, index) => {
-        if (variant.discountPrice !== undefined && variant.discountPrice !== null && variant.discountPrice !== '') {
-          const variantPrice = parseFloat(variant.price);
-          const variantDiscountPrice = parseFloat(variant.discountPrice);
-          
-          if (isNaN(variantPrice) || isNaN(variantDiscountPrice)) {
-            throw new ApiError(400, `Variant ${index + 1} price and discount price must be valid numbers`);
-          }
-          
-          if (variantDiscountPrice >= variantPrice) {
-            throw new ApiError(400, `Variant ${index + 1} discount price must be less than variant price`);
-          }
-        }
-
-        let parsedVariantSpecifications = variant.specifications;
-        if (typeof variant.specifications === 'string') {
-          try {
-            parsedVariantSpecifications = JSON.parse(variant.specifications);
-          } catch (error) {
-            throw new ApiError(400, `Invalid specifications format for variant ${index + 1}`);
-          }
-        }
-
-        let parsedVariantColor = variant.color;
-        if (typeof variant.color === 'string') {
-          try {
-            parsedVariantColor = JSON.parse(variant.color);
-          } catch (error) {
-            throw new ApiError(400, `Invalid color format for variant ${index + 1}`);
-          }
-        }
-
-        return {
-          ...variant,
-          color: parsedVariantColor,
-          images: variantImages[index] || variant.images || [],
-          videos: variantVideos[index] || variant.videos || [],
-          specifications: parsedVariantSpecifications || [],
+    // Process variants if provided
+    if (parsedVariants !== undefined) {
+      const processedVariants = parsedVariants.map((variant, index) => {
+        const newVariant = {
+          color: typeof variant.color === 'string' ? { name: variant.color } : variant.color,
+          images: variantImages[index] || [],
+          videos: variantVideos[index] || []
         };
+
+        const hasStorageOptions = variant.storageOptions && 
+          Array.isArray(variant.storageOptions) && 
+          variant.storageOptions.length > 0;
+        
+        const hasSizeOptions = variant.sizeOptions && 
+          Array.isArray(variant.sizeOptions) && 
+          variant.sizeOptions.length > 0;
+
+        const hasDirectPricing = !hasStorageOptions && 
+          !hasSizeOptions && 
+          (
+            (variant.price !== undefined && variant.price !== null && variant.price > 0) ||
+            (variant.stock !== undefined && variant.stock !== null && variant.stock > 0) ||
+            (variant.price !== undefined && variant.stock !== undefined && 
+             typeof variant.price === 'number' && typeof variant.stock === 'number')
+          );
+
+        if (hasDirectPricing) {
+          return {
+            ...newVariant,
+            price: parseFloat(variant.price),
+            discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : undefined,
+            stock: parseInt(variant.stock),
+            sku: variant.sku?.toUpperCase().trim()
+          };
+        }
+
+        if (hasStorageOptions) {
+          return {
+            ...newVariant,
+            storageOptions: variant.storageOptions.map(opt => ({
+              capacity: opt.capacity.trim(),
+              price: parseFloat(opt.price),
+              discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
+              stock: parseInt(opt.stock),
+              sku: opt.sku?.toUpperCase().trim()
+            }))
+          };
+        }
+
+        if (hasSizeOptions) {
+          return {
+            ...newVariant,
+            sizeOptions: variant.sizeOptions.map(opt => ({
+              size: opt.size.toString().toUpperCase().trim(),
+              price: parseFloat(opt.price),
+              discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
+              stock: parseInt(opt.stock),
+              sku: opt.sku?.toUpperCase().trim()
+            }))
+          };
+        }
       });
-    }
 
-    // Parse other JSON fields
-    let parsedSeo = seo;
-    if (typeof seo === 'string') {
-      try {
-        parsedSeo = JSON.parse(seo);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid SEO format'));
-      }
-    }
-
-    let parsedSpecifications = specifications;
-    if (typeof specifications === 'string') {
-      try {
-        parsedSpecifications = JSON.parse(specifications);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid specifications format'));
-      }
-    }
-
-    let parsedFeatures = features;
-    if (typeof features === 'string') {
-      try {
-        parsedFeatures = JSON.parse(features);
-      } catch (error) {
-        return next(new ApiError(400, 'Invalid features format'));
-      }
+      product.variants = processedVariants;
+      product.markModified('variants');
     }
 
     // Update product fields
@@ -439,7 +605,7 @@ exports.updateProduct = async (req, res, next) => {
     if (description !== undefined) product.description = description;
     if (price !== undefined) product.price = parseFloat(price);
     if (discountPrice !== undefined) {
-      product.discountPrice = discountPrice === '' || discountPrice === null ? undefined : parseFloat(discountPrice);
+      product.discountPrice = discountPrice === '' ? undefined : parseFloat(discountPrice);
     }
     if (shippingCost !== undefined) product.shippingCost = parseFloat(shippingCost);
     if (categoryId !== undefined) product.categoryId = categoryId;
@@ -449,11 +615,12 @@ exports.updateProduct = async (req, res, next) => {
     if (parsedFeatures !== undefined) product.features = parsedFeatures;
     if (parsedSeo !== undefined) product.seo = parsedSeo;
     if (isFeatured !== undefined) product.isFeatured = isFeatured === 'true' || isFeatured === true;
-    if (parsedColor !== undefined) product.color = parsedColor;
+    if (req.body.color !== undefined) {
+      product.color = parsedColor;
+    }
 
     await product.save();
 
-    // Create audit log
     await AuditLog.create({
       userId,
       action: 'PRODUCT_UPDATE',
@@ -462,7 +629,6 @@ exports.updateProduct = async (req, res, next) => {
       userAgent: req.headers['user-agent'],
     });
 
-    // Emit socket event if available
     if (req.io) {
       req.io.emit('productUpdated', {
         product: product.toObject(),
@@ -471,71 +637,118 @@ exports.updateProduct = async (req, res, next) => {
     }
 
     return ApiResponse.success(res, 200, 'Product updated successfully', { product });
-    
   } catch (error) {
-    console.error('Update product error:', error);
-    
-    // Handle validation errors
+    console.error('UpdateProduct: Error:', error);
     if (error.name === 'ValidationError') {
-      const errors = {};
-      Object.keys(error.errors).forEach(key => {
-        errors[key] = {
-          message: error.errors[key].message,
-          path: key,
-        };
-      });
-      return res.status(400).json({ message: 'Validation failed', errors });
+      const errors = Object.keys(error.errors).reduce((acc, key) => {
+        acc[key] = error.errors[key].message;
+        return acc;
+      }, {});
+      return next(new ApiError(400, 'Validation failed', errors));
     }
-    
-    // Handle duplicate key errors
     if (error.code === 11000) {
-      return res.status(400).json({ message: 'Duplicate SKU detected' });
+      return next(new ApiError(400, 'Duplicate SKU detected'));
     }
-    
-    // Handle ApiError instances
-    if (error instanceof ApiError) {
-      return res.status(error.statusCode).json({ 
-        message: error.message, 
-        errors: error.errors || [] 
-      });
-    }
-    
-    // Handle other errors
     return next(error);
   }
 };
 
 exports.getAllProducts = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, attributeKey, attributeValue, search, isFeatured, color } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, isFeatured, color } = req.query;
 
     const query = {};
+    const conditions = [];
+
+    // Stock availability check
+    conditions.push({
+      $or: [
+        { stock: { $gt: 0 } },
+        { 'variants.storageOptions.stock': { $gt: 0 } },
+        { 'variants.sizeOptions.stock': { $gt: 0 } },
+      ]
+    });
+
     if (categoryId) query.categoryId = categoryId;
+
     if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = parseFloat(minPrice);
-      if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+      conditions.push({
+        $or: [
+          {
+            price: {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+            discountPrice: null,
+          },
+          {
+            discountPrice: {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+          },
+          {
+            'variants.storageOptions.price': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+            'variants.storageOptions.discountPrice': null,
+          },
+          {
+            'variants.storageOptions.discountPrice': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+          },
+          {
+            'variants.sizeOptions.price': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+            'variants.sizeOptions.discountPrice': null,
+          },
+          {
+            'variants.sizeOptions.discountPrice': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+          },
+        ]
+      });
     }
-    if (attributeKey && attributeValue) {
-      query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
-    }
+
     if (color) {
-      query['color.name'] = { $regex: color, $options: 'i' };
+      conditions.push({
+        $or: [
+          { 'color.name': { $regex: color, $options: 'i' } },
+          { 'variants.color.name': { $regex: color, $options: 'i' } }
+        ]
+      });
     }
+
     if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { brand: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
-      ];
+      conditions.push({
+        $or: [
+          { title: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+          { brand: { $regex: search, $options: 'i' } },
+          { sku: { $regex: search, $options: 'i' } },
+          { 'variants.storageOptions.sku': { $regex: search, $options: 'i' } },
+          { 'variants.sizeOptions.sku': { $regex: search, $options: 'i' } },
+        ]
+      });
     }
+
     if (isFeatured !== undefined) {
       query.isFeatured = isFeatured === 'true';
     }
 
+    if (conditions.length > 0) {
+      query.$and = conditions;
+    }
+
     const sortOption = sort || '-createdAt';
-    const skip = (page - 1) * limit;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const products = await Product.find(query)
       .populate('categoryId', 'name slug')
@@ -592,18 +805,18 @@ exports.deleteProduct = async (req, res, next) => {
       return next(new ApiError(404, 'Product not found'));
     }
 
-    for (const image of product.images) {
+    for (const image of product.images || []) {
       await cloudinary.uploader.destroy(image.public_id);
     }
-    for (const video of product.videos) {
+    for (const video of product.videos || []) {
       await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
     }
 
     for (const variant of product.variants) {
-      for (const image of variant.images) {
+      for (const image of variant.images || []) {
         await cloudinary.uploader.destroy(image.public_id);
       }
-      for (const video of variant.videos) {
+      for (const video of variant.videos || []) {
         await cloudinary.uploader.destroy(video.public_id, { resource_type: 'video' });
       }
     }
@@ -630,46 +843,100 @@ exports.deleteProduct = async (req, res, next) => {
 
 exports.getAllProductsForCustomers = async (req, res, next) => {
   try {
-    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, attributeKey, attributeValue, isFeatured, color } = req.query;
+    const { page = 1, limit = 10, sort, categoryId, minPrice, maxPrice, search, isFeatured, color } = req.query;
 
-    const query = { stock: { $gt: 0 } };
+    const query = {};
+    const conditions = [];
+
+    // Stock availability check
+    conditions.push({
+      $or: [
+        { stock: { $gt: 0 } },
+        { 'variants.storageOptions.stock': { $gt: 0 } },
+        { 'variants.sizeOptions.stock': { $gt: 0 } },
+      ]
+    });
+
     if (categoryId) query.categoryId = categoryId;
+
     if (minPrice || maxPrice) {
-      query.$or = [
-        { 
-          price: {
-            ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
-            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+      conditions.push({
+        $or: [
+          {
+            price: {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+            discountPrice: null,
           },
-          discountPrice: null,
-        },
-        {
-          discountPrice: {
-            ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
-            ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+          {
+            discountPrice: {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
           },
-        },
-      ];
+          {
+            'variants.storageOptions.price': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+            'variants.storageOptions.discountPrice': null,
+          },
+          {
+            'variants.storageOptions.discountPrice': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+          },
+          {
+            'variants.sizeOptions.price': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+            'variants.sizeOptions.discountPrice': null,
+          },
+          {
+            'variants.sizeOptions.discountPrice': {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+          },
+        ]
+      });
     }
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { brand: { $regex: search, $options: 'i' } },
-      ];
-    }
-    if (attributeKey && attributeValue) {
-      query['variants.attributes'] = { $elemMatch: { key: attributeKey, value: attributeValue } };
-    }
+
     if (color) {
-      query['color.name'] = { $regex: color, $options: 'i' };
+      conditions.push({
+        $or: [
+          { 'color.name': { $regex: color, $options: 'i' } },
+          { 'variants.color.name': { $regex: color, $options: 'i' } }
+        ]
+      });
     }
+
+    if (search) {
+      conditions.push({
+        $or: [
+          { title: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+          { brand: { $regex: search, $options: 'i' } },
+          { sku: { $regex: search, $options: 'i' } },
+          { 'variants.storageOptions.sku': { $regex: search, $options: 'i' } },
+          { 'variants.sizeOptions.sku': { $regex: search, $options: 'i' } },
+        ]
+      });
+    }
+
     if (isFeatured !== undefined) {
       query.isFeatured = isFeatured === 'true';
     }
 
+    if (conditions.length > 0) {
+      query.$and = conditions;
+    }
+
     const sortOption = sort || '-createdAt';
-    const skip = (page - 1) * limit;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const products = await Product.find(query)
       .select('-__v')
@@ -678,10 +945,24 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    const productsWithDisplayPrice = products.map(product => ({
-      ...product.toObject(),
-      displayPrice: product.discountPrice || product.price,
-    }));
+    const productsWithDisplayPrice = products.map(product => {
+      const productObj = product.toObject();
+      return {
+        ...productObj,
+        displayPrice: product.discountPrice || product.price,
+        variants: productObj.variants.map(variant => ({
+          ...variant,
+          storageOptions: variant.storageOptions?.map(option => ({
+            ...option,
+            displayPrice: option.discountPrice || option.price
+          })) || [],
+          sizeOptions: variant.sizeOptions?.map(option => ({
+            ...option,
+            displayPrice: option.discountPrice || option.price
+          })) || []
+        }))
+      };
+    });
 
     const total = await Product.countDocuments(query);
 
@@ -703,16 +984,19 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       return next(new ApiError(400, 'Invalid product ID'));
     }
 
-    const product = await Product.findById(req.params.id)
+    const product = await Product.findOne({
+      _id: req.params.id,
+      $or: [
+        { stock: { $gt: 0 } },
+        { 'variants.storageOptions.stock': { $gt: 0 } },
+        { 'variants.sizeOptions.stock': { $gt: 0 } },
+      ]
+    })
       .select('-__v')
       .populate('categoryId', 'name slug');
 
     if (!product) {
-      return next(new ApiError(404, 'Product not found'));
-    }
-
-    if (product.stock <= 0 && product.variants.every(v => v.stock <= 0)) {
-      return next(new ApiError(404, 'Product is out of stock'));
+      return next(new ApiError(404, 'Product not found or out of stock'));
     }
 
     const productWithDisplayPrice = {
@@ -720,11 +1004,18 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       displayPrice: product.discountPrice || product.price,
       variants: product.variants.map(variant => ({
         ...variant,
-        displayPrice: variant.discountPrice || variant.price,
+        storageOptions: variant.storageOptions?.map(option => ({
+          ...option,
+          displayPrice: option.discountPrice || option.price
+        })) || [],
+        sizeOptions: variant.sizeOptions?.map(option => ({
+          ...option,
+          displayPrice: option.discountPrice || option.price
+        })) || []
       })),
     };
 
-    return ApiResponse.success(res, 200, 'Product details retrieved successfully', { 
+    return ApiResponse.success(res, 200, 'Product details retrieved successfully', {
       product: productWithDisplayPrice,
     });
   } catch (error) {
@@ -736,12 +1027,35 @@ exports.getFeaturedProducts = async (req, res, next) => {
   try {
     const { page = 1, limit = 10, sort, color } = req.query;
 
-    const query = { isFeatured: true, stock: { $gt: 0 } };
+    const query = {
+      isFeatured: true
+    };
+    const conditions = [];
+
+    // Stock availability check
+    conditions.push({
+      $or: [
+        { stock: { $gt: 0 } },
+        { 'variants.storageOptions.stock': { $gt: 0 } },
+        { 'variants.sizeOptions.stock': { $gt: 0 } },
+      ]
+    });
+
     if (color) {
-      query['color.name'] = { $regex: color, $options: 'i' };
+      conditions.push({
+        $or: [
+          { 'color.name': { $regex: color, $options: 'i' } },
+          { 'variants.color.name': { $regex: color, $options: 'i' } }
+        ]
+      });
     }
+
+    if (conditions.length > 0) {
+      query.$and = conditions;
+    }
+
     const sortOption = sort || '-createdAt';
-    const skip = (page - 1) * limit;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const products = await Product.find(query)
       .select('-__v')
@@ -750,10 +1064,24 @@ exports.getFeaturedProducts = async (req, res, next) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    const productsWithDisplayPrice = products.map(product => ({
-      ...product.toObject(),
-      displayPrice: product.discountPrice || product.price,
-    }));
+    const productsWithDisplayPrice = products.map(product => {
+      const productObj = product.toObject();
+      return {
+        ...productObj,
+        displayPrice: product.discountPrice || product.price,
+        variants: productObj.variants.map(variant => ({
+          ...variant,
+          storageOptions: variant.storageOptions?.map(option => ({
+            ...option,
+            displayPrice: option.discountPrice || option.price
+          })) || [],
+          sizeOptions: variant.sizeOptions?.map(option => ({
+            ...option,
+            displayPrice: option.discountPrice || option.price
+          })) || []
+        }))
+      };
+    });
 
     const total = await Product.countDocuments(query);
 

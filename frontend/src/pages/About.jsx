@@ -108,7 +108,7 @@ const About = () => {
           >
             Your trusted marketplace for refurbished mobile phones, laptops, and tech gadgets
           </motion.p>
-          <motion.div variants={fadeInUp}>
+          
             <Button
               variant="secondary"
               size="large"
@@ -118,7 +118,7 @@ const About = () => {
             >
               Shop Now
             </Button>
-          </motion.div>
+          
         </div>
       </motion.section>
 

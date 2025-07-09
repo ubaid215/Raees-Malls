@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useMemo, useContext, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useContext, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { ArrowRight } from 'lucide-react';
+import { debounce } from 'lodash';
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
@@ -14,20 +15,64 @@ function FeaturedProducts() {
   const { products, loading: productsLoading, error: productsError, fetchFeaturedProducts } = useContext(ProductContext);
   const [isInitialized, setIsInitialized] = useState(false);
   const [localError, setLocalError] = useState(null);
+  const mountCount = useRef(0);
 
-  // Initialize products on mount
+  // Log component mounts for debugging
+  useEffect(() => {
+    mountCount.current += 1;
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`FeaturedProducts mounted ${mountCount.current} times`);
+    }
+    return () => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('FeaturedProducts unmounted');
+      }
+    };
+  }, []);
+
+  // Memoized fetch handler with debouncing
+  const handleFetchFeaturedProducts = useCallback(
+    debounce(async () => {
+      try {
+        setLocalError(null);
+        const result = await fetchFeaturedProducts(
+          { page: 1, limit: 6, sort: '-createdAt' },
+          { skipCache: true }
+        );
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log('FeaturedProducts - Refetch Response:', result);
+        }
+      } catch (err) {
+        console.error('Fetch featured products error:', err);
+        setLocalError(err.message || 'Failed to load featured products');
+        toast.error(err.message || 'Failed to load featured products');
+      }
+    }, 500),
+    [fetchFeaturedProducts]
+  );
+
+  // Initialize products on mount only once
   useEffect(() => {
     let isMounted = true;
+    let hasFetched = false;
 
     const initializeProducts = async () => {
+      if (hasFetched) return;
+      hasFetched = true;
+
       try {
         setLocalError(null);
         const hasFeaturedProducts = products?.some(p => p.isFeatured);
-        await fetchFeaturedProducts(
+        const result = await fetchFeaturedProducts(
           { page: 1, limit: 6, sort: '-createdAt' },
           { skipCache: !hasFeaturedProducts }
         );
-        
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log('FeaturedProducts - Initial API Response:', result);
+        }
+
         if (isMounted) {
           setIsInitialized(true);
         }
@@ -45,20 +90,6 @@ function FeaturedProducts() {
     return () => {
       isMounted = false;
     };
-  }, [fetchFeaturedProducts, products]);
-
-  const handleFetchFeaturedProducts = useCallback(async () => {
-    try {
-      setLocalError(null);
-      await fetchFeaturedProducts(
-        { page: 1, limit: 6, sort: '-createdAt' },
-        { skipCache: true }
-      );
-    } catch (err) {
-      console.error('Fetch featured products error:', err);
-      setLocalError(err.message || 'Failed to load featured products');
-      toast.error(err.message || 'Failed to load featured products');
-    }
   }, [fetchFeaturedProducts]);
 
   // Socket connection and event handling
@@ -68,9 +99,18 @@ function FeaturedProducts() {
     let isConnected = false;
 
     const connectSocket = () => {
-      if (!isConnected) {
-        SocketService.connect();
-        isConnected = true;
+      try {
+        if (!isConnected) {
+          SocketService.connect();
+          isConnected = true;
+          if (process.env.NODE_ENV === 'development') {
+            console.log('SocketService connected');
+          }
+        }
+      } catch (err) {
+        console.error('SocketService connection error:', err);
+        setLocalError('Failed to initialize real-time updates');
+        toast.error('Failed to initialize real-time updates');
       }
     };
 
@@ -106,44 +146,35 @@ function FeaturedProducts() {
       if (isConnected) {
         SocketService.disconnect();
         isConnected = false;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('SocketService disconnected');
+        }
       }
     };
   }, [isInitialized, handleFetchFeaturedProducts]);
 
+  // Memoize processed products
   const memoizedProducts = useMemo(() => {
     if (!products || !Array.isArray(products)) {
       return [];
     }
-    
+
     return products
       .filter(product => product?.isFeatured === true)
-      .map((product) => {
-        const images = product.images && product.images.length > 0
-          ? product.images.map(image => ({
-              url: image.url
-                ? image.url.startsWith('http')
-                  ? image.url
-                  : `${API_BASE_URL}${image.url}`
-                : '/images/placeholder-product.png',
-              public_id: image.public_id || '',
-              alt: image.alt || product.title || 'Product image'
+      .map(product => ({
+        ...product,
+        title: product.title || 'Untitled Product',
+        images: Array.isArray(product.images)
+          ? product.images.map(img => ({
+              url: img.url?.startsWith('http') ? img.url : `${API_BASE_URL}${img.url}`,
+              alt: img.alt || product.title || 'Product image',
             }))
-          : [{ url: '/images/placeholder-product.png', public_id: '', alt: product.title || 'Product image' }];
-
-        return {
-          _id: product._id,
-          title: product.title || product.name || 'Untitled Product',
-          price: product.price || 0,
-          discountPrice: product.discountPrice || null,
-          images,
-          averageRating: product.averageRating || product.rating || 0,
-          numReviews: product.numReviews || 0,
-          stock: product.stock || 0,
-          categoryId: product.categoryId,
-          sku: product.sku,
-          isFeatured: product.isFeatured || false
-        };
-      });
+          : [{ url: '/images/placeholder-product.png', alt: 'Placeholder image' }],
+        categoryId: {
+          _id: product.categoryId?._id || product.categoryId,
+          name: product.categoryId?.name || 'Uncategorized',
+        },
+      }));
   }, [products]);
 
   const isLoading = !isInitialized || (productsLoading && memoizedProducts.length === 0);
@@ -188,11 +219,11 @@ function FeaturedProducts() {
         <meta name="description" content="Explore our handpicked selection of featured products with exclusive discounts and limited stock." />
       </Helmet>
 
-      <div className="flex sm:flex-row flex-col  items-start sm:items-center justify-between mb-4 sm:mb-6">
+      <div className="flex sm:flex-row flex-col items-start sm:items-center justify-between mb-4 sm:mb-6">
         <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold">Featured Products</h1>
-        <nav className="mt-2 sm:mt-0">
-          <Link 
-            to="/products" 
+        <nav>
+          <Link
+            to="/products"
             className="flex items-center gap-1 sm:gap-2 text-sm sm:text-base text-red-500 hover:text-red-800 transition-colors"
           >
             View All <ArrowRight size={16} />
@@ -202,15 +233,15 @@ function FeaturedProducts() {
 
       <div className="w-full">
         {memoizedProducts.length > 0 ? (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            {memoizedProducts.map((product) => (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+            {memoizedProducts.map(product => (
               <ProductCard key={product._id} product={product} />
             ))}
           </div>
         ) : (
           <div className="text-center py-8 sm:py-10">
             <p className="text-gray-500 text-sm sm:text-base">No featured products available</p>
-            <Button 
+            <Button
               onClick={handleFetchFeaturedProducts}
               className="mt-3 sm:mt-4 text-sm"
               disabled={productsLoading}

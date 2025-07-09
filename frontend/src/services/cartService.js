@@ -1,16 +1,24 @@
 import api from './api';
 
-export const addToCart = async (productId, variantId = null, quantity = 1) => {
+export const addToCart = async (productId, variantOptions = {}, quantity = 1) => {
   try {
     const body = { 
       productId: typeof productId === 'object' ? productId._id.toString() : productId.toString(), 
       quantity 
     };
-    if (variantId) {
-      body.variantId = typeof variantId === 'object' ? variantId._id.toString() : variantId.toString();
+    
+    // Handle variant options based on backend structure
+    if (variantOptions.variantColor) {
+      body.variantColor = variantOptions.variantColor;
+    }
+    if (variantOptions.storageCapacity) {
+      body.storageCapacity = variantOptions.storageCapacity;
+    }
+    if (variantOptions.size) {
+      body.size = variantOptions.size;
     }
     
-    // console.log('addToCart request body:', body);
+    console.log('addToCart request body:', body);
     const response = await api.post('/cart', body);
     return {
       success: response.data.success,
@@ -32,15 +40,22 @@ export const addToCart = async (productId, variantId = null, quantity = 1) => {
 export const getCart = async () => {
   try {
     const response = await api.get('/cart');
-    // console.log('cartService.getCart: Full Response:', response);
-    // console.log('cartService.getCart: Response Data:', response.data);
+    console.log('cartService.getCart: Full Response:', response);
+    console.log('cartService.getCart: Response Data:', response.data);
+    
     if (!response.data.data.cart) {
       console.warn('cartService.getCart: response.data.data.cart is null');
       return {
         success: true,
-        cart: { items: [], totalPrice: 0, itemCount: 0 }
+        cart: { 
+          items: [], 
+          totalPrice: 0, 
+          totalShippingCost: 0,
+          itemCount: 0 
+        }
       };
     }
+    
     return {
       success: response.data.success,
       cart: response.data.data.cart
@@ -59,21 +74,30 @@ export const getCart = async () => {
   }
 };
 
-export const updateQuantity = async (productId, quantity, variantId = null) => {
+export const updateQuantity = async (productId, quantity, variantOptions = {}) => {
   try {
     if (!Number.isInteger(quantity) || quantity < 1) {
       throw new Error('Quantity must be an integer greater than or equal to 1');
     }
+    
     const body = { 
       productId: typeof productId === 'object' ? productId._id.toString() : productId.toString(), 
       quantity 
     };
-    if (variantId) {
-      body.variantId = typeof variantId === 'object' ? variantId._id.toString() : variantId.toString();
+    
+    // Handle variant options based on backend structure
+    if (variantOptions.variantColor) {
+      body.variantColor = variantOptions.variantColor;
+    }
+    if (variantOptions.storageCapacity) {
+      body.storageCapacity = variantOptions.storageCapacity;
+    }
+    if (variantOptions.size) {
+      body.size = variantOptions.size;
     }
     
-    console.log('updateQuantity request body:', body); // Debug log
-    const response = await api.post('/cart', body);
+    console.log('updateQuantity request body:', body);
+    const response = await api.put('/cart', body); // Using PUT for update
     return {
       success: response.data.success,
       cart: response.data.data.cart,
@@ -91,14 +115,25 @@ export const updateQuantity = async (productId, quantity, variantId = null) => {
   }
 };
 
-export const removeFromCart = async (productId, variantId = null) => {
+export const removeFromCart = async (productId, variantOptions = {}) => {
   try {
-    const productIdString = typeof productId === 'object' ? productId._id.toString() : productId.toString();
-    const url = variantId 
-      ? `/cart/${productIdString}/${typeof variantId === 'object' ? variantId._id.toString() : variantId.toString()}` 
-      : `/cart/${productIdString}`;
-    console.log('removeFromCart URL:', url); // Debug log
-    const response = await api.delete(url);
+    const body = {
+      productId: typeof productId === 'object' ? productId._id.toString() : productId.toString()
+    };
+    
+    // Handle variant options based on backend structure
+    if (variantOptions.variantColor) {
+      body.variantColor = variantOptions.variantColor;
+    }
+    if (variantOptions.storageCapacity) {
+      body.storageCapacity = variantOptions.storageCapacity;
+    }
+    if (variantOptions.size) {
+      body.size = variantOptions.size;
+    }
+    
+    console.log('removeFromCart request body:', body);
+    const response = await api.delete('/cart', { data: body }); // DELETE with body
     return {
       success: response.data.success,
       cart: response.data.data.cart,
@@ -118,10 +153,15 @@ export const removeFromCart = async (productId, variantId = null) => {
 
 export const clearCart = async () => {
   try {
-    const response = await api.delete('/cart');
+    const response = await api.delete('/cart/clear'); // Assuming separate endpoint for clear
     return {
       success: response.data.success,
-      cart: response.data.data.cart || { items: [], totalPrice: 0, itemCount: 0 },
+      cart: response.data.data.cart || { 
+        items: [], 
+        totalPrice: 0, 
+        totalShippingCost: 0,
+        itemCount: 0 
+      },
       message: response.data.message
     };
   } catch (error) {
@@ -131,4 +171,44 @@ export const clearCart = async () => {
       message: error.response?.data?.message || 'Failed to clear cart'
     };
   }
+};
+
+export const placeOrderFromCart = async (shippingAddress) => {
+  try {
+    const body = {
+      shippingAddress
+    };
+    
+    console.log('placeOrderFromCart request body:', body);
+    const response = await api.post('/cart/order', body);
+    return {
+      success: response.data.success,
+      order: response.data.data.order,
+      message: response.data.message
+    };
+  } catch (error) {
+    console.error('placeOrderFromCart API Error:', error.response?.data || error.message);
+    const errorMessage = error.response?.data?.errors
+      ? error.response.data.errors.map(e => e.msg).join('; ')
+      : error.response?.data?.message || 'Failed to place order';
+    return {
+      success: false,
+      message: errorMessage
+    };
+  }
+};
+
+// Helper function to create variant options object
+export const createVariantOptions = (variantColor = null, storageCapacity = null, size = null) => {
+  const options = {};
+  if (variantColor) options.variantColor = variantColor;
+  if (storageCapacity) options.storageCapacity = storageCapacity;
+  if (size) options.size = size;
+  return options;
+};
+
+// Backward compatibility function for old variantId approach
+export const addToCartLegacy = async (productId, variantId = null, quantity = 1) => {
+  console.warn('addToCartLegacy is deprecated. Use addToCart with variantOptions instead.');
+  return addToCart(productId, variantId ? { variantId } : {}, quantity);
 };

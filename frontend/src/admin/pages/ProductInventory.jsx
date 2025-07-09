@@ -1,5 +1,12 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-import React, { lazy, memo, Suspense, useEffect, useState, useCallback } from "react";
+import React, {
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 import { Helmet } from "react-helmet";
 import { Link, useNavigate } from "react-router-dom";
 import { FiEdit2, FiTrash2, FiEye, FiRefreshCw } from "react-icons/fi";
@@ -9,15 +16,142 @@ import Button from "../../components/core/Button";
 import Input from "../../components/core/Input";
 import LoadingSpinner from "../../components/core/LoadingSpinner";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
-import { getProducts, deleteProduct } from "../../services/productService";
+import {
+  getProducts,
+  deleteProduct,
+} from "../../services/productService";
 import { getCategories } from "../../services/categoryService";
-import  socketService  from "../../services/socketService";
+import socketService from "../../services/socketService";
 import { useAdminAuth } from "../../context/AdminAuthContext";
 
 const ProductModal = lazy(() => import("../../pages/ProductModal"));
 
-// Component: ProductInventory
-// Description: Displays and manages the product inventory for admins
+// Helper function to check if product is in stock
+export const isInStock = (product) => {
+  // Check base stock
+  if (product.stock > 0) return true;
+  
+  // Check variant stock
+  if (product.variants?.length > 0) {
+    for (const variant of product.variants) {
+      // Check storage options
+      if (variant.storageOptions?.length > 0) {
+        const hasStock = variant.storageOptions.some(opt => opt.stock > 0);
+        if (hasStock) return true;
+      }
+      
+      // Check size options
+      if (variant.sizeOptions?.length > 0) {
+        const hasStock = variant.sizeOptions.some(opt => opt.stock > 0);
+        if (hasStock) return true;
+      }
+      
+      // Check direct variant stock
+      if (variant.stock > 0) return true;
+    }
+  }
+  
+  return false;
+};
+
+// Helper function to get display price
+const getDisplayPrice = (product) => {
+  // Try base price first
+  if (product.price) return product.price;
+  
+  // Try discount price
+  if (product.discountPrice) return product.discountPrice;
+  
+  // Try variant prices
+  if (product.variants?.length > 0) {
+    // Check storage options
+    if (product.variants[0].storageOptions?.length > 0) {
+      return product.variants[0].storageOptions[0].price || 
+             product.variants[0].storageOptions[0].displayPrice || 0;
+    }
+    
+    // Check size options
+    if (product.variants[0].sizeOptions?.length > 0) {
+      return product.variants[0].sizeOptions[0].price || 
+             product.variants[0].sizeOptions[0].displayPrice || 0;
+    }
+    
+    // Check direct variant price
+    return product.variants[0].price || 0;
+  }
+  
+  return 0;
+};
+
+// Helper function to calculate total stock
+const calculateTotalStock = (product) => {
+  let total = product.stock || 0;
+  
+  if (product.variants?.length > 0) {
+    product.variants.forEach(variant => {
+      total += variant.stock || 0;
+      
+      if (variant.storageOptions?.length > 0) {
+        variant.storageOptions.forEach(opt => {
+          total += opt.stock || 0;
+        });
+      }
+      
+      if (variant.sizeOptions?.length > 0) {
+        variant.sizeOptions.forEach(opt => {
+          total += opt.stock || 0;
+        });
+      }
+    });
+  }
+  
+  return total;
+};
+
+// Helper function to get the first available variant image
+const getFirstVariantImage = (product) => {
+  if (!product.variants) return null;
+  
+  for (const variant of product.variants) {
+    // Check variant images
+    if (variant.images?.length > 0) {
+      return variant.images[0];
+    }
+    
+    // Check storage option images
+    if (variant.storageOptions?.length > 0) {
+      for (const option of variant.storageOptions) {
+        if (option.images?.length > 0) {
+          return option.images[0];
+        }
+      }
+    }
+    
+    // Check size option images
+    if (variant.sizeOptions?.length > 0) {
+      for (const option of variant.sizeOptions) {
+        if (option.images?.length > 0) {
+          return option.images[0];
+        }
+      }
+    }
+  }
+  
+  return null;
+};
+
+// Helper function to get variant type
+const getVariantType = (product) => {
+  if (!product.variants || product.variants.length === 0) return "Simple";
+  
+  const variant = product.variants[0];
+  if (variant.storageOptions?.length > 0) return "Storage";
+  if (variant.sizeOptions?.length > 0) return "Size";
+  if (variant.color) return "Color";
+  
+  return "Variant";
+};
+
 const ProductInventory = memo(() => {
   const { admin } = useAdminAuth();
   const navigate = useNavigate();
@@ -32,18 +166,14 @@ const ProductInventory = memo(() => {
   const [categoryMap, setCategoryMap] = useState({});
   const [deletingId, setDeletingId] = useState(null);
 
-  const PRODUCTS_PER_PAGE = 10;
+  const PRODUCTS_PER_PAGE = 20;
 
-  // Section: Authentication Check
-  // Description: Redirect non-admins to login page
   useEffect(() => {
     if (!admin) {
       navigate("/admin/login");
     }
   }, [admin, navigate]);
 
-  // Function: loadCategories
-  // Description: Fetch categories and create a map for category names
   const loadCategories = useCallback(async () => {
     try {
       const categories = await getCategories();
@@ -54,17 +184,13 @@ const ProductInventory = memo(() => {
         }, {});
         setCategoryMap(map);
       } else {
-        console.error("Invalid category data received:", categories);
         toast.warn("Failed to load category names");
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
       toast.error(err.message || "Failed to fetch categories");
     }
   }, []);
 
-  // Function: loadProducts
-  // Description: Fetch products with pagination and search
   const loadProducts = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -72,17 +198,9 @@ const ProductInventory = memo(() => {
       const response = await getProducts(currentPage, PRODUCTS_PER_PAGE, null, {
         search: searchTerm,
       });
-      console.log('Load products response:', { response });
 
-      // Ensure products is an array
       const validProducts = Array.isArray(response.products)
-        ? response.products.filter(product => {
-            if (!product._id) {
-              console.error('Invalid product: Missing _id', { product });
-              return false;
-            }
-            return true;
-          })
+        ? response.products.filter((product) => product._id)
         : [];
 
       setProducts(validProducts);
@@ -98,21 +216,15 @@ const ProductInventory = memo(() => {
     }
   }, [currentPage, searchTerm]);
 
-  // Section: Socket.IO
-  // Description: Handle real-time product addition
   useEffect(() => {
     socketService.on("productAdded", (newProduct) => {
-      console.log('Product added event:', { newProduct });
-      if (!newProduct._id) {
-        console.error('Invalid productAdded event: Missing _id', { newProduct });
-        return;
-      }
-      if (!searchTerm || newProduct.title.toLowerCase().includes(searchTerm.toLowerCase())) {
+      if (!newProduct._id) return;
+      if (
+        !searchTerm ||
+        newProduct.title.toLowerCase().includes(searchTerm.toLowerCase())
+      ) {
         setProducts((prev) => {
-          // Avoid duplicates
-          if (prev.some(p => p._id === newProduct._id)) {
-            return prev;
-          }
+          if (prev.some((p) => p._id === newProduct._id)) return prev;
           return [newProduct, ...prev].slice(0, PRODUCTS_PER_PAGE);
         });
       }
@@ -120,12 +232,9 @@ const ProductInventory = memo(() => {
     return () => socketService.off("productAdded");
   }, [searchTerm]);
 
-  // Function: handleDelete
-  // Description: Delete a product by ID
   const handleDelete = useCallback(async (productId) => {
     if (!productId) {
-      console.error('Delete product error: Missing productId');
-      toast.error('Invalid product ID');
+      toast.error("Invalid product ID");
       return;
     }
     if (window.confirm("Are you sure you want to delete this product?")) {
@@ -146,44 +255,49 @@ const ProductInventory = memo(() => {
     }
   }, []);
 
-  // Function: handlePreview
-  // Description: Prepare product data for preview modal
   const handlePreview = useCallback((product) => {
     if (!product._id) {
-      console.error('Preview product error: Missing _id', { product });
-      toast.error('Invalid product ID');
+      toast.error("Invalid product ID");
       return;
     }
-    setSelectedProduct({
+    
+    const displayPrice = getDisplayPrice(product);
+    const originalPrice = product.price || displayPrice;
+    const discountPercentage =
+      originalPrice && displayPrice < originalPrice
+        ? Math.round(((originalPrice - displayPrice) / originalPrice) * 100)
+        : 0;
+
+    const previewProduct = {
       _id: product._id,
       title: product.title,
-      price: product.price,
-      originalPrice: product.discountPrice ? product.price : product.price,
-      discountPercentage: product.discountPrice
-        ? Math.round(((product.price - product.discountPrice) / product.price) * 100)
-        : 0,
+      price: displayPrice,
+      originalPrice,
+      discountPercentage,
       images: product.images?.map((img) =>
         img.url.startsWith("http") ? img.url : `http://localhost:5000${img.url}`
       ) || ["/placeholder-product.png"],
       rating: product.averageRating || 0,
       numReviews: product.numReviews || 0,
-      stock: product.stock || 0,
+      stock: calculateTotalStock(product),
+      inStock: isInStock(product),
       description: product.description || "",
       category: product.categoryId,
       variants: product.variants || [],
-    });
+    };
+    
+    setSelectedProduct(previewProduct);
     setShowPreview(true);
   }, []);
 
-  // Function: getCategoryName
-  // Description: Get category name from categoryId
-  const getCategoryName = useCallback((categoryId) => {
-    if (!categoryId) return "No category";
-    return categoryMap[categoryId._id || categoryId] || "Unknown";
-  }, [categoryMap]);
+  const getCategoryName = useCallback(
+    (categoryId) => {
+      if (!categoryId) return "No category";
+      return categoryMap[categoryId._id || categoryId] || "Unknown";
+    },
+    [categoryMap]
+  );
 
-  // Function: debouncedSetSearchTerm
-  // Description: Debounce search input to reduce API calls
   const debouncedSetSearchTerm = useCallback(
     debounce((value) => {
       setSearchTerm(value);
@@ -192,13 +306,13 @@ const ProductInventory = memo(() => {
     []
   );
 
-  // Function: handleSearchChange
-  // Description: Handle search input changes
-  const handleSearchChange = useCallback((e) => {
-    debouncedSetSearchTerm(e.target.value);
-  }, [debouncedSetSearchTerm]);
+  const handleSearchChange = useCallback(
+    (e) => {
+      debouncedSetSearchTerm(e.target.value);
+    },
+    [debouncedSetSearchTerm]
+  );
 
-  // Load categories and products on mount
   useEffect(() => {
     if (admin) {
       loadCategories();
@@ -206,10 +320,8 @@ const ProductInventory = memo(() => {
     }
   }, [admin, loadCategories, loadProducts]);
 
-  // Section: Render
-  // Description: Render the product inventory table
   if (!admin) {
-    return null; // Render nothing while redirecting
+    return null;
   }
 
   if (error) {
@@ -224,10 +336,13 @@ const ProductInventory = memo(() => {
   }
 
   return (
-    <section aria-label="Product Inventory" className="container mx-auto px-4 py-6">
+    <section className="container mx-auto px-4 py-6">
       <Helmet>
         <title>Product Inventory | Admin Dashboard</title>
-        <meta name="description" content="Manage your product inventory, add, edit, or delete products." />
+        <meta
+          name="description"
+          content="Manage your product inventory, add, edit, or delete products."
+        />
       </Helmet>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl font-bold text-[#E63946]">Product Inventory</h1>
@@ -261,7 +376,9 @@ const ProductInventory = memo(() => {
         </div>
       ) : products.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-gray-500 text-lg">No products found. Try adding a new product or refreshing.</p>
+          <p className="text-gray-500 text-lg">
+            No products found. Try adding a new product or refreshing.
+          </p>
           <div className="flex justify-center gap-4 mt-4">
             <Link to="/admin/add-products">
               <Button className="bg-[#E63946] hover:bg-[#FFFFFF] hover:text-[#E63946] hover:border-[#E63946] border">
@@ -293,7 +410,7 @@ const ProductInventory = memo(() => {
                     Stock
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Variants
+                    Variant Type
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
@@ -304,83 +421,107 @@ const ProductInventory = memo(() => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {products.map((product) => (
-                  <tr key={product._id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          {product.images && product.images[0] ? (
-                            <img
-                              className="h-10 w-10 rounded-full object-cover"
-                              src={
-                                product.images[0].url.startsWith("http")
-                                  ? product.images[0].url
-                                  : `http://localhost:5000${product.images[0].url}`
-                              }
-                              alt={product.title || "Product image"}
-                              onError={(e) => (e.target.src = "/placeholder-product.png")}
-                            />
-                          ) : (
-                            <div className="h-10 w-10 rounded-full bg-gray-200"></div>
-                          )}
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {product.title}
+                {products.map((product) => {
+                  const stockStatus = isInStock(product);
+                  const totalStock = calculateTotalStock(product);
+                  const variantType = getVariantType(product);
+                  
+                  return (
+                    <tr key={product._id}>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-10 w-10">
+                            {product.images?.[0] ? (
+                              <img
+                                className="h-10 w-10 rounded-full object-cover"
+                                src={
+                                  product.images[0].url.startsWith("http")
+                                    ? product.images[0].url
+                                    : `http://localhost:5000${product.images[0].url}`
+                                }
+                                alt={product.title || "Product image"}
+                                onError={(e) =>
+                                  (e.target.src = "/placeholder-product.png")
+                                }
+                              />
+                            ) : getFirstVariantImage(product) ? (
+                              <img
+                                className="h-10 w-10 rounded-full object-cover"
+                                src={
+                                  getFirstVariantImage(product).url.startsWith(
+                                    "http"
+                                  )
+                                    ? getFirstVariantImage(product).url
+                                    : `http://localhost:5000${getFirstVariantImage(product).url}`
+                                }
+                                alt={product.title || "Variant image"}
+                                onError={(e) =>
+                                  (e.target.src = "/placeholder-product.png")
+                                }
+                              />
+                            ) : (
+                              <div className="h-10 w-10 rounded-full bg-gray-200"></div>
+                            )}
                           </div>
-                          <div className="text-sm text-gray-500">
-                            {getCategoryName(product.categoryId)}
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">
+                              {product.title}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {getCategoryName(product.categoryId)}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      PKR {Number(product.price).toFixed(2) || "0.00"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.stock || 0}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.variants?.length || 0}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          product.stock > 0
-                            ? "bg-[#E6FFE6] text-[#008000]"
-                            : "bg-[#FFE6E8] text-[#E63946]"
-                        }`}
-                      >
-                        {product.stock > 0 ? "In Stock" : "Out of Stock"}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end gap-5 space-x-2">
-                        
-                        <Link to={`/admin/edit-product/${product._id}`}>
-                          <button
-                            className="text-indigo-600 hover:text-indigo-900"
-                            title="Edit"
-                            aria-label={`Edit ${product.title}`}
-                          >
-                            <FiEdit2 className="h-5 w-5" />
-                          </button>
-                        </Link>
-                        <button
-                          onClick={() => handleDelete(product._id)}
-                          disabled={deletingId === product._id}
-                          className={`text-[#E63946] hover:text-[#B32D38] ${
-                            deletingId === product._id ? "opacity-50 cursor-not-allowed" : ""
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        PKR {getDisplayPrice(product).toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {totalStock > 0 ? totalStock : "Out of stock"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {variantType}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            stockStatus
+                              ? "bg-[#E6FFE6] text-[#008000]"
+                              : "bg-[#FFE6E8] text-[#E63946]"
                           }`}
-                          title="Delete"
-                          aria-label={`Delete ${product.title}`}
                         >
-                          <FiTrash2 className="h-5 w-5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {stockStatus ? "In Stock" : "Out of Stock"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex justify-end gap-5 space-x-2">
+                          <Link to={`/admin/edit-product/${product._id}`}>
+                            <button
+                              className="text-indigo-600 hover:text-indigo-900"
+                              title="Edit"
+                              aria-label={`Edit ${product.title}`}
+                            >
+                              <FiEdit2 className="h-5 w-5" />
+                            </button>
+                          </Link>
+                          <button
+                            onClick={() => handleDelete(product._id)}
+                            disabled={deletingId === product._id}
+                            className={`text-[#E63946] hover:text-[#B32D38] ${
+                              deletingId === product._id
+                                ? "opacity-50 cursor-not-allowed"
+                                : ""
+                            }`}
+                            title="Delete"
+                            aria-label={`Delete ${product.title}`}
+                          >
+                            <FiTrash2 className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -399,7 +540,9 @@ const ProductInventory = memo(() => {
                 Page {currentPage} of {totalPages}
               </span>
               <Button
-                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                onClick={() =>
+                  setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                }
                 disabled={currentPage === totalPages}
                 variant="outline"
                 className="border-[#E63946] text-[#E63946] hover:bg-[#FFE6E8]"

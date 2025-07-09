@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet';
 import { useParams, useNavigate } from 'react-router-dom';
-import { toast } from 'react-toastify';
 import { useAdminAuth } from '../../context/AdminAuthContext';
 import ProductForm from './ProductForm';
 import { updateProduct, getProductById } from '../../services/productService';
 import LoadingSpinner from '../../components/core/LoadingSpinner';
 import Button from '../../components/core/Button';
+import UploadProgressBar from '../../components/core/UploadProgressBar';
+import { toastSuccess, toastError } from '../../components/core/ToastNotification';
 
 const EditProductPage = () => {
   const { id } = useParams();
@@ -17,16 +18,16 @@ const EditProductPage = () => {
   const [productData, setProductData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [currentStage, setCurrentStage] = useState('');
 
-  // Check admin access
   useEffect(() => {
     if (!authLoading && !isAdminAuthenticated) {
-      toast.error('You must be logged in as an admin');
+      toastError('You must be logged in as an admin');
       navigate('/admin/login');
     }
   }, [authLoading, isAdminAuthenticated, navigate]);
 
-  // Fetch product data
   const fetchProduct = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -35,11 +36,49 @@ const EditProductPage = () => {
       if (!product) {
         throw new Error('Product not found');
       }
-      setProductData(product);
+
+      // Normalize variant data for the form - with proper null checks
+      const normalizedVariants = product.variants?.map(variant => ({
+        ...variant,
+        color: variant.color?.name || '',
+        price: variant.price !== undefined && variant.price !== null ? variant.price.toString() : '',
+        discountPrice: variant.discountPrice !== undefined && variant.discountPrice !== null ? variant.discountPrice.toString() : '',
+        stock: variant.stock !== undefined && variant.stock !== null ? variant.stock.toString() : '',
+        sku: variant.sku || '',
+        storageOptions: variant.storageOptions?.map(opt => ({
+          ...opt,
+          capacity: opt.capacity || '',
+          price: opt.price !== undefined && opt.price !== null ? opt.price.toString() : '',
+          discountPrice: opt.discountPrice !== undefined && opt.discountPrice !== null ? opt.discountPrice.toString() : '',
+          stock: opt.stock !== undefined && opt.stock !== null ? opt.stock.toString() : '',
+          sku: opt.sku || ''
+        })) || [],
+        sizeOptions: variant.sizeOptions?.map(opt => ({
+          ...opt,
+          size: opt.size || '',
+          price: opt.price !== undefined && opt.price !== null ? opt.price.toString() : '',
+          discountPrice: opt.discountPrice !== undefined && opt.discountPrice !== null ? opt.discountPrice.toString() : '',
+          stock: opt.stock !== undefined && opt.stock !== null ? opt.stock.toString() : '',
+          sku: opt.sku || ''
+        })) || []
+      })) || [];
+
+      setProductData({
+        ...product,
+        price: product.price !== undefined && product.price !== null ? product.price.toString() : '',
+        discountPrice: product.discountPrice !== undefined && product.discountPrice !== null ? product.discountPrice.toString() : '',
+        stock: product.stock !== undefined && product.stock !== null ? product.stock.toString() : '',
+        shippingCost: product.shippingCost !== undefined && product.shippingCost !== null ? product.shippingCost.toString() : '0',
+        color: product.color?.name || '',
+        specifications: product.specifications || [],
+        features: product.features || [],
+        variants: normalizedVariants,
+        removeBaseImages: false
+      });
     } catch (err) {
       console.error('Failed to fetch product:', err);
       setError(err.message || 'Failed to load product');
-      toast.error(err.message || 'Failed to load product');
+      toastError(err.message || 'Failed to load product');
     } finally {
       setIsLoading(false);
     }
@@ -51,52 +90,117 @@ const EditProductPage = () => {
     }
   }, [fetchProduct, isAdminAuthenticated]);
 
-  // Handle form submission
   const handleSubmit = useCallback(async (formData, media) => {
     setIsSubmitting(true);
     setError(null);
+    setCurrentStage('Preparing product data...');
 
     try {
-      console.log('Submitting product update:', {
-        productData: {
-          ...formData,
-          shippingCost: formData.shippingCost,
-          color: formData.color,
-        },
-        baseImagesCount: media.baseImages?.length || 0,
-        baseVideosCount: media.baseVideos?.length || 0,
-        variantImagesCount: media.variantImages?.map(v => v?.length || 0) || [],
-        variantVideosCount: media.variantVideos?.map(v => v?.length || 0) || []
-      });
+      // Process variants for submission
+      const processedVariants = formData.variants?.map(variant => {
+        const colorValue = typeof variant.color === 'string' 
+          ? variant.color.trim() 
+          : variant.color?.name?.trim() || '';
 
-      // Prepare data for submission
+        const processed = {
+          color: colorValue ? { name: colorValue } : undefined,
+          images: variant.images || [],
+          videos: variant.videos || []
+        };
+
+        // Handle direct pricing
+        if (variant.price !== undefined && variant.stock !== undefined) {
+          processed.price = parseFloat(variant.price) || 0;
+          processed.stock = parseInt(variant.stock) || 0;
+          if (variant.discountPrice) {
+            processed.discountPrice = parseFloat(variant.discountPrice);
+            if (processed.discountPrice >= processed.price) {
+              throw new Error('Discount price must be less than regular price');
+            }
+          }
+          processed.sku = variant.sku?.trim() || undefined;
+        }
+
+        // Handle storage options
+        if (variant.storageOptions?.length > 0) {
+          processed.storageOptions = variant.storageOptions.map(opt => {
+            if (!opt.capacity || !opt.price || opt.stock === undefined) {
+              throw new Error('Storage options must have capacity, price, and stock');
+            }
+            return {
+              capacity: opt.capacity.trim(),
+              price: parseFloat(opt.price) || 0,
+              discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
+              stock: parseInt(opt.stock) || 0,
+              sku: opt.sku?.trim() || undefined
+            };
+          });
+        }
+
+        // Handle size options
+        if (variant.sizeOptions?.length > 0) {
+          processed.sizeOptions = variant.sizeOptions.map(opt => {
+            if (!opt.size || !opt.price || opt.stock === undefined) {
+              throw new Error('Size options must have size, price, and stock');
+            }
+            return {
+              size: opt.size.trim(),
+              price: parseFloat(opt.price) || 0,
+              discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
+              stock: parseInt(opt.stock) || 0,
+              sku: opt.sku?.trim() || undefined
+            };
+          });
+        }
+
+        return processed;
+      }) || [];
+
       const submissionData = {
         ...formData,
-        // Remove SKU if empty to allow auto-generation
+        price: formData.price ? parseFloat(formData.price) : undefined,
+        discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : undefined,
+        shippingCost: parseFloat(formData.shippingCost) || 0,
+        stock: formData.stock ? parseInt(formData.stock) : undefined,
+        color: formData.color && formData.color.trim() ? { name: formData.color.trim() } : undefined,
+        specifications: formData.specifications || [],
+        features: formData.features || [],
+        variants: processedVariants,
         sku: formData.sku?.trim() || undefined,
-        color: formData.color || undefined,
-        variants: formData.variants?.map(variant => ({
-          ...variant,
-          // Remove variant SKU if empty
-          sku: variant.sku?.trim() || undefined,
-          color: variant.color || undefined,
-          specifications: Array.isArray(variant.specifications) ? variant.specifications : [],
-        }))
+        removeBaseImages: formData.removeBaseImages
       };
 
-      const updatedProduct = await updateProduct(id, submissionData, media);
-      
-      toast.success('Product updated successfully');
+      if (submissionData.color === undefined) {
+        delete submissionData.color;
+      }
+
+      const config = {
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total
+          );
+          setUploadProgress(percentCompleted);
+          setCurrentStage(`Uploading: ${percentCompleted}% complete`);
+        },
+        timeout: 300000,
+      };
+
+      const updatedProduct = await updateProduct(id, submissionData, media, config);
+
+      toastSuccess('Product updated successfully');
       navigate('/admin/inventory');
       return updatedProduct;
     } catch (err) {
       console.error('Update failed:', err);
-      const errorMessage = err.response?.data?.message || err.message || 'Failed to update product';
+      const errorMessage = err.response?.data?.errors 
+        ? err.response.data.errors.map(e => e.message || e.msg).join(', ')
+        : err.response?.data?.message || err.message || 'Failed to update product';
       setError(errorMessage);
-      toast.error(errorMessage);
       throw err;
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(0);
+      setCurrentStage('');
     }
   }, [id, navigate]);
 
@@ -130,7 +234,7 @@ const EditProductPage = () => {
         <title>Edit Product | Admin Dashboard</title>
       </Helmet>
       
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-2xl font-bold text-gray-800">Edit Product</h1>
@@ -142,6 +246,13 @@ const EditProductPage = () => {
               Back to Inventory
             </Button>
           </div>
+
+          {currentStage && (
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-1">{currentStage}</p>
+              <UploadProgressBar progress={uploadProgress} />
+            </div>
+          )}
 
           {error && (
             <div className="mb-6 p-4 bg-red-50 text-red-600 rounded border border-red-200">
@@ -156,7 +267,7 @@ const EditProductPage = () => {
                 onSubmit={handleSubmit}
                 loading={isSubmitting}
                 isEditMode={true}
-                skuOptional={true} // SKU is optional in edit mode
+                skuOptional={true}
               />
             </div>
           ) : (

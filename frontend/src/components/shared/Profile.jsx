@@ -11,10 +11,12 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { useOrder } from "../../context/OrderContext";
+import { useReview } from "../../context/ReviewContext";
 import { toast } from "react-toastify";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
 import Button from "../../components/core/Button";
 import socketService from "../../services/socketService";
+import ReviewForm from "../../components/core/ReviewForm";
 
 const Profile = () => {
   const {
@@ -34,9 +36,12 @@ const Profile = () => {
     fetchUserOrders,
     cancelOrder,
   } = useOrder();
+  const { addReview } = useReview();
   const [isLoading, setIsLoading] = useState(false);
   const [newOrderIds, setNewOrderIds] = useState([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [selectedReviewItem, setSelectedReviewItem] = useState(null);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -105,14 +110,12 @@ const Profile = () => {
 
   useEffect(() => {
     if (user) {
-      // console.log('Profile: Fetching orders for user:', user._id);
       fetchUserOrders(pagination.page);
 
       const setupSocket = () => {
         try {
           if (!socketService.getConnectionState()) {
             socketService.connect(user._id, user.role);
-            // console.log('Profile: Socket connection established for user:', user._id);
           }
 
           socketService.off("orderCreated");
@@ -121,7 +124,6 @@ const Profile = () => {
           socketService.off("reconnect");
 
           socketService.on("orderCreated", (newOrder) => {
-            // console.log('Profile: New order received via socket:', newOrder);
             if (!newOrder || !newOrder.orderId) {
               console.error("Profile: Invalid order data received:", newOrder);
               return;
@@ -141,7 +143,6 @@ const Profile = () => {
           });
 
           socketService.on("orderStatusUpdated", (updatedOrder) => {
-            // console.log('Profile: Order status updated via socket:', updatedOrder);
             if (!updatedOrder || !updatedOrder.orderId) {
               console.error(
                 "Profile: Invalid order data received:",
@@ -239,6 +240,22 @@ const Profile = () => {
         <span className="capitalize">{status || "Unknown"}</span>
       </span>
     );
+  };
+
+  const handleOpenReviewModal = (productId, orderId) => {
+    setSelectedReviewItem({ productId, orderId });
+    setIsReviewModalOpen(true);
+  };
+
+  const handleSubmitReview = async (productId, orderId, rating, comment) => {
+    try {
+      await addReview(productId, orderId, rating, comment);
+      toast.success("Review submitted successfully");
+      setIsReviewModalOpen(false);
+      fetchUserOrders(pagination.page);
+    } catch (err) {
+      toast.error(err.message || "Failed to submit review");
+    }
   };
 
   const validateForm = () => {
@@ -422,15 +439,15 @@ const Profile = () => {
   return (
     <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
+        <div className="relative flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
             My Profile
           </h1>
           <Button
             onClick={handleLogout}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-red-600 text-white hover:bg-red-700 px-4 py-2 text-sm"
+            className="absolute right-5  flex items-center justify-center gap-1 sm:gap-2 bg-red-600 text-white hover:bg-red-700 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm rounded-md"
           >
-            <FiLogOut />
+            <FiLogOut className="w-3 h-3 sm:w-4 sm:h-4" />
             <span>Logout</span>
           </Button>
         </div>
@@ -514,12 +531,22 @@ const Profile = () => {
             </div>
             {orderLoading ? (
               <div className="space-y-3 sm:space-y-4">
-                <LoadingSkeleton type="text" width="w-full" height="h-12 sm:h-16" />
-                <LoadingSkeleton type="text" width="w-full" height="h-12 sm:h-16" />
+                <LoadingSkeleton
+                  type="text"
+                  width="w-full"
+                  height="h-12 sm:h-16"
+                />
+                <LoadingSkeleton
+                  type="text"
+                  width="w-full"
+                  height="h-12 sm:h-16"
+                />
               </div>
             ) : orderError ? (
               <div className="p-3 sm:p-4 bg-gray-50 rounded-lg text-center">
-                <p className="text-gray-600 text-sm sm:text-base">{orderError}</p>
+                <p className="text-gray-600 text-sm sm:text-base">
+                  {orderError}
+                </p>
                 <Button
                   onClick={() => fetchUserOrders(pagination.page)}
                   className="mt-2 bg-blue-600 text-white hover:bg-blue-700 px-3 py-1.5 text-sm"
@@ -534,39 +561,34 @@ const Profile = () => {
                     (order) => order && order.orderId
                   );
                   return validOrders.length === 0 ? (
-                    <p className="text-gray-600 text-sm sm:text-base">No orders found</p>
+                    <p className="text-gray-600 text-sm sm:text-base">
+                      No orders found
+                    </p>
                   ) : (
                     validOrders.slice(0, 3).map((order) => {
-                      // Get the first item from the order for display
-                      const firstItem =
-                        order.items && order.items.length > 0
-                          ? order.items[0]
-                          : null;
-                      const additionalItemsCount = order.items
-                        ? order.items.length - 1
-                        : 0;
-
                       return (
                         <div
                           key={order.orderId}
                           className="border border-gray-200 rounded-lg p-3 sm:p-4 hover:bg-gray-50 cursor-pointer transition-colors"
                           onClick={() => navigate(`/orders/${order.orderId}`)}
                         >
-                          <div className="flex gap-2 sm:gap-4">
-                            {/* Product Image - Smaller on mobile */}
-                            {firstItem && (
+                          {(order.items || []).map((item, index) => (
+                            <div
+                              key={index}
+                              className="flex gap-2 sm:gap-4 mb-2"
+                            >
                               <div className="flex-shrink-0">
                                 <img
-                                  src={getImageUrl(firstItem)}
+                                  src={getImageUrl(item)}
                                   alt={
-                                    firstItem.productId?.title ||
-                                    firstItem.title ||
+                                    item.productId?.title ||
+                                    item.title ||
                                     "Product"
                                   }
                                   className="w-10 h-10 sm:w-12 sm:h-12 object-contain rounded-md border border-gray-200"
                                   onError={(e) => {
                                     console.warn(
-                                      `Order: Image failed to load for ${firstItem.productId?.title || firstItem.title || "unknown"}:`,
+                                      `Order: Image failed to load for ${item.productId?.title || item.title || "unknown"}:`,
                                       e.target.src
                                     );
                                     e.currentTarget.src =
@@ -575,50 +597,68 @@ const Profile = () => {
                                   }}
                                 />
                               </div>
-                            )}
-
-                            {/* Order Details - Compact layout */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2 mb-2">
-                                <div className="min-w-0">
-                                  <h3 className="font-medium text-gray-900 text-sm sm:text-base truncate">
-                                    {firstItem?.productId?.title || "Product"}
-                                    {additionalItemsCount > 0 && (
-                                      <span className="text-xs sm:text-sm text-gray-500 ml-1 sm:ml-2">
-                                        +{additionalItemsCount} more
-                                      </span>
-                                    )}
-                                  </h3>
-                                  <p className="text-xs sm:text-sm text-gray-600">
-                                    #{order.orderId}
-                                  </p>
-                                  <p className="text-xs text-gray-500">
-                                    {new Date(
-                                      order.createdAt || Date.now()
-                                    ).toLocaleDateString()}
-                                  </p>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2 mb-2">
+                                  <div className="min-w-0">
+                                    <h3 className="font-medium text-gray-900 text-sm sm:text-base truncate">
+                                      {item.productId?.title || "Product"}
+                                    </h3>
+                                    <p className="text-xs sm:text-sm text-gray-600">
+                                      #{order.orderId}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      {new Date(
+                                        order.createdAt || Date.now()
+                                      ).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-row sm:flex-col items-start sm:items-end gap-2 sm:gap-1">
+                                    <p className="font-semibold text-gray-900 text-sm sm:text-base">
+                                      {formatPrice(item.price * item.quantity)}
+                                    </p>
+                                    {getOrderStatusBadge(order.status)}
+                                  </div>
                                 </div>
-                                <div className="flex flex-row sm:flex-col items-start sm:items-end gap-2 sm:gap-1">
-                                  <p className="font-semibold text-gray-900 text-sm sm:text-base">
-                                    {formatPrice(order.totalPrice)}
-                                  </p>
-                                  {getOrderStatusBadge(order.status)}
-                                </div>
-                              </div>
-
-                              {/* Quantity info - Smaller on mobile */}
-                              {firstItem && (
                                 <p className="text-xs sm:text-sm text-gray-600">
-                                  Qty: {firstItem.quantity || 1}
-                                  {firstItem.variantId && (
+                                  Qty: {item.quantity || 1}
+                                  {item.variantId && (
                                     <span className="ml-1 sm:ml-2">
-                                      • {firstItem.variantValue || "Variant"}
+                                      • {item.variantValue || "Variant"}
                                     </span>
                                   )}
                                 </p>
-                              )}
+                                {order.status === "delivered" &&
+                                  !item.reviewed && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenReviewModal(
+                                          item.productId._id,
+                                          order.orderId
+                                        );
+                                      }}
+                                      className="mt-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors animate-split-bounce"
+                                      title="Add Review"
+                                    >
+                                      <svg
+                                        className="w-4 h-4 sm:w-5 sm:h-5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth="2"
+                                          d="M12 4v16m8-8H4"
+                                        />
+                                      </svg>
+                                    </button>
+                                  )}
+                              </div>
                             </div>
-                          </div>
+                          ))}
                         </div>
                       );
                     })
@@ -669,7 +709,6 @@ const Profile = () => {
                       order.status !== "delivered" &&
                       order.status !== "cancelled"
                   );
-                  // console.log('Profile: Valid current orders:', validOrders);
                   return validOrders.length === 0 ? (
                     <p className="text-gray-600 text-sm sm:text-base">
                       No current orders
@@ -783,31 +822,132 @@ const Profile = () => {
               </div>
             )}
             {!orderError && (orders || []).length > 0 && (
-              <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4">
-                <Button
+              <div className="flex items-center justify-between w-full mt-6 gap-2">
+                {/* Previous Button - Left Side */}
+                <button
                   onClick={() => handlePageChange(pagination.page - 1)}
                   disabled={pagination.page === 1}
-                  className="w-full sm:w-auto border border-gray-300 text-gray-600 hover:bg-gray-50"
+                  className="flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px]"
                 >
-                  Previous
-                </Button>
-                <p className="text-sm text-gray-600">
-                  Page {pagination.page} of {pagination.totalPages}
-                </p>
-                <Button
+                  <svg
+                    className="w-4 h-4 mr-1"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                  <span className="hidden xs:inline">Previous</span>
+                </button>
+
+                {/* Page Numbers - Center (Scrollable on small screens) */}
+                <div className="flex-1 flex items-center justify-center overflow-x-auto px-2 hide-scrollbar">
+                  <div className="flex items-center space-x-1 mx-auto">
+                    {/* Show first page + ellipsis if needed */}
+                    {pagination.page > 3 && pagination.totalPages > 5 && (
+                      <>
+                        <button
+                          onClick={() => handlePageChange(1)}
+                          className={`min-w-[36px] h-9 rounded-full flex items-center justify-center text-sm ${
+                            pagination.page === 1
+                              ? "bg-red-600 text-white"
+                              : "text-gray-600 hover:bg-gray-100"
+                          }`}
+                        >
+                          1
+                        </button>
+                        {pagination.page > 4 && (
+                          <span className="px-1 text-gray-400">...</span>
+                        )}
+                      </>
+                    )}
+
+                    {/* Dynamic page numbers */}
+                    {Array.from(
+                      { length: Math.min(5, pagination.totalPages) },
+                      (_, i) => {
+                        const pageNum =
+                          pagination.page <= 3
+                            ? i + 1
+                            : pagination.page >= pagination.totalPages - 2
+                              ? pagination.totalPages - 4 + i
+                              : pagination.page - 2 + i;
+
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => handlePageChange(pageNum)}
+                            className={`min-w-[36px] h-9 rounded-full flex items-center justify-center text-sm ${
+                              pagination.page === pageNum
+                                ? "bg-red-600 text-white"
+                                : "text-gray-600 hover:bg-gray-100"
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      }
+                    )}
+
+                    {/* Show last page + ellipsis if needed */}
+                    {pagination.page < pagination.totalPages - 2 &&
+                      pagination.totalPages > 5 && (
+                        <>
+                          {pagination.page < pagination.totalPages - 3 && (
+                            <span className="px-1 text-gray-400">...</span>
+                          )}
+                          <button
+                            onClick={() =>
+                              handlePageChange(pagination.totalPages)
+                            }
+                            className={`min-w-[36px] h-9 rounded-full flex items-center justify-center text-sm ${
+                              pagination.page === pagination.totalPages
+                                ? "bg-red-600 text-white"
+                                : "text-gray-600 hover:bg-gray-100"
+                            }`}
+                          >
+                            {pagination.totalPages}
+                          </button>
+                        </>
+                      )}
+                  </div>
+                </div>
+
+                {/* Next Button - Right Side */}
+                <button
                   onClick={() => handlePageChange(pagination.page + 1)}
                   disabled={pagination.page === pagination.totalPages}
-                  className="w-full sm:w-auto border border-gray-300 text-gray-600 hover:bg-gray-50"
+                  className="flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 disabled:opacity-50 disabled:cursor-not-allowed min-w-[100px]"
                 >
-                  Next
-                </Button>
+                  <span className="hidden xs:inline">Next</span>
+                  <svg
+                    className="w-4 h-4 ml-1"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
               </div>
             )}
           </div>
         </div>
 
         {isEditModalOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-transparent bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">
                 Edit Profile
@@ -1091,7 +1231,33 @@ const Profile = () => {
             </div>
           </div>
         )}
+
+        {isReviewModalOpen && selectedReviewItem && (
+          <ReviewForm
+            productId={selectedReviewItem.productId}
+            orderId={selectedReviewItem.orderId}
+            onSubmit={handleSubmitReview}
+            onClose={() => setIsReviewModalOpen(false)}
+          />
+        )}
       </div>
+
+      <style jsx>{`
+        @keyframes split-bounce {
+          0% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.2);
+          }
+          100% {
+            transform: scale(1);
+          }
+        }
+        .animate-split-bounce {
+          animation: split-bounce 1.5s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 };

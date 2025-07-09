@@ -5,6 +5,71 @@ const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const { v4: uuidv4 } = require('uuid');
 
+// Helper function to find the right pricing and stock based on product structure
+const getProductDetails = (product, variantColor = null, storageCapacity = null, size = null) => {
+  let price = 0;
+  let discountPrice = null;
+  let stock = 0;
+  let sku = product.sku;
+  let images = product.images || [];
+  let videos = product.videos || [];
+
+  if (variantColor) {
+    // Find the variant by color
+    const variant = product.variants?.find(v => v.color?.name === variantColor);
+    if (!variant) {
+      throw new Error(`Variant with color "${variantColor}" not found`);
+    }
+
+    // Use variant images if available, otherwise fallback to product images
+    images = variant.images && variant.images.length > 0 ? variant.images : images;
+    videos = variant.videos && variant.videos.length > 0 ? variant.videos : videos;
+
+    if (storageCapacity) {
+      // Handle storage options within variant
+      const storageOption = variant.storageOptions?.find(s => s.capacity === storageCapacity);
+      if (!storageOption) {
+        throw new Error(`Storage option "${storageCapacity}" not found in variant "${variantColor}"`);
+      }
+      price = storageOption.price;
+      discountPrice = storageOption.discountPrice;
+      stock = storageOption.stock;
+      sku = storageOption.sku;
+    } else if (size) {
+      // Handle size options within variant
+      const sizeOption = variant.sizeOptions?.find(s => s.size === size);
+      if (!sizeOption) {
+        throw new Error(`Size option "${size}" not found in variant "${variantColor}"`);
+      }
+      price = sizeOption.price;
+      discountPrice = sizeOption.discountPrice;
+      stock = sizeOption.stock;
+      sku = sizeOption.sku;
+    } else {
+      // Simple color variant with direct pricing
+      price = variant.price;
+      discountPrice = variant.discountPrice;
+      stock = variant.stock;
+      sku = variant.sku;
+    }
+  } else {
+    // Base product without variants
+    price = product.price;
+    discountPrice = product.discountPrice;
+    stock = product.stock;
+  }
+
+  return {
+    price: price || 0,
+    discountPrice,
+    stock: stock || 0,
+    sku: sku || 'N/A',
+    images,
+    videos,
+    finalPrice: discountPrice || price || 0
+  };
+};
+
 exports.addToCart = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
@@ -12,26 +77,27 @@ exports.addToCart = async (req, res, next) => {
       throw new ApiError(401, 'User not authenticated');
     }
 
-    const { productId, variantId, quantity } = req.body;
+    const { productId, variantColor, storageCapacity, size, quantity } = req.body;
+
+    if (!productId || !quantity || quantity < 1) {
+      throw new ApiError(400, 'Product ID and valid quantity are required');
+    }
 
     const product = await Product.findById(productId);
     if (!product) {
       throw new ApiError(404, 'Product not found');
     }
 
-    let stock;
-    if (variantId) {
-      const variant = product.variants.id(variantId);
-      if (!variant) {
-        throw new ApiError(404, 'Variant not found');
-      }
-      stock = variant.stock;
-    } else {
-      stock = product.stock;
+    // Get product details based on variant configuration
+    let productDetails;
+    try {
+      productDetails = getProductDetails(product, variantColor, storageCapacity, size);
+    } catch (error) {
+      throw new ApiError(404, error.message);
     }
 
-    if (stock < quantity) {
-      throw new ApiError(400, `Insufficient stock for product: ${product.title}${variantId ? ' (variant)' : ''}`);
+    if (productDetails.stock < quantity) {
+      throw new ApiError(400, `Insufficient stock. Available: ${productDetails.stock}, Requested: ${quantity}`);
     }
 
     let cart = await Cart.findOne({ userId });
@@ -43,15 +109,29 @@ exports.addToCart = async (req, res, next) => {
       });
     }
 
-    const itemIndex = cart.items.findIndex(item =>
-      item.productId.toString() === productId &&
-      (item.variantId?.toString() === variantId || (!item.variantId && !variantId))
-    );
+    // Find existing item with same configuration
+    const existingItem = cart.findItem(productId, variantColor, storageCapacity, size);
 
-    if (itemIndex > -1) {
-      cart.items[itemIndex].quantity = quantity;
+    if (existingItem) {
+      // Update quantity of existing item
+      const newQuantity = existingItem.quantity + quantity;
+      if (productDetails.stock < newQuantity) {
+        throw new ApiError(400, `Insufficient stock. Available: ${productDetails.stock}, Total requested: ${newQuantity}`);
+      }
+      existingItem.quantity = newQuantity;
     } else {
-      cart.items.push({ productId, variantId, quantity });
+      // Add new item to cart
+      const newItem = {
+        productId,
+        variantColor,
+        storageCapacity,
+        size,
+        quantity,
+        sku: productDetails.sku,
+        priceAtAdd: productDetails.price,
+        discountPriceAtAdd: productDetails.discountPrice
+      };
+      cart.items.push(newItem);
     }
 
     try {
@@ -80,7 +160,7 @@ exports.getCart = async (req, res, next) => {
 
     const cart = await Cart.findOne({ userId }).populate({
       path: 'items.productId',
-      select: 'title price discountPrice shippingCost stock brand sku images variants',
+      select: 'title price discountPrice shippingCost stock brand sku images videos variants',
     });
 
     if (!cart) {
@@ -93,8 +173,11 @@ exports.getCart = async (req, res, next) => {
         return {
           ...item.toObject(),
           price: 0,
+          finalPrice: 0,
           shippingCost: 0,
-          image: '/placeholder-product.png',
+          image: null,
+          images: [],
+          videos: [],
           title: 'Product not available',
           sku: 'N/A',
           stock: 0,
@@ -102,50 +185,72 @@ exports.getCart = async (req, res, next) => {
         };
       }
 
-      let price = 0,
-        shippingCost = product.shippingCost || 0,
-        image = '/placeholder-product.png',
-        stock = 0;
-      if (item.variantId && product.variants) {
-        const variant = product.variants.id(item.variantId);
-        if (variant) {
-          price = variant.discountPrice || variant.price || 0;
-          image = variant.image || (product.images?.length > 0 ? product.images[0] : '/placeholder-product.png');
-          stock = variant.stock || 0;
-        } else {
-          price = product.discountPrice || product.price || 0;
-          image = product.images?.length > 0 ? product.images[0] : '/placeholder-product.png';
-          stock = 0;
-        }
-      } else {
-        price = product.discountPrice || product.price || 0;
-        image = product.images?.length > 0 ? product.images[0] : '/placeholder-product.png';
-        stock = product.stock || 0;
+      let productDetails;
+      try {
+        productDetails = getProductDetails(
+          product, 
+          item.variantColor, 
+          item.storageCapacity, 
+          item.size
+        );
+      } catch (error) {
+        console.error('Error getting product details:', error);
+        return {
+          ...item.toObject(),
+          price: item.priceAtAdd || 0,
+          finalPrice: item.discountPriceAtAdd || item.priceAtAdd || 0,
+          shippingCost: product.shippingCost || 0,
+          image: product.images?.[0] || null,
+          images: product.images || [],
+          videos: product.videos || [],
+          title: product.title || 'Unnamed Product',
+          sku: item.sku || 'N/A',
+          stock: 0,
+          isVariantUnavailable: true,
+        };
       }
+
+      // Use current price vs price at add (you can choose which to use)
+      const currentPrice = productDetails.finalPrice;
+      const priceAtAdd = item.discountPriceAtAdd || item.priceAtAdd || 0;
 
       return {
         ...item.toObject(),
-        price,
-        shippingCost,
-        image,
+        price: currentPrice,
+        priceAtAdd,
+        finalPrice: currentPrice,
+        shippingCost: product.shippingCost || 0,
+        image: productDetails.images?.[0] || null,
+        images: productDetails.images || [],
+        videos: productDetails.videos || [],
         title: product.title || 'Unnamed Product',
-        sku: product.sku || 'N/A',
-        stock,
-        isVariantUnavailable: item.variantId && product.variants ? !product.variants.id(item.variantId) : false,
+        brand: product.brand || 'Unknown Brand',
+        sku: productDetails.sku,
+        stock: productDetails.stock,
+        isUnavailable: false,
+        isVariantUnavailable: false,
+        // Additional variant info for display
+        variantInfo: {
+          color: item.variantColor,
+          storage: item.storageCapacity,
+          size: item.size
+        }
       };
     });
 
-    // Filter out invalid items (where productId is null) before calculating totals
+    // Filter out invalid items
     const validItems = populatedItems.filter(item => !item.isUnavailable);
 
-    const totalPrice = validItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const totalPrice = validItems.reduce((sum, item) => sum + item.finalPrice * item.quantity, 0);
     const totalItems = validItems.reduce((sum, item) => sum + item.quantity, 0);
-    // Calculate shipping cost per product (once per productId, regardless of quantity or variant)
+    
+    // Calculate shipping cost per unique product
     const uniqueProducts = new Set(
       validItems
-        .filter(item => item.productId) // Ensure productId exists
+        .filter(item => item.productId)
         .map(item => item.productId.toString())
     );
+    
     const totalShippingCost = Array.from(uniqueProducts).reduce((sum, productId) => {
       const item = validItems.find(item => item.productId && item.productId.toString() === productId);
       return sum + (item?.shippingCost || 0);
@@ -165,6 +270,49 @@ exports.getCart = async (req, res, next) => {
   }
 };
 
+exports.updateCartItem = async (req, res, next) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new ApiError(401, 'User not authenticated');
+    }
+
+    const { productId, variantColor, storageCapacity, size, quantity } = req.body;
+
+    if (!productId || !quantity || quantity < 1) {
+      throw new ApiError(400, 'Product ID and valid quantity are required');
+    }
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      throw new ApiError(404, 'Cart not found');
+    }
+
+    const existingItem = cart.findItem(productId, variantColor, storageCapacity, size);
+    if (!existingItem) {
+      throw new ApiError(404, 'Item not found in cart');
+    }
+
+    // Check stock availability
+    const product = await Product.findById(productId);
+    if (!product) {
+      throw new ApiError(404, 'Product not found');
+    }
+
+    const productDetails = getProductDetails(product, variantColor, storageCapacity, size);
+    if (productDetails.stock < quantity) {
+      throw new ApiError(400, `Insufficient stock. Available: ${productDetails.stock}, Requested: ${quantity}`);
+    }
+
+    existingItem.quantity = quantity;
+    await cart.save();
+
+    ApiResponse.success(res, 200, 'Cart item updated successfully', { cart });
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.removeFromCart = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
@@ -172,20 +320,27 @@ exports.removeFromCart = async (req, res, next) => {
       throw new ApiError(401, 'User not authenticated');
     }
 
-    const { productId, variantId } = req.params;
+    const { productId, variantColor, storageCapacity, size } = req.body;
 
     const cart = await Cart.findOne({ userId });
     if (!cart) {
       throw new ApiError(404, 'Cart not found');
     }
 
-    cart.items = cart.items.filter(
-      item =>
-        !(
-          item.productId.toString() === productId &&
-          (item.variantId?.toString() === variantId || (!item.variantId && !variantId))
-        )
-    );
+    const initialLength = cart.items.length;
+    cart.items = cart.items.filter(item => {
+      return !(
+        item.productId.toString() === productId &&
+        item.variantColor === variantColor &&
+        item.storageCapacity === storageCapacity &&
+        item.size === size
+      );
+    });
+
+    if (cart.items.length === initialLength) {
+      throw new ApiError(404, 'Item not found in cart');
+    }
+
     await cart.save();
 
     ApiResponse.success(res, 200, 'Item removed from cart successfully', { cart });
@@ -240,26 +395,24 @@ exports.placeOrderFromCart = async (req, res, next) => {
         continue;
       }
 
-      let price, sku, stock;
-      if (item.variantId) {
-        const variant = product.variants?.id(item.variantId);
-        if (!variant) {
-          throw new ApiError(404, `Variant not found for product: ${product.title}`);
-        }
-        price = variant.discountPrice || variant.price || 0;
-        sku = variant.sku || 'N/A';
-        stock = variant.stock || 0;
-      } else {
-        price = product.discountPrice || product.price || 0;
-        sku = product.sku || 'N/A';
-        stock = product.stock || 0;
+      let productDetails;
+      try {
+        productDetails = getProductDetails(
+          product, 
+          item.variantColor, 
+          item.storageCapacity, 
+          item.size
+        );
+      } catch (error) {
+        throw new ApiError(404, `Product configuration error: ${error.message}`);
       }
 
-      if (stock < item.quantity) {
-        throw new ApiError(400, `Insufficient stock for product: ${product.title}${item.variantId ? ' (variant)' : ''}`);
+      if (productDetails.stock < item.quantity) {
+        throw new ApiError(400, `Insufficient stock for ${product.title}. Available: ${productDetails.stock}, Requested: ${item.quantity}`);
       }
 
-      totalPrice += price * item.quantity;
+      totalPrice += productDetails.finalPrice * item.quantity;
+      
       if (!uniqueProducts.has(product._id.toString())) {
         totalShippingCost += product.shippingCost || 0;
         uniqueProducts.add(product._id.toString());
@@ -267,10 +420,12 @@ exports.placeOrderFromCart = async (req, res, next) => {
 
       orderItems.push({
         productId: product._id,
-        variantId: item.variantId,
+        variantColor: item.variantColor,
+        storageCapacity: item.storageCapacity,
+        size: item.size,
         quantity: item.quantity,
-        price,
-        sku,
+        price: productDetails.finalPrice,
+        sku: productDetails.sku,
       });
     }
 
@@ -293,15 +448,27 @@ exports.placeOrderFromCart = async (req, res, next) => {
 
     await order.save();
 
+    // Update stock levels
     for (const item of cart.items) {
       const product = item.productId;
-      if (!product) {
-        continue;
-      }
-      if (item.variantId) {
-        const variant = product.variants?.id(item.variantId);
+      if (!product) continue;
+
+      if (item.variantColor) {
+        const variant = product.variants?.find(v => v.color?.name === item.variantColor);
         if (variant) {
-          variant.stock -= item.quantity;
+          if (item.storageCapacity) {
+            const storageOption = variant.storageOptions?.find(s => s.capacity === item.storageCapacity);
+            if (storageOption) {
+              storageOption.stock -= item.quantity;
+            }
+          } else if (item.size) {
+            const sizeOption = variant.sizeOptions?.find(s => s.size === item.size);
+            if (sizeOption) {
+              sizeOption.stock -= item.quantity;
+            }
+          } else {
+            variant.stock -= item.quantity;
+          }
         }
       } else {
         product.stock -= item.quantity;
@@ -309,9 +476,11 @@ exports.placeOrderFromCart = async (req, res, next) => {
       await product.save();
     }
 
+    // Clear cart
     cart.items = [];
     await cart.save();
 
+    // Emit socket event for new order
     const io = req.app.get('socketio');
     if (io) {
       io.to('adminRoom').emit('newOrder', {

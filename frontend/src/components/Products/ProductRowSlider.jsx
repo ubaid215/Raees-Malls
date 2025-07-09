@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } 
 import { Helmet } from 'react-helmet';
 import { ArrowRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { debounce } from 'lodash';
 import { ProductContext } from '../../context/ProductContext';
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
@@ -10,173 +11,204 @@ import { API_BASE_URL } from '../shared/config';
 import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
 
-function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) { 
+function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
-  const [localProducts, setLocalProducts] = useState([]); 
+  const [localProducts, setLocalProducts] = useState([]);
   const [isMobile, setIsMobile] = useState(false);
   const [hasInitialized, setHasInitialized] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const locationRef = useRef(location.pathname);
+  const mountCount = useRef(0);
 
-  // ✅ Reduced debug logging - only log when products actually change
+  // Log component mounts for debugging
   useEffect(() => {
-    if (products?.length > 0) {
+    mountCount.current += 1;
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`ProductRowSlider mounted ${mountCount.current} times`);
+    }
+    return () => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductRowSlider unmounted');
+      }
+    };
+  }, []);
+
+  // Debug logging for products
+  useEffect(() => {
+    if (products?.length > 0 && process.env.NODE_ENV === 'development') {
       console.log('ProductRowSlider - Products loaded:', {
         isFeatured,
         productsLength: products.length,
         categoryId,
-        hasInitialized
+        hasInitialized,
       });
     }
-  }, [products?.length]); // Only depend on products length, not the full products array
+  }, [products, isFeatured, categoryId, hasInitialized]);
 
-  // ✅ Simplified memoized products with reduced logging
+  // Memoized products
   const memoizedProducts = useMemo(() => {
     if (!products || !Array.isArray(products)) {
       return [];
     }
 
-    // ✅ Apply filters based on component props
     const filteredProducts = products.filter(product => {
-      // Filter by featured status
       const featuredMatch = isFeatured ? product.isFeatured : !product.isFeatured;
-      
-      // Filter by category if specified
-      const categoryMatch = categoryId ? product.categoryId === categoryId : true;
-      
-      // Filter by stock (optional - only show in-stock items)
+      const categoryMatch = categoryId ? product.categoryId?._id === categoryId || product.categoryId === categoryId : true;
       const stockMatch = product.stock > 0;
-      
       return featuredMatch && categoryMatch && stockMatch;
     });
 
-    // ✅ Log only the final count, not each product
-    if (filteredProducts.length > 0) {
+    if (filteredProducts.length > 0 && process.env.NODE_ENV === 'development') {
       console.log(`ProductRowSlider - Filtered ${filteredProducts.length} products (${isFeatured ? 'featured' : 'regular'})`);
     }
 
-    // ✅ Process images and format data
-    const processedProducts = filteredProducts.map((product) => {
-      const images = Array.isArray(product.images) ? product.images : [];
+    const processedProducts = filteredProducts.map(product => ({
+      ...product,
+      title: product.title || 'Untitled Product',
+      images: Array.isArray(product.images)
+        ? product.images.map(img => ({
+            url: img.url?.startsWith('http') ? img.url : `${API_BASE_URL}${img.url}`,
+            alt: img.alt || product.title || 'Product image',
+          }))
+        : [{ url: '/images/placeholder-product.png', alt: 'Placeholder image' }],
+      categoryId: {
+        _id: product.categoryId?._id || product.categoryId,
+        name: product.categoryId?.name || 'Uncategorized',
+      },
+    }));
 
-      const processedImages = images.map(img => {
-        let url = img?.url || '';
-        if (url && !url.startsWith('http')) {
-          url = `${API_BASE_URL}${url}`;
-        }
-        return {
-          url: url || '/images/placeholder-product.png',
-          alt: img?.alt || product.title || 'Product image'
-        };
-      });
-
-      if (processedImages.length === 0) {
-        processedImages.push({
-          url: '/images/placeholder-product.png',
-          alt: 'Placeholder product image'
-        });
-      }
-
-      return {
-        _id: product._id,
-        title: product.title || product.name || 'Untitled Product',
-        price: product.price || 0,
-        discountPrice: product.discountPrice || null,
-        images: processedImages,
-        averageRating: product.averageRating || product.rating || 0,
-        numReviews: product.numReviews || 0,
-        stock: product.stock || 0,
-        sku: product.sku || '',
-        categoryId: product.categoryId || null,
-        isFeatured: product.isFeatured || false,
-        createdAt: product.createdAt
-      };
-    });
-
-    // ✅ Sort and limit
-    const finalProducts = processedProducts
+    return processedProducts
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
       .slice(0, 16);
-
-    return finalProducts;
   }, [products, isFeatured, categoryId]);
 
-  // ✅ Update local products when memoized products change
+  // Update local products only when necessary
   useEffect(() => {
     if (memoizedProducts.length > 0 && !hasInitialized) {
       setLocalProducts(memoizedProducts);
       setHasInitialized(true);
-      console.log('ProductRowSlider - Products initialized:', memoizedProducts.length);
-    } else if (memoizedProducts.length > 0) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductRowSlider - Products initialized:', memoizedProducts.length);
+      }
+    } else if (memoizedProducts.length > 0 && JSON.stringify(localProducts) !== JSON.stringify(memoizedProducts)) {
       setLocalProducts(memoizedProducts);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductRowSlider - Local products updated:', memoizedProducts.length);
+      }
     }
-  }, [memoizedProducts, hasInitialized]);
+  }, [memoizedProducts, hasInitialized, localProducts]);
 
-  // ✅ Simplified fetch function
-  const handleFetchProducts = useCallback(async () => {
-    try {
-      const params = {
-        page: 1,
-        limit: 50, // ✅ Fetch more to ensure we have enough after filtering
-        sort: '-createdAt',
-        // ✅ Don't filter by featured in API call - let frontend handle it
-        ...(categoryId ? { category: categoryId } : {})
-      };
+  // Debounced fetch products
+  const handleFetchProducts = useCallback(
+    debounce(async () => {
+      try {
+        const params = {
+          page: 1,
+          limit: 50,
+          sort: '-createdAt',
+          ...(categoryId ? { categoryId } : {}),
+        };
 
-      await fetchProducts(params, { isPublic: true, skipCache: true });
-    } catch (err) {
-      console.error('ProductRowSlider - Fetch error:', err);
-      toast.error(err.message || 'Failed to load products');
-    }
-  }, [fetchProducts, categoryId]); // ✅ Removed isFeatured from dependency
+        const result = await fetchProducts(params, { isPublic: true, skipCache: true });
 
-  // ✅ Initial fetch on mount
+        if (process.env.NODE_ENV === 'development') {
+          console.log('ProductRowSlider - API Response:', result);
+        }
+      } catch (err) {
+        console.error('ProductRowSlider - Fetch error:', err);
+        toast.error(err.message || 'Failed to load products');
+      }
+    }, 500),
+    [fetchProducts, categoryId]
+  );
+
+  // Initial fetch
   useEffect(() => {
-    if (!hasInitialized && !loading) {
-      console.log('ProductRowSlider - Initial fetch triggered');
-      handleFetchProducts();
-    }
-  }, [hasInitialized, loading, handleFetchProducts]);
+    let hasFetched = false;
 
-  // ✅ Handle location changes
+    const initializeProducts = async () => {
+      if (hasFetched || hasInitialized || loading) return;
+      hasFetched = true;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductRowSlider - Initial fetch triggered');
+      }
+      await handleFetchProducts();
+    };
+
+    initializeProducts();
+
+    return () => {
+      hasFetched = false;
+    };
+  }, [handleFetchProducts, hasInitialized, loading]);
+
+  // Handle location changes
   useEffect(() => {
     if (locationRef.current !== location.pathname) {
-      console.log('ProductRowSlider - Location changed, resetting');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductRowSlider - Location changed, resetting');
+      }
       locationRef.current = location.pathname;
       setHasInitialized(false);
       setLocalProducts([]);
     }
   }, [location.pathname]);
 
-  // ✅ Simplified socket handling
+  // Socket handling
   useEffect(() => {
+    let isConnected = false;
+
     const connectSocket = () => {
-      SocketService.connect();
+      try {
+        if (!isConnected) {
+          SocketService.connect();
+          isConnected = true;
+          if (process.env.NODE_ENV === 'development') {
+            console.log('ProductRowSlider - SocketService connected');
+          }
+        }
+      } catch (err) {
+        console.error('ProductRowSlider - SocketService connection error:', err);
+        toast.error('Failed to initialize real-time updates');
+      }
+    };
 
-      const handleProductUpdate = (eventType, data) => {
+    const handleProductUpdate = (eventType, data) => {
+      if (process.env.NODE_ENV === 'development') {
         console.log(`ProductRowSlider - Product ${eventType}:`, data?.title || data?._id);
-        // ✅ Simple refresh - let the memoization handle filtering
-        setHasInitialized(false);
+      }
+      const productMatches =
+        (isFeatured && data.product?.isFeatured) ||
+        (!isFeatured && !data.product?.isFeatured) ||
+        (categoryId && (data.product?.categoryId === categoryId || data.product?.categoryId?._id === categoryId));
+      if (productMatches) {
         handleFetchProducts();
-      };
-
-      SocketService.on('productCreated', (data) => handleProductUpdate('created', data));
-      SocketService.on('productUpdated', (data) => handleProductUpdate('updated', data));
-      SocketService.on('productDeleted', (data) => handleProductUpdate('deleted', data));
+      }
     };
 
     connectSocket();
+
+    SocketService.on('productCreated', data => handleProductUpdate('created', data));
+    SocketService.on('productUpdated', data => handleProductUpdate('updated', data));
+    SocketService.on('productDeleted', data => handleProductUpdate('deleted', data));
 
     return () => {
       SocketService.off('productCreated');
       SocketService.off('productUpdated');
       SocketService.off('productDeleted');
-      SocketService.disconnect();
+      if (isConnected) {
+        SocketService.disconnect();
+        isConnected = false;
+        if (process.env.NODE_ENV === 'development') {
+          console.log('ProductRowSlider - SocketService disconnected');
+        }
+      }
     };
-  }, [handleFetchProducts]);
+  }, [handleFetchProducts, isFeatured, categoryId]);
 
-  // ✅ Handle window resize
+  // Handle window resize
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -187,7 +219,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ✅ Show loading state
+  // Show loading state
   if (loading && localProducts.length === 0) {
     return (
       <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
@@ -201,7 +233,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     );
   }
 
-  // ✅ Show error or empty state
+  // Show error or empty state
   if (error || localProducts.length === 0) {
     return (
       <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
@@ -230,7 +262,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
           >
             {loading ? 'Loading...' : error ? 'Retry Now' : 'Load Products'}
           </Button>
-          {/* ✅ Debug info - only show in development */}
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-4 text-xs text-gray-400">
               <p>Total products: {products?.length || 0}</p>
@@ -265,26 +296,13 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         </nav>
       </div>
 
-      {/* Product Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-4">
-        {localProducts.map((product) => (
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 px-4">
+        {localProducts.map(product => (
           <div key={product._id} className="w-full">
-            <ProductCard 
-              product={product} 
-              compact={isMobile} 
-            />
+            <ProductCard product={product} compact={isMobile} />
           </div>
         ))}
       </div>
-
-      {/* Show total count - only in development
-      {process.env.NODE_ENV === 'development' && localProducts.length > 0 && (
-        <div className="text-center mt-6 px-4">
-          <p className="text-sm text-gray-600">
-            Showing {localProducts.length} {isFeatured ? 'featured' : 'newest'} products
-          </p>
-        </div>
-      )} */}
     </section>
   );
 }

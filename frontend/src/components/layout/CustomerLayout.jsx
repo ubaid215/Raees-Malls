@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Footer from '../shared/Footer';
 import Navbar from './Home/Navbar';
+import MiniBanner from './MiniBanner';
 
 const CustomerLayout = () => {
   const location = useLocation();
@@ -52,6 +53,7 @@ const CustomerLayout = () => {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 overflow-hidden">
+      <MiniBanner/>
       <Navbar />
       <AnimatePresence mode="wait">
         <motion.main

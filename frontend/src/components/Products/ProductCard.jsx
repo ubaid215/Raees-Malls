@@ -1,6 +1,9 @@
 import React, { memo, useState, useEffect, useContext } from 'react';
 import { CiShoppingCart } from 'react-icons/ci';
-import { FaStar, FaStarHalfAlt, FaRegStar, FaHeart, FaRegHeart } from 'react-icons/fa';
+import { FaStar, FaStarHalfAlt, FaRegStar, FaHeart, FaRegHeart, FaFire, FaCrown, FaShippingFast, FaEye, FaShareAlt } from 'react-icons/fa';
+import { BsLightningChargeFill } from 'react-icons/bs';
+import { MdLocalOffer, MdVerified } from 'react-icons/md';
+import { IoTimeOutline } from 'react-icons/io5';
 import { toast } from 'react-toastify';
 import Button from '../core/Button';
 import { useNavigate } from 'react-router-dom';
@@ -12,7 +15,7 @@ import PropTypes from 'prop-types';
 
 const ProductCard = memo(({ productId, product: initialProduct }) => {
   const navigate = useNavigate();
-  const { addItemToCart } = useCart();
+  const { addItemToCart, createVariantOptions } = useCart();
   const { user } = useAuth();
   const { getProduct } = useProduct();
   const { wishlist, addItemToWishlist, removeItemFromWishlist, loading } = useContext(WishlistContext);
@@ -21,9 +24,12 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const [addToCartStatus, setAddToCartStatus] = useState({
     loading: false,
     success: false,
-    error: null
+    error: null,
   });
   const [isInWishlist, setIsInWishlist] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [urgencyTimer, setUrgencyTimer] = useState(null);
 
   useEffect(() => {
     if (productId && !initialProduct) {
@@ -49,16 +55,217 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     }
   }, [wishlist, product]);
 
+  // Initialize urgency timer for limited time offers
+  useEffect(() => {
+    if (product?.hasLimitedOffer) {
+      const timer = new Date();
+      timer.setHours(timer.getHours() + 24); // 24 hours from now
+      setUrgencyTimer(timer);
+    }
+  }, [product]);
+
+  // Auto-rotate images on hover
+  useEffect(() => {
+    let interval;
+    if (isHovered && product?.images?.length > 1) {
+      interval = setInterval(() => {
+        setCurrentImageIndex((prev) => (prev + 1) % product.images.length);
+      }, 1500);
+    } else {
+      setCurrentImageIndex(0);
+    }
+    return () => clearInterval(interval);
+  }, [isHovered, product?.images?.length]);
+
+  // Helper to get all available images (base + variants)
+  const getAllImages = () => {
+    const images = [];
+    if (product?.images?.length > 0) {
+      images.push(...product.images);
+    }
+    
+    if (product?.variants?.length > 0) {
+      product.variants.forEach(variant => {
+        if (variant.images?.length > 0) {
+          images.push(...variant.images);
+        }
+      });
+    }
+    
+    return images.length > 0 ? images : [{ url: '/images/placeholder-product.png', alt: 'Placeholder image' }];
+  };
+
+  const getDisplayImage = () => {
+    const allImages = getAllImages();
+    return allImages[currentImageIndex] || allImages[0];
+  };
+
+  const getStockInfo = () => {
+    if (!product) return { 
+      hasStock: false, 
+      displayStock: 0, 
+      hasVariants: false, 
+      availableOptions: 0,
+      defaultVariantOptions: null,
+      isLowStock: false
+    };
+    
+    if (product.stock > 0) {
+      return {
+        hasStock: true,
+        displayStock: product.stock,
+        hasVariants: false,
+        availableOptions: 1,
+        defaultVariantOptions: {},
+        isLowStock: product.stock <= 5
+      };
+    }
+    
+    if (product.variants?.length > 0) {
+      let totalStock = 0;
+      let availableOptions = 0;
+      let firstAvailableOption = null;
+      
+      product.variants.forEach(variant => {
+        const storageOptions = variant.storageOptions || [];
+        const sizeOptions = variant.sizeOptions || [];
+        
+        [...storageOptions, ...sizeOptions].forEach(option => {
+          if (option.stock > 0) {
+            totalStock += option.stock;
+            availableOptions++;
+            if (!firstAvailableOption) {
+              firstAvailableOption = {
+                variantColor: variant.color,
+                storageCapacity: option.capacity || null,
+                size: option.size || null
+              };
+            }
+          }
+        });
+      });
+      
+      return {
+        hasStock: totalStock > 0,
+        displayStock: totalStock,
+        hasVariants: true,
+        availableOptions,
+        defaultVariantOptions: firstAvailableOption,
+        isLowStock: totalStock <= 10
+      };
+    }
+    
+    return { 
+      hasStock: false, 
+      displayStock: 0, 
+      hasVariants: false, 
+      availableOptions: 0,
+      defaultVariantOptions: null,
+      isLowStock: false
+    };
+  };
+
+  const getPriceInfo = () => {
+    if (!product) return { displayPrice: 0, hasDiscount: false, priceRange: null, discountPercentage: 0 };
+    
+    if (product.displayPrice || product.price) {
+      const hasDiscount = product.discountPrice && product.discountPrice < product.price;
+      const discountPercentage = hasDiscount ? 
+        Math.round(((product.price - product.discountPrice) / product.price) * 100) : 0;
+      
+      return {
+        displayPrice: product.displayPrice || product.price,
+        originalPrice: product.price,
+        discountPrice: product.discountPrice,
+        hasDiscount,
+        discountPercentage,
+        priceRange: null
+      };
+    }
+    
+    if (product.variants?.length > 0) {
+      let minPrice = Infinity;
+      let maxPrice = -Infinity;
+      let hasDiscount = false;
+      let maxDiscountPercentage = 0;
+      
+      product.variants.forEach(variant => {
+        const storageOptions = variant.storageOptions || [];
+        const sizeOptions = variant.sizeOptions || [];
+        
+        [...storageOptions, ...sizeOptions].forEach(option => {
+          const price = option.displayPrice || option.price || 0;
+          minPrice = Math.min(minPrice, price);
+          maxPrice = Math.max(maxPrice, price);
+          
+          if (option.discountPrice && option.discountPrice < option.price) {
+            hasDiscount = true;
+            const discountPercentage = Math.round(((option.price - option.discountPrice) / option.price) * 100);
+            maxDiscountPercentage = Math.max(maxDiscountPercentage, discountPercentage);
+          }
+        });
+      });
+      
+      if (minPrice === Infinity) {
+        return { displayPrice: 0, hasDiscount: false, priceRange: null, discountPercentage: 0 };
+      }
+      
+      return {
+        displayPrice: maxPrice,
+        hasDiscount,
+        discountPercentage: maxDiscountPercentage,
+        priceRange: minPrice !== maxPrice ? { min: minPrice, max: maxPrice } : null
+      };
+    }
+    
+    return { displayPrice: 0, hasDiscount: false, priceRange: null, discountPercentage: 0 };
+  };
+
+  // Get real rating data from product
+  const getRatingData = () => {
+    if (!product) return { rating: 0, reviewCount: 0, hasReviews: false };
+    
+    // Use real review data from product
+    const rating = product.averageRating || product.rating || 0;
+    const reviewCount = product.reviewCount || product.totalReviews || 0;
+    
+    return {
+      rating: rating,
+      reviewCount: reviewCount,
+      hasReviews: reviewCount > 0
+    };
+  };
+
+  const renderStars = (rating) => {
+    const stars = [];
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+    
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(<FaStar key={i} className="text-yellow-400" />);
+    }
+    
+    if (hasHalfStar) {
+      stars.push(<FaStarHalfAlt key="half" className="text-yellow-400" />);
+    }
+    
+    const emptyStars = 5 - Math.ceil(rating);
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<FaRegStar key={`empty-${i}`} className="text-gray-300" />);
+    }
+    
+    return stars;
+  };
+
   if (loadingProduct) {
     return (
-      <div className="w-full bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden">
         <div className="animate-pulse">
-          <div className="bg-gray-200 w-full aspect-square sm:aspect-[4/3]"></div>
-          <div className="p-3 sm:p-4 space-y-3">
-            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-            <div className="h-3 bg-gray-200 rounded w-1/2"></div>
-            <div className="h-3 bg-gray-200 rounded w-1/4"></div>
-            <div className="h-8 bg-gray-200 rounded"></div>
+          <div className="bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 w-full aspect-square"></div>
+          <div className="p-3 space-y-3">
+            <div className="h-5 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-3/4"></div>
+            <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-1/2"></div>
+            <div className="h-7 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded"></div>
           </div>
         </div>
       </div>
@@ -66,13 +273,19 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   }
 
   if (!product || !product._id) {
-    console.warn('Invalid product data:', product);
     return (
-      <div className="w-full bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden text-center p-4">
-        <p className="text-red-500 text-sm">Product not available</p>
+      <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden text-center p-4">
+        <p className="text-red-500 text-sm font-medium">Product not available</p>
       </div>
     );
   }
+
+  const stockInfo = getStockInfo();
+  const priceInfo = getPriceInfo();
+  const displayImage = getDisplayImage();
+  const isOutOfStock = !stockInfo.hasStock;
+  const ratingInfo = getRatingData();
+  const isHotDeal = priceInfo.discountPercentage > 40;
 
   const handleCardClick = (e) => {
     if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.tagName === 'A') {
@@ -83,260 +296,330 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
 
   const handleAddToCartClick = async (e) => {
     e.stopPropagation();
+    
     if (!user) {
       toast.info('Please login to add items to cart', {
         position: "top-center",
         autoClose: 3000,
-        hideProgressBar: false,
-        closeOnClick: true,
-        pauseOnHover: true,
-        draggable: true,
-        className: "bg-white text-gray-800 border-l-4 border-blue-500 shadow-md",
-        bodyClassName: "font-medium"
       });
       navigate('/login', { state: { from: window.location.pathname } });
+      return;
+    }
+
+    if (stockInfo.hasVariants) {
+      toast.info('Please select options on the product page');
+      navigate(`/product/${product._id}`);
       return;
     }
 
     setAddToCartStatus({ loading: true, success: false, error: null });
     
     try {
-      const result = await addItemToCart(product._id, null, 1);
+      const variantOptions = stockInfo.defaultVariantOptions || {};
+      const result = await addItemToCart(product._id, variantOptions, 1);
+      
       if (result.success) {
         toast.success(result.message || `${product.title} added to cart!`);
-        setAddToCartStatus({
-          loading: false,
-          success: true,
-          error: null
-        });
+        setAddToCartStatus({ loading: false, success: true, error: null });
+        
+        setTimeout(() => {
+          setAddToCartStatus(prev => ({ ...prev, success: false }));
+        }, 2000);
       } else {
         throw new Error(result.message || 'Failed to add to cart');
       }
     } catch (err) {
-      const errorMessage = err.message.includes('Validation failed')
-        ? 'Invalid product or quantity. Please try again.'
-        : err.message || 'Failed to add to cart';
-      toast.error(errorMessage);
+      console.error('Add to cart error:', err);
+      toast.error(err.message || 'Failed to add to cart');
       setAddToCartStatus({
         loading: false,
         success: false,
-        error: errorMessage
+        error: err.message
       });
+      
+      setTimeout(() => {
+        setAddToCartStatus(prev => ({ ...prev, error: null }));
+      }, 3000);
     }
   };
 
   const handleWishlistClick = async (e) => {
     e.stopPropagation();
-    if (loading) return; // Prevent multiple clicks
+    if (loading) return;
+    
     try {
       if (isInWishlist) {
         await removeItemFromWishlist(product._id);
         toast.success(`${product.title} removed from wishlist!`);
-        setIsInWishlist(false);
       } else {
         await addItemToWishlist(product._id);
         toast.success(`${product.title} added to wishlist!`);
-        setIsInWishlist(true);
       }
     } catch (err) {
-      console.error('Wishlist action error:', err.message);
       toast.error(err.message || 'Failed to update wishlist');
     }
   };
 
-  const formattedPrice = new Intl.NumberFormat('en-PK', {
-    style: 'currency',
-    currency: 'PKR',
-    minimumFractionDigits: 0,
-  }).format(product.discountPrice || product.price);
-
-  const handleMediaError = (e) => {
-    console.warn('Media failed to load:', e.target.src);
-    e.target.src = '/images/placeholder-product.png';
-    e.target.onerror = null;
-    if (e.target.tagName === 'VIDEO') {
-      e.target.outerHTML = `<img
-        src="${product.images?.[0]?.url || '/images/placeholder-product.png'}"
-        alt="${product.images?.[0]?.alt || product.title}"
-        className="w-full aspect-square sm:aspect-[4/3] object-cover"
-        loading="lazy"
-      />`;
-    }
+  const handleQuickView = (e) => {
+    e.stopPropagation();
+    navigate(`/product/${product._id}?quickview=true`);
   };
 
-  const categoryNames = product.categoryId?.name ? product.categoryId.name : 'Uncategorized';
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat('en-PK', {
+      style: 'currency',
+      currency: 'PKR',
+      minimumFractionDigits: 0,
+    }).format(price);
+  };
 
-  const renderStars = (rating = 0) => {
-    const stars = [];
-    const full = Math.floor(rating);
-    const half = rating % 1 >= 0.5;
-
-    for (let i = 0; i < 5; i++) {
-      if (i < full) stars.push(<FaStar key={i} className="text-yellow-500" />);
-      else if (i === full && half) stars.push(<FaStarHalfAlt key={i} className="text-yellow-500" />);
-      else stars.push(<FaRegStar key={i} className="text-yellow-400" />);
+  const renderPricing = () => {
+    if (priceInfo.priceRange) {
+      return (
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <p className="text-base font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
+              {formatPrice(priceInfo.priceRange.min)} - {formatPrice(priceInfo.priceRange.max)}
+            </p>
+            {priceInfo.hasDiscount && (
+              <div className="flex items-center gap-1">
+                <MdLocalOffer className="text-red-500 text-xs" />
+                <span className="text-xs font-bold text-red-500">
+                  Up to {priceInfo.discountPercentage}% OFF
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-gray-500">Multiple options</p>
+        </div>
+      );
     }
-    return stars;
+
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-base font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
+            {formatPrice(priceInfo.discountPrice || priceInfo.displayPrice)}
+          </p>
+          {priceInfo.hasDiscount && (
+            <>
+              <p className="text-xs text-gray-500 line-through">
+                {formatPrice(priceInfo.originalPrice)}
+              </p>
+              <div className="flex items-center gap-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-1.5 py-0.5 rounded-full">
+                <BsLightningChargeFill className="text-xs" />
+                <span className="text-xs font-bold">
+                  {priceInfo.discountPercentage}% OFF
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+        {priceInfo.hasDiscount && (
+          <p className="text-xs text-green-600 flex items-center gap-1">
+            <MdLocalOffer className="text-xs" />
+            Save {formatPrice(priceInfo.originalPrice - priceInfo.discountPrice)}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  const handleMediaError = (e) => {
+    e.target.src = '/images/placeholder-product.png';
+    e.target.onerror = null;
   };
 
   const getButtonState = () => {
     if (addToCartStatus.loading) return 'Adding...';
     if (addToCartStatus.success) return 'Added!';
     if (addToCartStatus.error) return 'Try Again';
+    if (stockInfo.hasVariants) return 'Select Options';
     return 'Add to Cart';
   };
 
-  const isOutOfStock = product.stock <= 0;
-  const hasDiscount = product.discountPrice && product.discountPrice < product.price;
-
-  const primaryMedia = product.videos?.[0]?.url
-    ? { type: 'video', url: product.videos[0].url }
-    : product.images?.[0]?.url
-      ? { type: 'image', url: product.images[0].url }
-      : { type: 'image', url: '/images/placeholder-product.png' };
-
-  const mediaUrl = primaryMedia.url.startsWith('http')
-    ? primaryMedia.url
-    : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${primaryMedia.url}`;
-
-  const displayedFeatures = (product.features || [])
-    .slice(0, 2)
-    .map(f => f.length > 30 ? `${f.slice(0, 27)}...` : f);
+  const mediaUrl = displayImage.url.startsWith('http')
+    ? displayImage.url
+    : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${displayImage.url}`;
 
   return (
-    <>
-      <style>{`
-        @keyframes vibrate {
-          0% { transform: translate(0, 0) rotate(0deg); }
-          20% { transform: translate(2px, 1px) rotate(0.5deg); }
-          40% { transform: translate(-1px, -2px) rotate(-0.5deg); }
-          60% { transform: translate(1px, -1px) rotate(0.5deg); }
-          80% { transform: translate(-2px, 1px) rotate(-0.5deg); }
-          100% { transform: translate(0, 0) rotate(0deg); }
-        }
-        .vibrate-on-hover:hover {
-          animation: vibrate 0.5s ease-in-out;
-        }
-        .discount-tag:hover {
-          transform: scale(1.05);
-          transition: transform 0.2s ease-in-out;
-        }
-      `}</style>
-      <div
-        className="w-full max-w-[180px] xs:max-w-[200px] sm:max-w-none bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all cursor-pointer flex flex-col touch-manipulation mx-auto"
-        onClick={handleCardClick}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && handleCardClick(e)}
-        aria-label={`View ${product.title} details`}
-      >
-        <div className="relative">
-          {primaryMedia.type === 'video' ? (
-            <video
-              src={mediaUrl}
-              alt={product.title}
-              className="w-full aspect-square sm:aspect-[4/3] object-cover"
-              muted
-              controls
-              preload="metadata"
-              onError={handleMediaError}
-            />
-          ) : (
-            <img
-              src={mediaUrl}
-              alt={product.images?.[0]?.alt || product.title}
-              className="w-full aspect-square sm:aspect-[4/3] object-cover"
-              loading="lazy"
-              onError={handleMediaError}
-            />
-          )}
-          <div className="absolute top-2 left-2 flex flex-col gap-1">
-            <span className={`px-1.5 sm:px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium max-w-[120px] sm:max-w-[140px] ${
-              isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-            }`}>
-              {isOutOfStock ? 'Out of Stock' : `In Stock (${product.stock})`}
-            </span>
+    <div
+      className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden hover:shadow-md transition-all duration-300 cursor-pointer flex flex-col group"
+      onClick={handleCardClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && handleCardClick(e)}
+      aria-label={`View ${product.title} details`}
+    >
+      <div className="relative overflow-hidden">
+        <img
+          src={mediaUrl}
+          alt={displayImage.alt || product.title}
+          className="w-full aspect-square object-cover transition-transform duration-500 group-hover:scale-110"
+          loading="lazy"
+          onError={handleMediaError}
+        />
+        
+        {/* Gradient overlay for better text visibility */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        
+        {/* Top badges */}
+        <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+          <div className="flex flex-wrap gap-1">
             {product.isFeatured && (
-              <span className="px-1.5 sm:px-2 py-0.5 rounded bg-yellow-500 text-white text-[10px] sm:text-xs font-medium max-w-[120px] sm:max-w-[140px]">
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-white text-xs font-bold shadow">
+                <FaCrown className="text-xs" />
                 Featured
               </span>
             )}
+            {(priceInfo.hasDiscount && isHotDeal) && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-bold shadow animate-pulse">
+                <FaFire className="text-xs" />
+                HOT DEAL
+              </span>
+            )}
           </div>
+          
+          <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold shadow ${
+            isOutOfStock ? 'bg-red-100 text-red-700' : 
+            stockInfo.isLowStock ? 'bg-orange-100 text-orange-700' :
+            'bg-green-100 text-green-700'
+          }`}>
+            {isOutOfStock ? 'Out of Stock' : 
+             stockInfo.isLowStock ? `Only ${stockInfo.displayStock} left!` :
+             stockInfo.hasVariants ? 
+               `${stockInfo.availableOptions} Options` : 
+               `${stockInfo.displayStock} Available`}
+          </span>
+        </div>
+
+        {/* Action buttons */}
+        <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <button
             onClick={handleWishlistClick}
-            className="absolute top-2 right-2 p-1 rounded-full bg-white/80 hover:bg-white transition-colors"
+            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
             aria-label={isInWishlist ? `Remove ${product.title} from wishlist` : `Add ${product.title} to wishlist`}
             disabled={loading}
           >
             {isInWishlist ? (
-              <FaHeart className="text-red-600 text-lg" />
+              <FaHeart className="text-red-600 text-sm" />
             ) : (
-              <FaRegHeart className="text-gray-600 text-lg" />
+              <FaRegHeart className="text-gray-600 text-sm hover:text-red-600 transition-colors" />
             )}
+          </button>
+          
+          <button
+            onClick={handleQuickView}
+            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
+            aria-label={`Quick view ${product.title}`}
+          >
+            <FaEye className="text-gray-600 text-sm hover:text-blue-600 transition-colors" />
           </button>
         </div>
 
-        <div className="p-2 sm:p-4 flex flex-col gap-1 sm:gap-2 flex-grow">
-          <h2 className="text-sm sm:text-lg font-semibold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight">
+        {/* Free shipping badge */}
+        {priceInfo.displayPrice > 5000 && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500 text-white text-xs font-bold shadow">
+            <FaShippingFast className="text-xs" />
+            Free Shipping
+          </div>
+        )}
+
+        {/* Image indicators */}
+        {getAllImages().length > 1 && (
+          <div className="absolute bottom-2 right-2 flex gap-1">
+            {getAllImages().slice(0, 3).map((_, index) => (
+              <div
+                key={index}
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  index === currentImageIndex ? 'bg-white' : 'bg-white/50'
+                }`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="p-3 flex flex-col gap-2 flex-grow">
+        <div className="space-y-1">
+          <h2 className="text-sm font-bold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight transition-colors">
             {product.title}
           </h2>
-          <p className="text-xs text-gray-500 hidden sm:block">
-            {/* SKU: <span className="text-gray-700 font-medium">{product.sku || 'N/A'}</span> */}
-          </p>
-          <p className="text-xs text-gray-500 line-clamp-1 hidden sm:block">
-            Category: <span className="text-gray-700">{categoryNames}</span>
-          </p>
           
-          {displayedFeatures.length > 0 && (
-            <ul className="text-xs text-gray-600 mt-1 sm:mt-2 hidden sm:block">
-              {displayedFeatures.map((feature, index) => (
-                <li key={index} className="flex items-center gap-1">
-                  <span className="text-red-600">•</span>
-                  <span>{feature}</span>
-                </li>
-              ))}
-            </ul>
+          {product.categoryId?.name && (
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <MdVerified className="text-green-500 text-xs" />
+              <span className="text-gray-600">{product.categoryId.name}</span>
+            </div>
           )}
 
-          <div className="mt-1 sm:mt-2 flex items-center gap-1 sm:gap-2 flex-wrap">
-            {hasDiscount ? (
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1 sm:gap-2">
-                  <p className="text-sm sm:text-lg font-bold text-red-600">{formattedPrice}</p>
-                  <span className="inline-flex px-1.5 sm:px-2 py-0.5 rounded bg-gradient-to-r from-red-500 to-red-600 text-white text-[10px] sm:text-xs font-medium discount-tag">
-                    {Math.round(((product.price - product.discountPrice) / product.price) * 100)}% OFF
-                  </span>
-                </div>
-                <p className="text-xs sm:text-sm text-gray-500 line-through">
-                  {new Intl.NumberFormat('en-PK', {
-                    style: 'currency',
-                    currency: 'PKR',
-                    minimumFractionDigits: 0,
-                  }).format(product.price)}
-                </p>
+          {/* Rating and reviews - only show if reviews exist */}
+          {ratingInfo.hasReviews && (
+            <div className="flex items-center gap-1 text-xs">
+              <div className="flex items-center gap-0.5">
+                {renderStars(ratingInfo.rating)}
               </div>
-            ) : (
-              <p className="text-sm sm:text-lg font-bold text-gray-900">{formattedPrice}</p>
-            )}
-          </div>
+              <span className="text-gray-600">
+                {ratingInfo.rating.toFixed(1)} ({ratingInfo.reviewCount})
+              </span>
+            </div>
+          )}
 
-          <Button
-            onClick={handleAddToCartClick}
-            className={`mt-2 sm:mt-3 w-full ${
-              addToCartStatus.loading ? 'bg-gray-500' :
-              addToCartStatus.success ? 'bg-green-600' :
-              addToCartStatus.error ? 'bg-yellow-600' :
-              isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
-            } text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-md flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm`}
-            aria-label={`Add ${product.title} to cart`}
-            disabled={isOutOfStock || addToCartStatus.loading}
-            icon={CiShoppingCart}
-          >
-            {isOutOfStock ? 'Out of Stock' : getButtonState()}
-          </Button>
+          {/* Alternative: Show "No reviews yet" for new products */}
+          {!ratingInfo.hasReviews && (
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <div className="flex items-center gap-0.5">
+                {renderStars(0)}
+              </div>
+              <span>No reviews</span>
+            </div>
+          )}
         </div>
+
+        {renderPricing()}
+
+        {/* Urgency timer for limited offers */}
+        {stockInfo.isLowStock && (
+          <div className="bg-red-50 border border-red-200 rounded p-1.5 flex items-center gap-1">
+            <IoTimeOutline className="text-red-500 text-xs" />
+            <span className="text-xs text-red-700">
+              Limited stock!
+            </span>
+          </div>
+        )}
+
+        {/* Trust badges */}
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="flex items-center gap-0.5">
+            <MdVerified className="text-green-500 text-xs" />
+            <span>Verified</span>
+          </div>
+          <div className="flex items-center gap-0.5">
+            <FaShippingFast className="text-blue-500 text-xs" />
+            <span>Fast Ship</span>
+          </div>
+        </div>
+
+        <Button
+          onClick={handleAddToCartClick}
+          className={`mt-2 w-full font-bold transition-all duration-300 ${
+            addToCartStatus.loading ? 'bg-gray-500 cursor-wait' :
+            addToCartStatus.success ? 'bg-green-600 hover:bg-green-700' :
+            addToCartStatus.error ? 'bg-yellow-600 hover:bg-yellow-700' :
+            isOutOfStock ? 'bg-gray-400 cursor-not-allowed' :
+            stockInfo.hasVariants ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800' :
+            'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800'
+          } text-white px-3 py-2 rounded-lg flex items-center justify-center gap-1 text-sm shadow`}
+          aria-label={`Add ${product.title} to cart`}
+          disabled={isOutOfStock || addToCartStatus.loading}
+          icon={addToCartStatus.success ? MdVerified : CiShoppingCart}
+        >
+          {isOutOfStock ? 'Out of Stock' : getButtonState()}
+        </Button>
       </div>
-    </>
+    </div>
   );
 });
 
@@ -347,54 +630,47 @@ ProductCard.propTypes = {
     title: PropTypes.string,
     price: PropTypes.number,
     discountPrice: PropTypes.number,
+    displayPrice: PropTypes.number,
+    stock: PropTypes.number,
     images: PropTypes.arrayOf(
       PropTypes.shape({
         url: PropTypes.string,
-        public_id: PropTypes.string,
         alt: PropTypes.string,
       })
     ),
-    videos: PropTypes.arrayOf(
-      PropTypes.shape({
-        url: PropTypes.string,
-        public_id: PropTypes.string,
-      })
-    ),
-    features: PropTypes.arrayOf(PropTypes.string),
+    categoryId: PropTypes.shape({
+      name: PropTypes.string,
+    }),
     averageRating: PropTypes.number,
-    numReviews: PropTypes.number,
-    stock: PropTypes.number,
-    sku: PropTypes.string,
-    categoryId: PropTypes.oneOfType([
-      PropTypes.string,
-      PropTypes.shape({
-        _id: PropTypes.string,
-        name: PropTypes.string,
-      }),
-    ]),
+    rating: PropTypes.number,
+    reviewCount: PropTypes.number,
     isFeatured: PropTypes.bool,
+    hasLimitedOffer: PropTypes.bool,
     variants: PropTypes.arrayOf(
       PropTypes.shape({
-        sku: PropTypes.string,
-        price: PropTypes.number,
-        discountPrice: PropTypes.number,
-        stock: PropTypes.number,
-        attributes: PropTypes.arrayOf(
-          PropTypes.shape({
-            key: PropTypes.string,
-            value: PropTypes.string,
-          })
-        ),
+        color: PropTypes.string,
         images: PropTypes.arrayOf(
           PropTypes.shape({
             url: PropTypes.string,
-            public_id: PropTypes.string,
+            alt: PropTypes.string,
           })
         ),
-        videos: PropTypes.arrayOf(
+        storageOptions: PropTypes.arrayOf(
           PropTypes.shape({
-            url: PropTypes.string,
-            public_id: PropTypes.string,
+            capacity: PropTypes.string,
+            price: PropTypes.number,
+            discountPrice: PropTypes.number,
+            displayPrice: PropTypes.number,
+            stock: PropTypes.number,
+          })
+        ),
+        sizeOptions: PropTypes.arrayOf(
+          PropTypes.shape({
+            size: PropTypes.string,
+            price: PropTypes.number,
+            discountPrice: PropTypes.number,
+            displayPrice: PropTypes.number,
+            stock: PropTypes.number,
           })
         ),
       })

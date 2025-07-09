@@ -20,7 +20,7 @@ export const ProductProvider = ({ children }) => {
     page: 1,
     limit: 10,
     totalPages: 1,
-    totalItems: 0
+    totalItems: 0,
   });
 
   const getCache = useCallback((key) => {
@@ -37,7 +37,7 @@ export const ProductProvider = ({ children }) => {
     try {
       localStorage.setItem(key, JSON.stringify({
         data,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }));
     } catch (err) {
       console.warn('Cache write error:', err);
@@ -85,27 +85,81 @@ export const ProductProvider = ({ children }) => {
     SocketService.connect();
 
     const handleProductCreated = (data) => {
-      // Only append if not a featured product to avoid duplicating logic
-      if (!data.product?.isFeatured) {
-        setProducts(prev => [...prev, {
-          ...data.product,
-          displayPrice: data.displayPrice,
-          color: data.product.color || { name: '' }
-        }]);
+      const product = data.product || {};
+      const normalizedProduct = {
+        ...product,
+        price: Number.isFinite(parseFloat(product.price)) ? parseFloat(product.price) : null,
+        discountPrice: product.discountPrice
+          ? Number.isFinite(parseFloat(product.discountPrice))
+            ? parseFloat(product.discountPrice)
+            : null
+          : null,
+        stock: Number.isFinite(parseInt(product.stock)) ? parseInt(product.stock) : 0,
+        displayPrice: product.discountPrice
+          ? Number.isFinite(parseFloat(product.discountPrice))
+            ? parseFloat(product.discountPrice)
+            : parseFloat(product.price) || 0
+          : parseFloat(product.price) || 0,
+        color: product.color && typeof product.color === 'object'
+          ? { name: product.color.name || '' }
+          : { name: '' },
+        variants: product.variants?.map(variant => ({
+          ...variant,
+          storageOptions: Array.isArray(variant.storageOptions) ? variant.storageOptions : [],
+          sizeOptions: Array.isArray(variant.sizeOptions) ? variant.sizeOptions : [],
+          images: Array.isArray(variant.images) ? variant.images : [],
+          videos: Array.isArray(variant.videos) ? variant.videos : [],
+        })) || [],
+        specifications: Array.isArray(product.specifications) ? product.specifications : [],
+        features: Array.isArray(product.features) ? product.features : [],
+        images: Array.isArray(product.images) ? product.images : [],
+        videos: Array.isArray(product.videos) ? product.videos : [],
+      };
+
+      if (!normalizedProduct.isFeatured) {
+        setProducts(prev => [...prev, normalizedProduct]);
       }
       clearRelatedCaches();
     };
 
     const handleProductUpdated = (data) => {
-      // Only update if not a featured product
-      if (!data.product?.isFeatured) {
+      const product = data.product || {};
+      const normalizedProduct = {
+        ...product,
+        price: Number.isFinite(parseFloat(product.price)) ? parseFloat(product.price) : null,
+        discountPrice: product.discountPrice
+          ? Number.isFinite(parseFloat(product.discountPrice))
+            ? parseFloat(product.discountPrice)
+            : null
+          : null,
+        stock: Number.isFinite(parseInt(product.stock)) ? parseInt(product.stock) : 0,
+        displayPrice: product.discountPrice
+          ? Number.isFinite(parseFloat(product.discountPrice))
+            ? parseFloat(product.discountPrice)
+            : parseFloat(product.price) || 0
+          : parseFloat(product.price) || 0,
+        color: product.color && typeof product.color === 'object'
+          ? { name: product.color.name || '' }
+          : { name: '' },
+        variants: product.variants?.map(variant => ({
+          ...variant,
+          storageOptions: Array.isArray(variant.storageOptions) ? variant.storageOptions : [],
+          sizeOptions: Array.isArray(variant.sizeOptions) ? variant.sizeOptions : [],
+          images: Array.isArray(variant.images) ? variant.images : [],
+          videos: Array.isArray(variant.videos) ? variant.videos : [],
+        })) || [],
+        specifications: Array.isArray(product.specifications) ? product.specifications : [],
+        features: Array.isArray(product.features) ? product.features : [],
+        images: Array.isArray(product.images) ? product.images : [],
+        videos: Array.isArray(product.videos) ? product.videos : [],
+      };
+
+      if (!normalizedProduct.isFeatured) {
         setProducts(prev => prev.map(p => 
-          p._id === data.product._id 
-            ? { ...data.product, displayPrice: data.displayPrice, color: data.product.color || { name: '' } }
-            : p
+          p._id === normalizedProduct._id ? normalizedProduct : p
         ));
       }
-      clearRelatedCaches(data.product._id);
+      clearRelatedCaches(normalizedProduct._id);
     };
 
     const handleProductDeleted = (data) => {
@@ -148,13 +202,13 @@ export const ProductProvider = ({ children }) => {
         maxPrice = null,
         sort = '-createdAt',
         isFeatured = null,
-        color = null
+        color = null,
       } = params;
-  
+
       const { isPublic = true, skipCache = false } = options;
-  
+
       const cacheKey = `products_${page}_${limit}_${categoryId || 'all'}_${search || ''}_${minPrice || ''}_${maxPrice || ''}_${sort}_${isFeatured || ''}_${color || ''}`;
-  
+
       if (!skipCache) {
         const cached = getCache(cacheKey);
         if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
@@ -168,10 +222,10 @@ export const ProductProvider = ({ children }) => {
           return cached.data;
         }
       }
-  
+
       setLoading(true);
       setError(null);
-  
+
       try {
         const filters = {};
         if (categoryId) filters.categoryId = categoryId;
@@ -180,17 +234,17 @@ export const ProductProvider = ({ children }) => {
         if (maxPrice) filters.maxPrice = maxPrice;
         if (isFeatured !== null) filters.isFeatured = isFeatured;
         if (color) filters.color = color;
-  
+
         const result = await withRetry(() =>
           getProducts(page, limit, sort, filters, { isPublic })
         );
-  
+
         const responseData = {
           products: result.products || [],
           totalPages: result.totalPages || 1,
           totalItems: result.totalItems || 0,
         };
-  
+
         setProducts(responseData.products);
         setPagination({
           page,
@@ -199,7 +253,7 @@ export const ProductProvider = ({ children }) => {
           totalItems: responseData.totalItems,
         });
         setCache(cacheKey, responseData);
-  
+
         return responseData;
       } catch (err) {
         setError(err.message || 'Failed to fetch products');
@@ -222,12 +276,12 @@ export const ProductProvider = ({ children }) => {
         page = 1,
         limit = 10,
         sort = '-createdAt',
-        color = null
+        color = null,
       } = params;
-  
+
       const { skipCache = false } = options;
       const cacheKey = `featured_products_${page}_${limit}_${sort}_${color || ''}`;
-  
+
       if (!skipCache) {
         const cached = getCache(cacheKey);
         if (cached && Date.now() - cached.timestamp < 30 * 60 * 1000) {
@@ -241,24 +295,24 @@ export const ProductProvider = ({ children }) => {
           return cached.data;
         }
       }
-  
+
       setLoading(true);
       setError(null);
-  
+
       try {
         const filters = {};
         if (color) filters.color = color;
-        
+
         const result = await withRetry(() =>
           getFeaturedProducts(page, limit, sort, filters)
         );
-  
+
         const responseData = {
           products: result.products || [],
           totalPages: result.totalPages || 1,
           totalItems: result.totalItems || 0,
         };
-  
+
         setProducts(responseData.products);
         setPagination({
           page,
@@ -267,7 +321,7 @@ export const ProductProvider = ({ children }) => {
           totalItems: responseData.totalItems,
         });
         setCache(cacheKey, responseData);
-  
+
         return responseData;
       } catch (err) {
         setError(err.message || 'Failed to fetch featured products');
@@ -375,7 +429,7 @@ export const ProductProvider = ({ children }) => {
     createNewProduct,
     updateExistingProduct,
     deleteExistingProduct,
-    clearError: () => setError(null)
+    clearError: () => setError(null),
   }), [
     products,
     loading,
@@ -386,7 +440,7 @@ export const ProductProvider = ({ children }) => {
     getProduct,
     createNewProduct,
     updateExistingProduct,
-    deleteExistingProduct
+    deleteExistingProduct,
   ]);
 
   return <ProductContext.Provider value={value}>{children}</ProductContext.Provider>;

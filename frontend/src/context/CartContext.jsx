@@ -61,12 +61,24 @@ const CartProvider = ({ children }) => {
       console.log('fetchCart: Result:', result);
       
       if (result.success) {
-        const cartData = result.cart || { items: [], totalPrice: 0, itemCount: 0 };
+        const cartData = result.cart || { 
+          items: [], 
+          totalPrice: 0, 
+          totalShippingCost: 0,
+          itemCount: 0 
+        };
+        
         const updatedCartData = {
           ...cartData,
           items: cartData.items.map(item => ({
             ...item,
-            shippingCost: item.productId?.shippingCost || 0,
+            shippingCost: item.productId?.shippingCost || item.shippingCost || 0,
+            // Include variant info for display
+            variantDisplay: {
+              color: item.variantColor || item.variantInfo?.color,
+              storage: item.storageCapacity || item.variantInfo?.storage,
+              size: item.size || item.variantInfo?.size
+            }
           })),
         };
         
@@ -171,8 +183,8 @@ const CartProvider = ({ children }) => {
     }
   }, [user, navigate, debouncedFetchCart, clearCartCache]);
 
-  // Debounced cart operations that return Promises
-  const addItemToCart = useCallback((productId, variantId = null, quantity = 1) => {
+  // Updated cart operations with new variant options structure
+  const addItemToCart = useCallback((productId, variantOptions = {}, quantity = 1) => {
     return new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         try {
@@ -180,7 +192,7 @@ const CartProvider = ({ children }) => {
             'addToCart',
             cartService.addToCart,
             productId,
-            variantId,
+            variantOptions,
             quantity
           );
           resolve(result);
@@ -193,7 +205,7 @@ const CartProvider = ({ children }) => {
     });
   }, [performCartOperation]);
 
-  const updateQuantity = useCallback((productId, quantity, variantId = null) => {
+  const updateQuantity = useCallback((productId, quantity, variantOptions = {}) => {
     return new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         try {
@@ -202,7 +214,7 @@ const CartProvider = ({ children }) => {
             cartService.updateQuantity,
             productId,
             quantity,
-            variantId
+            variantOptions
           );
           resolve(result);
         } catch (error) {
@@ -214,7 +226,7 @@ const CartProvider = ({ children }) => {
     });
   }, [performCartOperation]);
 
-  const removeFromCart = useCallback((productId, variantId = null) => {
+  const removeFromCart = useCallback((productId, variantOptions = {}) => {
     return new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         try {
@@ -222,7 +234,7 @@ const CartProvider = ({ children }) => {
             'removeFromCart',
             cartService.removeFromCart,
             productId,
-            variantId
+            variantOptions
           );
           resolve(result);
         } catch (error) {
@@ -252,7 +264,7 @@ const CartProvider = ({ children }) => {
     });
   }, [performCartOperation]);
 
-  const placeOrder = useCallback((orderData) => {
+  const placeOrderFromCart = useCallback((shippingAddress) => {
     return new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         if (!user) {
@@ -270,7 +282,7 @@ const CartProvider = ({ children }) => {
         setLoading(true);
         
         try {
-          const result = await cartService.placeOrder(orderData);
+          const result = await cartService.placeOrderFromCart(shippingAddress);
           
           if (result.success) {
             clearCartCache(); // Invalidate cache
@@ -301,6 +313,30 @@ const CartProvider = ({ children }) => {
     });
   }, [user, navigate, debouncedFetchCart, clearCartCache]);
 
+  // Helper functions for variant options
+  const createVariantOptions = useCallback((variantColor = null, storageCapacity = null, size = null) => {
+    return cartService.createVariantOptions(variantColor, storageCapacity, size);
+  }, []);
+
+  // Backward compatibility functions
+  const addItemToCartLegacy = useCallback((productId, variantId = null, quantity = 1) => {
+    console.warn('addItemToCartLegacy is deprecated. Use addItemToCart with variantOptions instead.');
+    const variantOptions = variantId ? { variantId } : {};
+    return addItemToCart(productId, variantOptions, quantity);
+  }, [addItemToCart]);
+
+  const updateQuantityLegacy = useCallback((productId, quantity, variantId = null) => {
+    console.warn('updateQuantityLegacy is deprecated. Use updateQuantity with variantOptions instead.');
+    const variantOptions = variantId ? { variantId } : {};
+    return updateQuantity(productId, quantity, variantOptions);
+  }, [updateQuantity]);
+
+  const removeFromCartLegacy = useCallback((productId, variantId = null) => {
+    console.warn('removeFromCartLegacy is deprecated. Use removeFromCart with variantOptions instead.');
+    const variantOptions = variantId ? { variantId } : {};
+    return removeFromCart(productId, variantOptions);
+  }, [removeFromCart]);
+
   // Effect to fetch cart when user changes
   useEffect(() => {
     if (user && !isFetching.current) {
@@ -328,23 +364,53 @@ const CartProvider = ({ children }) => {
     isLoading: loading,
     error,
     totalPrice: cart?.totalPrice || 0,
+    totalShippingCost: cart?.totalShippingCost || 0,
     itemCount: cart?.itemCount || 0,
+    
+    // Modern variant-based functions
     addItemToCart,
-    fetchCart: debouncedFetchCart,
     updateQuantity,
     removeFromCart,
     clearCart,
-    placeOrder,
+    placeOrderFromCart,
+    createVariantOptions,
+    
+    // Legacy functions for backward compatibility
+    addItemToCartLegacy,
+    updateQuantityLegacy,
+    removeFromCartLegacy,
+    
+    // Utility functions
+    fetchCart: debouncedFetchCart,
+    
+    // Cart helper functions
+    getItemUniqueKey: (item) => `${item.productId}_${item.variantColor || ''}_${item.storageCapacity || ''}_${item.size || ''}`,
+    findCartItem: (productId, variantOptions = {}) => {
+      const items = cart?.items || [];
+      return items.find(item => 
+        item.productId === productId &&
+        item.variantColor === variantOptions.variantColor &&
+        item.storageCapacity === variantOptions.storageCapacity &&
+        item.size === variantOptions.size
+      );
+    },
+    
+    // Free shipping check
+    isFreeShipping: (cart?.totalPrice >= 2500 || cart?.itemCount >= 2500),
   }), [
     cart,
     loading,
     error,
     addItemToCart,
-    debouncedFetchCart,
     updateQuantity,
     removeFromCart,
     clearCart,
-    placeOrder
+    placeOrderFromCart,
+    createVariantOptions,
+    addItemToCartLegacy,
+    updateQuantityLegacy,
+    removeFromCartLegacy,
+    debouncedFetchCart
   ]);
 
   return (

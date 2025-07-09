@@ -40,7 +40,7 @@ const Footer = () => {
   ];
 
   return (
-    <footer className="bg-white border-t shadow-sm">
+    <footer className="bg-white border-t shadow-sm px-4 lg:px-5">
       <div className="container mx-auto px-4 py-6 lg:py-8">
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 lg:gap-8">

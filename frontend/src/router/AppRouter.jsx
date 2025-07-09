@@ -1,7 +1,8 @@
 import React, { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import LoadingSpinner from '../components/core/LoadingSpinner';
-import ScrollToTop from '../components/core/ScrollToTop'; // Add this import
+import ScrollToTop from '../components/core/ScrollToTop';
 import CustomerLayout from '../components/layout/CustomerLayout';
 import AdminLayout from '../admin/components/AdminLayout';
 import ProtectedRoute from '../context/ProtectedRoute';
@@ -38,95 +39,99 @@ const RefundShipping = lazy(() => import('../pages/RefundShipping'));
 const WarrantyTerms = lazy(() => import('../pages/WarrantyTerms'));
 
 const AppRouter = () => {
+  const location = useLocation();
+
   return (
     <Suspense fallback={<LoadingSpinner fullScreen />}>
-      <ScrollToTop /> {/* Add this component here */}
-      <Routes>
-        {/* Customer Routes */}
-        <Route path="/" element={<CustomerLayout />}>
-          <Route index element={<HomePage />} />
-          <Route path="products" element={<AllProducts />} />
-          <Route path="product/:productId" element={<ProductDetails />} />
-          <Route path="about" element={<About />} />
-          <Route path="all-categories" element={<CategorySection />} />
-          <Route path="contact" element={<Contact />} />
-          <Route path="login" element={<Login />} />
-          <Route path="register" element={<Register />} />
-          <Route path="callback" element={<GoogleCallback />} />
-          <Route path="privacy-policy" element={<PrivacyPolicy />} />
-          <Route path="return-policy" element={<ReturnPolicy />} />
-          <Route path="refund-shipping" element={<RefundShipping />} />
-          <Route path="warranty-terms" element={<WarrantyTerms />} />
+      <ScrollToTop />
+      <AnimatePresence mode="wait" initial={false}>
+        <Routes location={location} key={location.pathname}>
+          {/* Customer Routes */}
+          <Route path="/" element={<CustomerLayout />}>
+            <Route index element={<HomePage />} />
+            <Route path="products" element={<AllProducts />} />
+            <Route path="product/:productId" element={<ProductDetails />} />
+            <Route path="about" element={<About />} />
+            <Route path="all-categories" element={<CategorySection />} />
+            <Route path="contact" element={<Contact />} />
+            <Route path="login" element={<Login />} />
+            <Route path="register" element={<Register />} />
+            <Route path="callback" element={<GoogleCallback />} />
+            <Route path="privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="return-policy" element={<ReturnPolicy />} />
+            <Route path="refund-shipping" element={<RefundShipping />} />
+            <Route path="warranty-terms" element={<WarrantyTerms />} />
 
-          {/* Protected Customer Routes */}
-          <Route
-            path="wishlist"
-            element={
-                <Wishlist />
-            }
-          />
-          <Route
-            path="cart"
-            element={
-              <ProtectedRoute>
-                <Cart />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="checkout"
-            element={
-              <ProtectedRoute>
-                <CheckoutPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="account"
-            element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="orders"
-            element={
-              <ProtectedRoute>
-                <Order />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="orders/:orderId"
-            element={
-              <ProtectedRoute>
-                <Order />
-              </ProtectedRoute>
-            }
-          />
-        </Route>
-
-        {/* Admin Routes */}
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route path="login" element={<AdminLogin />} />
-          <Route element={<ProtectedAdminRoute />}>
-            <Route index element={<Dashboard />} />
-            <Route path="inventory" element={<ProductInventory />} />
-            <Route path="add-products" element={<AddProductPage />} />
-            <Route path="edit-product/:id" element={<EditProductPage />} />
-            <Route path="orders" element={<OrderManagement />} />
-            <Route path="profile" element={<AdminProfile />} />
-            <Route path="category" element={<CategoryManager />} />
-            <Route path="banner-upload" element={<BannerManager />} />
-            <Route path="hero-slider" element={<HeroSliderAdmin />} />
-            <Route path="*" element={<Navigate to="/admin" replace />} />
+            {/* Protected Customer Routes */}
+            <Route
+              path="wishlist"
+              element={
+                  <Wishlist />
+              }
+            />
+            <Route
+              path="cart"
+              element={
+                <ProtectedRoute>
+                  <Cart />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="checkout"
+              element={
+                <ProtectedRoute>
+                  <CheckoutPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="account"
+              element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="orders"
+              element={
+                <ProtectedRoute>
+                  <Order />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="orders/:orderId"
+              element={
+                <ProtectedRoute>
+                  <Order />
+                </ProtectedRoute>
+              }
+            />
           </Route>
-        </Route>
 
-        {/* Fallback route */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Admin Routes */}
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route path="login" element={<AdminLogin />} />
+            <Route element={<ProtectedAdminRoute />}>
+              <Route index element={<Dashboard />} />
+              <Route path="inventory" element={<ProductInventory />} />
+              <Route path="add-products" element={<AddProductPage />} />
+              <Route path="edit-product/:id" element={<EditProductPage />} />
+              <Route path="orders" element={<OrderManagement />} />
+              <Route path="profile" element={<AdminProfile />} />
+              <Route path="category" element={<CategoryManager />} />
+              <Route path="banner-upload" element={<BannerManager />} />
+              <Route path="hero-slider" element={<HeroSliderAdmin />} />
+              <Route path="*" element={<Navigate to="/admin" replace />} />
+            </Route>
+          </Route>
+
+          {/* Fallback route */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AnimatePresence>
     </Suspense>
   );
 };

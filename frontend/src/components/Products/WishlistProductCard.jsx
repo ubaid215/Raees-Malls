@@ -1,254 +1,672 @@
-import React, { useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { CiHeart, CiShoppingCart, CiTrash } from 'react-icons/ci';
-import { DotIcon, Star } from 'lucide-react';
-import { WishlistContext } from '../../context/WishlistContext';
-import { useCart } from '../../context/CartContext';
+import React, { memo, useState, useEffect, useContext } from 'react';
+import { CiShoppingCart } from 'react-icons/ci';
+import { FaStar, FaStarHalfAlt, FaRegStar, FaHeart, FaRegHeart, FaFire, FaCrown, FaShippingFast, FaEye } from 'react-icons/fa';
+import { BsLightningChargeFill } from 'react-icons/bs';
+import { MdLocalOffer, MdVerified } from 'react-icons/md';
+import { IoTimeOutline } from 'react-icons/io5';
+import { toast } from 'react-toastify';
 import Button from '../core/Button';
+import { useNavigate } from 'react-router-dom';
+import { useCart } from '../../context/CartContext';
+import { useAuth } from '../../context/AuthContext';
+import { useProduct } from '../../context/ProductContext';
+import { WishlistContext } from '../../context/WishlistContext';
+import PropTypes from 'prop-types';
 
-function WishlistProductCard({ 
-  productId, 
-  image, 
-  title, 
-  price = 0, 
-  discountPrice = null, 
-  rating = 0, 
-  reviews = 0, 
-  stock = 0 
-}) {
-  const { removeItemFromWishlist, loading } = useContext(WishlistContext);
-  const { addItemToCart } = useCart();
+const WishlistProductCard = memo(({ productId, product: initialProduct }) => {
   const navigate = useNavigate();
+  const { addItemToCart } = useCart();
+  const { user } = useAuth();
+  const { getProduct } = useProduct();
+  const { wishlist, removeItemFromWishlist, loading } = useContext(WishlistContext);
+  const [product, setProduct] = useState(initialProduct);
+  const [loadingProduct, setLoadingProduct] = useState(!initialProduct);
+  const [addToCartStatus, setAddToCartStatus] = useState({
+    loading: false,
+    success: false,
+    error: null,
+  });
+  const [isInWishlist, setIsInWishlist] = useState(true); // Default to true for wishlist items
+  const [isHovered, setIsHovered] = useState(false);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [urgencyTimer, setUrgencyTimer] = useState(null);
 
-  // Safe number formatting with proper null/undefined checks
-  const safeRating = rating != null ? Number(rating) : 0;
-  const safeReviews = reviews != null ? Number(reviews) : 0;
-  const safePrice = price != null ? Number(price) : 0;
-  const safeDiscountPrice = discountPrice != null ? Number(discountPrice) : null;
-  const safeStock = stock != null ? Number(stock) : 0;
-
-  // Additional validation to ensure numbers are valid
-  const validRating = isNaN(safeRating) ? 0 : safeRating;
-  const validReviews = isNaN(safeReviews) ? 0 : safeReviews;
-  const validPrice = isNaN(safePrice) ? 0 : safePrice;
-  const validDiscountPrice = safeDiscountPrice != null && !isNaN(safeDiscountPrice) ? safeDiscountPrice : null;
-  const validStock = isNaN(safeStock) ? 0 : safeStock;
-
-  // Check if there's a valid discount
-  const hasDiscount = validDiscountPrice && validDiscountPrice < validPrice;
-  const discountPercentage = hasDiscount ? Math.round(((validPrice - validDiscountPrice) / validPrice) * 100) : 0;
-
-  const handleAddToCart = (e) => {
-    e.stopPropagation();
-    addItemToCart(productId, null, 1);
-  };
-
-  const handleRemove = async (e) => {
-    e.stopPropagation();
-    try {
-      await removeItemFromWishlist(productId);
-    } catch (err) {
-      console.error('Error removing item from wishlist:', err);
+  useEffect(() => {
+    if (productId && !initialProduct) {
+      const fetchProduct = async () => {
+        try {
+          setLoadingProduct(true);
+          const fetchedProduct = await getProduct(productId, { skipCache: false });
+          setProduct(fetchedProduct);
+        } catch (error) {
+          console.error('Failed to fetch product:', error);
+          toast.error('Failed to load product details');
+        } finally {
+          setLoadingProduct(false);
+        }
+      };
+      fetchProduct();
     }
+  }, [productId, initialProduct, getProduct]);
+
+  useEffect(() => {
+    if (product?._id) {
+      setIsInWishlist(wishlist.some(item => item.productId === product._id));
+    }
+  }, [wishlist, product]);
+
+  useEffect(() => {
+    if (product?.hasLimitedOffer) {
+      const timer = new Date();
+      timer.setHours(timer.getHours() + 24);
+      setUrgencyTimer(timer);
+    }
+  }, [product]);
+
+  useEffect(() => {
+    let interval;
+    if (isHovered && product?.images?.length > 1) {
+      interval = setInterval(() => {
+        setCurrentImageIndex((prev) => (prev + 1) % product.images.length);
+      }, 1500);
+    } else {
+      setCurrentImageIndex(0);
+    }
+    return () => clearInterval(interval);
+  }, [isHovered, product?.images?.length]);
+
+  const getAllImages = () => {
+    const images = [];
+    if (product?.images?.length > 0) {
+      images.push(...product.images);
+    }
+    
+    if (product?.variants?.length > 0) {
+      product.variants.forEach(variant => {
+        if (variant.images?.length > 0) {
+          images.push(...variant.images);
+        }
+      });
+    }
+    
+    return images.length > 0 ? images : [{ url: '/images/placeholder-product.png', alt: 'Placeholder image' }];
   };
 
-  const handleCardClick = () => {
-    navigate(`/product/${productId}`);
+  const getDisplayImage = () => {
+    const allImages = getAllImages();
+    return allImages[currentImageIndex] || allImages[0];
   };
 
-  // Generate star rating display
-  const renderStars = () => {
+  const getStockInfo = () => {
+    if (!product) return { 
+      hasStock: false, 
+      displayStock: 0, 
+      hasVariants: false, 
+      availableOptions: 0,
+      defaultVariantOptions: null,
+      isLowStock: false
+    };
+    
+    if (product.stock > 0) {
+      return {
+        hasStock: true,
+        displayStock: product.stock,
+        hasVariants: false,
+        availableOptions: 1,
+        defaultVariantOptions: {},
+        isLowStock: product.stock <= 5
+      };
+    }
+    
+    if (product.variants?.length > 0) {
+      let totalStock = 0;
+      let availableOptions = 0;
+      let firstAvailableOption = null;
+      
+      product.variants.forEach(variant => {
+        const storageOptions = variant.storageOptions || [];
+        const sizeOptions = variant.sizeOptions || [];
+        
+        [...storageOptions, ...sizeOptions].forEach(option => {
+          if (option.stock > 0) {
+            totalStock += option.stock;
+            availableOptions++;
+            if (!firstAvailableOption) {
+              firstAvailableOption = {
+                variantColor: variant.color,
+                storageCapacity: option.capacity || null,
+                size: option.size || null
+              };
+            }
+          }
+        });
+      });
+      
+      return {
+        hasStock: totalStock > 0,
+        displayStock: totalStock,
+        hasVariants: true,
+        availableOptions,
+        defaultVariantOptions: firstAvailableOption,
+        isLowStock: totalStock <= 10
+      };
+    }
+    
+    return { 
+      hasStock: false, 
+      displayStock: 0, 
+      hasVariants: false, 
+      availableOptions: 0,
+      defaultVariantOptions: null,
+      isLowStock: false
+    };
+  };
+
+  const getPriceInfo = () => {
+    if (!product) return { displayPrice: 0, hasDiscount: false, priceRange: null, discountPercentage: 0 };
+    
+    if (product.displayPrice || product.price) {
+      const hasDiscount = product.discountPrice && product.discountPrice < product.price;
+      const discountPercentage = hasDiscount ? 
+        Math.round(((product.price - product.discountPrice) / product.price) * 100) : 0;
+      
+      return {
+        displayPrice: product.displayPrice || product.price,
+        originalPrice: product.price,
+        discountPrice: product.discountPrice,
+        hasDiscount,
+        discountPercentage,
+        priceRange: null
+      };
+    }
+    
+    if (product.variants?.length > 0) {
+      let minPrice = Infinity;
+      let maxPrice = -Infinity;
+      let hasDiscount = false;
+      let maxDiscountPercentage = 0;
+      
+      product.variants.forEach(variant => {
+        const storageOptions = variant.storageOptions || [];
+        const sizeOptions = variant.sizeOptions || [];
+        
+        [...storageOptions, ...sizeOptions].forEach(option => {
+          const price = option.displayPrice || option.price || 0;
+          minPrice = Math.min(minPrice, price);
+          maxPrice = Math.max(maxPrice, price);
+          
+          if (option.discountPrice && option.discountPrice < option.price) {
+            hasDiscount = true;
+            const discountPercentage = Math.round(((option.price - option.discountPrice) / option.price) * 100);
+            maxDiscountPercentage = Math.max(maxDiscountPercentage, discountPercentage);
+          }
+        });
+      });
+      
+      if (minPrice === Infinity) {
+        return { displayPrice: 0, hasDiscount: false, priceRange: null, discountPercentage: 0 };
+      }
+      
+      return {
+        displayPrice: maxPrice,
+        hasDiscount,
+        discountPercentage: maxDiscountPercentage,
+        priceRange: minPrice !== maxPrice ? { min: minPrice, max: maxPrice } : null
+      };
+    }
+    
+    return { displayPrice: 0, hasDiscount: false, priceRange: null, discountPercentage: 0 };
+  };
+
+  const getRatingData = () => {
+    if (!product) return { rating: 0, reviewCount: 0, hasReviews: false };
+    
+    const rating = product.averageRating || product.rating || 0;
+    const reviewCount = product.reviewCount || product.totalReviews || 0;
+    
+    return {
+      rating: rating,
+      reviewCount: reviewCount,
+      hasReviews: reviewCount > 0
+    };
+  };
+
+  const renderStars = (rating) => {
     const stars = [];
-    const fullStars = Math.floor(validRating);
-    const hasHalfStar = validRating % 1 !== 0;
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
     
     for (let i = 0; i < fullStars; i++) {
-      stars.push(<Star key={i} size={16} className="fill-yellow-400 text-yellow-400" />);
+      stars.push(<FaStar key={i} className="text-yellow-400" />);
     }
     
     if (hasHalfStar) {
-      stars.push(<Star key="half" size={16} className="fill-yellow-400 text-yellow-400 opacity-50" />);
+      stars.push(<FaStarHalfAlt key="half" className="text-yellow-400" />);
     }
     
-    const remainingStars = 5 - Math.ceil(validRating);
-    for (let i = 0; i < remainingStars; i++) {
-      stars.push(<Star key={`empty-${i}`} size={16} className="text-gray-300" />);
+    const emptyStars = 5 - Math.ceil(rating);
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<FaRegStar key={`empty-${i}`} className="text-gray-300" />);
     }
     
     return stars;
   };
 
-  const formatPrice = (amount) => {
-    const validAmount = amount != null && !isNaN(amount) ? amount : 0;
+  if (loadingProduct) {
+    return (
+      <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden">
+        <div className="animate-pulse">
+          <div className="bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 w-full aspect-square"></div>
+          <div className="p-3 space-y-3">
+            <div className="h-5 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-3/4"></div>
+            <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-1/2"></div>
+            <div className="h-7 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!product || !product._id) {
+    return (
+      <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden text-center p-4">
+        <p className="text-red-500 text-sm font-medium">Product not available</p>
+      </div>
+    );
+  }
+
+  const stockInfo = getStockInfo();
+  const priceInfo = getPriceInfo();
+  const displayImage = getDisplayImage();
+  const isOutOfStock = !stockInfo.hasStock;
+  const ratingInfo = getRatingData();
+  const isHotDeal = priceInfo.discountPercentage > 40;
+
+  const handleCardClick = (e) => {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.tagName === 'A') {
+      return;
+    }
+    navigate(`/product/${product._id}`);
+  };
+
+  const handleAddToCartClick = async (e) => {
+    e.stopPropagation();
+    
+    if (!user) {
+      toast.info('Please login to add items to cart', {
+        position: "top-center",
+        autoClose: 3000,
+      });
+      navigate('/login', { state: { from: window.location.pathname } });
+      return;
+    }
+
+    if (stockInfo.hasVariants) {
+      toast.info('Please select options on the product page');
+      navigate(`/product/${product._id}`);
+      return;
+    }
+
+    setAddToCartStatus({ loading: true, success: false, error: null });
+    
+    try {
+      const variantOptions = stockInfo.defaultVariantOptions || {};
+      const result = await addItemToCart(product._id, variantOptions, 1);
+      
+      if (result.success) {
+        toast.success(result.message || `${product.title} added to cart!`);
+        setAddToCartStatus({ loading: false, success: true, error: null });
+        
+        setTimeout(() => {
+          setAddToCartStatus(prev => ({ ...prev, success: false }));
+        }, 2000);
+      } else {
+        throw new Error(result.message || 'Failed to add to cart');
+      }
+    } catch (err) {
+      console.error('Add to cart error:', err);
+      toast.error(err.message || 'Failed to add to cart');
+      setAddToCartStatus({
+        loading: false,
+        success: false,
+        error: err.message
+      });
+      
+      setTimeout(() => {
+        setAddToCartStatus(prev => ({ ...prev, error: null }));
+      }, 3000);
+    }
+  };
+
+  const handleWishlistClick = async (e) => {
+    e.stopPropagation();
+    if (loading) return;
+    
+    try {
+      await removeItemFromWishlist(product._id);
+      toast.success(`${product.title} removed from wishlist!`);
+    } catch (err) {
+      toast.error(err.message || 'Failed to update wishlist');
+    }
+  };
+
+  const handleQuickView = (e) => {
+    e.stopPropagation();
+    navigate(`/product/${product._id}?quickview=true`);
+  };
+
+  const formatPrice = (price) => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
       currency: 'PKR',
       minimumFractionDigits: 0,
-    }).format(validAmount);
+    }).format(price);
   };
 
+  const renderPricing = () => {
+    if (priceInfo.priceRange) {
+      return (
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <p className="text-base font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
+              {formatPrice(priceInfo.priceRange.min)} - {formatPrice(priceInfo.priceRange.max)}
+            </p>
+            {priceInfo.hasDiscount && (
+              <div className="flex items-center gap-1">
+                <MdLocalOffer className="text-red-500 text-xs" />
+                <span className="text-xs font-bold text-red-500">
+                  Up to {priceInfo.discountPercentage}% OFF
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-gray-500">Multiple options</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-base font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
+            {formatPrice(priceInfo.discountPrice || priceInfo.displayPrice)}
+          </p>
+          {priceInfo.hasDiscount && (
+            <>
+              <p className="text-xs text-gray-500 line-through">
+                {formatPrice(priceInfo.originalPrice)}
+              </p>
+              <div className="flex items-center gap-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-1.5 py-0.5 rounded-full">
+                <BsLightningChargeFill className="text-xs" />
+                <span className="text-xs font-bold">
+                  {priceInfo.discountPercentage}% OFF
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+        {priceInfo.hasDiscount && (
+          <p className="text-xs text-green-600 flex items-center gap-1">
+            <MdLocalOffer className="text-xs" />
+            Save {formatPrice(priceInfo.originalPrice - priceInfo.discountPrice)}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  const handleMediaError = (e) => {
+    e.target.src = '/images/placeholder-product.png';
+    e.target.onerror = null;
+  };
+
+  const getButtonState = () => {
+    if (addToCartStatus.loading) return 'Adding...';
+    if (addToCartStatus.success) return 'Added!';
+    if (addToCartStatus.error) return 'Try Again';
+    if (stockInfo.hasVariants) return 'Select Options';
+    return 'Add to Cart';
+  };
+
+  const mediaUrl = displayImage.url.startsWith('http')
+    ? displayImage.url
+    : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${displayImage.url}`;
+
   return (
-    <>
-      <style>{`
-        @keyframes pulse-discount {
-          0%, 100% { transform: scale(1) rotate(12deg); }
-          50% { transform: scale(1.05) rotate(12deg); }
-        }
-        .discount-badge {
-          animation: pulse-discount 2s infinite;
-        }
-        .discount-badge:hover {
-          animation: none;
-          transform: rotate(0deg) scale(1.1);
-        }
-      `}</style>
-      <div 
-        className="group relative w-full max-w-sm mx-auto bg-white rounded-3xl shadow-xs hover:shadow-lg transition-all duration-500 overflow-hidden border border-gray-100 hover:border-red-200 transform hover:-translate-y-2 cursor-pointer"
-        onClick={handleCardClick}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            handleCardClick();
-          }
-        }}
-        aria-label={`View details for ${title || 'Product'}`}
-      >
-        {/* Image Container */}
-        <div className="relative overflow-hidden bg-gray-50">
-          <img
-            src={image || '/placeholder-product.png'}
-            alt={title || 'Product'}
-            className="w-full h-56 sm:h-64 md:h-56 lg:h-64 object-cover transition-all duration-500 group-hover:scale-110"
-            loading="lazy"
-            onError={(e) => (e.currentTarget.src = '/placeholder-product.png')}
-          />
+    <div
+      className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden hover:shadow-md transition-all duration-300 cursor-pointer flex flex-col group"
+      onClick={handleCardClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && handleCardClick(e)}
+      aria-label={`View ${product.title} details`}
+    >
+      <div className="relative overflow-hidden">
+        <img
+          src={mediaUrl}
+          alt={displayImage.alt || product.title}
+          className="w-full aspect-square object-cover transition-transform duration-500 group-hover:scale-110"
+          loading="lazy"
+          onError={handleMediaError}
+        />
+        
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        
+        <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+          <div className="flex flex-wrap gap-1">
+            {product.isFeatured && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-white text-xs font-bold shadow">
+                <FaCrown className="text-xs" />
+                Featured
+              </span>
+            )}
+            {(priceInfo.hasDiscount && isHotDeal) && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-bold shadow animate-pulse">
+                <FaFire className="text-xs" />
+                HOT DEAL
+              </span>
+            )}
+          </div>
           
-          {/* Gradient overlay for better text visibility */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold shadow ${
+            isOutOfStock ? 'bg-red-100 text-red-700' : 
+            stockInfo.isLowStock ? 'bg-orange-100 text-orange-700' :
+            'bg-green-100 text-green-700'
+          }`}>
+            {isOutOfStock ? 'Out of Stock' : 
+             stockInfo.isLowStock ? `Only ${stockInfo.displayStock} left!` :
+             stockInfo.hasVariants ? 
+               `${stockInfo.availableOptions} Options` : 
+               `${stockInfo.displayStock} Available`}
+          </span>
+        </div>
+
+        <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+          <button
+            onClick={handleWishlistClick}
+            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
+            aria-label={`Remove ${product.title} from wishlist`}
+            disabled={loading}
+          >
+            <FaHeart className="text-red-600 text-sm" />
+          </button>
           
-          {/* Discount Badge */}
-          {hasDiscount && (
-            <div className="absolute top-4 left-4 z-10">
-              <span className="discount-badge bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
-                {discountPercentage}% OFF
+          <button
+            onClick={handleQuickView}
+            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
+            aria-label={`Quick view ${product.title}`}
+          >
+            <FaEye className="text-gray-600 text-sm hover:text-blue-600 transition-colors" />
+          </button>
+        </div>
+
+        {priceInfo.displayPrice > 5000 && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500 text-white text-xs font-bold shadow">
+            <FaShippingFast className="text-xs" />
+            Free Shipping
+          </div>
+        )}
+
+        {getAllImages().length > 1 && (
+          <div className="absolute bottom-2 right-2 flex gap-1">
+            {getAllImages().slice(0, 3).map((_, index) => (
+              <div
+                key={index}
+                className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  index === currentImageIndex ? 'bg-white' : 'bg-white/50'
+                }`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="p-3 flex flex-col gap-2 flex-grow">
+        <div className="space-y-1">
+          <h2 className="text-sm font-bold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight transition-colors">
+            {product.title}
+          </h2>
+          
+          {product.categoryId?.name && (
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <MdVerified className="text-green-500 text-xs" />
+              <span className="text-gray-600">{product.categoryId.name}</span>
+            </div>
+          )}
+
+          {ratingInfo.hasReviews && (
+            <div className="flex items-center gap-1 text-xs">
+              <div className="flex items-center gap-0.5">
+                {renderStars(ratingInfo.rating)}
+              </div>
+              <span className="text-gray-600">
+                {ratingInfo.rating.toFixed(1)} ({ratingInfo.reviewCount})
               </span>
             </div>
           )}
 
-          {/* Stock Badge */}
-          <div className={`absolute top-4 ${hasDiscount ? 'left-4 mt-10' : 'left-4'}`}>
-            {validStock > 0 ? (
-              <span className="bg-green-500 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-lg">
-                In Stock
-              </span>
-            ) : (
-              <span className="bg-red-500 text-white text-xs font-semibold px-3 py-1 rounded-full shadow-lg">
-                Out of Stock
-              </span>
-            )}
-          </div>
-          
-          {/* Heart Icon */}
-          <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm rounded-full p-2 shadow-lg">
-            <CiHeart
-              className="fill-red-500 text-red-500 drop-shadow-sm"
-              size={22}
-              strokeWidth={1.5}
-              aria-label="Wishlist item"
-            />
-          </div>
-
-          {/* Quick Add to Cart Button */}
-          <div className="absolute inset-x-4 bottom-4">
-            <Button
-              onClick={handleAddToCart}
-              variant="primary"
-              size="medium"
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-4 rounded-xl shadow-lg backdrop-blur-sm border-0 text-sm sm:text-base"
-              disabled={validStock === 0 || loading}
-              isLoading={loading}
-              aria-label={`Add ${title || 'product'} to cart`}
-            >
-              <CiShoppingCart size={20} strokeWidth={1.5} className="mr-2" />
-              Add to Cart
-            </Button>
-          </div>
-        </div>
-
-        {/* Content Container */}
-        <div className="p-5 sm:p-6 space-y-4">
-          {/* Title */}
-          <h2 className="text-lg sm:text-xl font-bold text-gray-900 line-clamp-2 leading-tight hover:text-red-600 transition-colors duration-200 min-h-[3.5rem] flex items-center">
-            {title || 'Untitled Product'}
-          </h2>
-
-          {/* Price */}
-          <div className="flex items-center justify-between">
-            {hasDiscount ? (
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-xl sm:text-2xl font-bold text-red-600 bg-red-50 px-3 py-1 rounded-lg">
-                    {formatPrice(validDiscountPrice)}
-                  </p>
-                  <span className="inline-flex px-2 py-1 rounded-full bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-bold shadow-lg transform hover:scale-105 transition-transform duration-200">
-                    {discountPercentage}% OFF
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500 line-through font-medium">
-                  {formatPrice(validPrice)}
-                </p>
+          {!ratingInfo.hasReviews && (
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <div className="flex items-center gap-0.5">
+                {renderStars(0)}
               </div>
-            ) : (
-              <p className="text-xl sm:text-2xl font-bold text-red-600 bg-red-50 px-3 py-1 rounded-lg">
-                {formatPrice(validPrice)}
-              </p>
-            )}
-          </div>
-
-          {/* Rating and Reviews */}
-          <div className="flex items-center justify-between bg-gray-50 p-3 rounded-xl">
-            <div className="flex items-center space-x-1">
-              {renderStars()}
+              <span>No reviews</span>
             </div>
-            <span className="text-sm text-gray-600 font-medium">
-              {validRating.toFixed(1)} ({validReviews} review{validReviews !== 1 ? 's' : ''})
-            </span>
-          </div>
-
-          {/* Stock Information */}
-          <div className={`flex items-center justify-center p-2 rounded-lg ${validStock > 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-            <DotIcon size={20} className={validStock > 0 ? 'text-green-600' : 'text-red-600'} />
-            <span className={`text-sm font-medium ${validStock > 0 ? 'text-green-700' : 'text-red-700'}`}>
-              {validStock > 0 ? `${validStock} Available` : 'Currently Unavailable'}
-            </span>
-          </div>
-
-          {/* Remove Button */}
-          <Button
-            onClick={handleRemove}
-            variant="outline"
-            size="medium"
-            className="w-full border-2 border-gray-200 hover:border-red-300 hover:bg-red-50 text-gray-700 hover:text-red-600 font-medium py-3 rounded-xl transition-all duration-200 text-sm sm:text-base"
-            disabled={loading}
-            isLoading={loading}
-            aria-label={`Remove ${title || 'product'} from wishlist`}
-          >
-            <CiTrash size={20} strokeWidth={1.5} className="mr-2" />
-            Remove Wishlist
-          </Button>
+          )}
         </div>
 
-        {/* Loading Overlay */}
-        {loading && (
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded-3xl">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+        {renderPricing()}
+
+        {stockInfo.isLowStock && (
+          <div className="bg-red-50 border border-red-200 rounded p-1.5 flex items-center gap-1">
+            <IoTimeOutline className="text-red-500 text-xs" />
+            <span className="text-xs text-red-700">
+              Limited stock!
+            </span>
           </div>
         )}
+
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="flex items-center gap-0.5">
+            <MdVerified className="text-green-500 text-xs" />
+            <span>Verified</span>
+          </div>
+          <div className="flex items-center gap-0.5">
+            <FaShippingFast className="text-blue-500 text-xs" />
+            <span>Fast Ship</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            onClick={handleAddToCartClick}
+            className={`flex-1 font-bold transition-all duration-300 ${
+              addToCartStatus.loading ? 'bg-gray-500 cursor-wait' :
+              addToCartStatus.success ? 'bg-green-600 hover:bg-green-700' :
+              addToCartStatus.error ? 'bg-yellow-600 hover:bg-yellow-700' :
+              isOutOfStock ? 'bg-gray-400 cursor-not-allowed' :
+              stockInfo.hasVariants ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800' :
+              'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800'
+            } text-white px-3 py-2 rounded-lg flex items-center justify-center gap-1 text-sm shadow`}
+            aria-label={`Add ${product.title} to cart`}
+            disabled={isOutOfStock || addToCartStatus.loading}
+            icon={addToCartStatus.success ? MdVerified : CiShoppingCart}
+          >
+            {isOutOfStock ? 'Out of Stock' : getButtonState()}
+          </Button>
+          
+          <Button
+            onClick={handleWishlistClick}
+            className="bg-white/90 backdrop-blur-sm border border-gray-200 hover:border-red-300 hover:bg-red-50 text-gray-700 hover:text-red-600 p-2 rounded-lg transition-all duration-200"
+            aria-label={`Remove ${product.title} from wishlist`}
+            disabled={loading}
+          >
+            <FaHeart className="text-red-600 text-sm" />
+          </Button>
+        </div>
       </div>
-    </>
+    </div>
   );
-}
+});
+
+WishlistProductCard.propTypes = {
+  productId: PropTypes.string,
+  product: PropTypes.shape({
+    _id: PropTypes.string,
+    title: PropTypes.string,
+    price: PropTypes.number,
+    discountPrice: PropTypes.number,
+    displayPrice: PropTypes.number,
+    stock: PropTypes.number,
+    images: PropTypes.arrayOf(
+      PropTypes.shape({
+        url: PropTypes.string,
+        alt: PropTypes.string,
+      })
+    ),
+    categoryId: PropTypes.shape({
+      name: PropTypes.string,
+    }),
+    averageRating: PropTypes.number,
+    rating: PropTypes.number,
+    reviewCount: PropTypes.number,
+    isFeatured: PropTypes.bool,
+    hasLimitedOffer: PropTypes.bool,
+    variants: PropTypes.arrayOf(
+      PropTypes.shape({
+        color: PropTypes.string,
+        images: PropTypes.arrayOf(
+          PropTypes.shape({
+            url: PropTypes.string,
+            alt: PropTypes.string,
+          })
+        ),
+        storageOptions: PropTypes.arrayOf(
+          PropTypes.shape({
+            capacity: PropTypes.string,
+            price: PropTypes.number,
+            discountPrice: PropTypes.number,
+            displayPrice: PropTypes.number,
+            stock: PropTypes.number,
+          })
+        ),
+        sizeOptions: PropTypes({
+          size: PropTypes.string,
+          price: PropTypes.number,
+          discountPrice: PropTypes.number,
+          displayPrice: PropTypes.number,
+          stock: PropTypes.number,
+        })
+      })
+    ),
+  }),
+};
+
+WishlistProductCard.defaultProps = {
+  product: null,
+  productId: null,
+};
 
 export default WishlistProductCard;

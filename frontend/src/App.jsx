@@ -1,3 +1,4 @@
+import './TiptapEditor.css';
 import React from 'react';
 import { BrowserRouter } from 'react-router-dom';
 import AppRouter from './router/AppRouter';
@@ -10,7 +11,7 @@ import { CartProvider } from './context/CartContext';
 import { CategoryProvider } from './context/CategoryContext';
 import { ReviewProvider } from './context/ReviewContext';
 import { BannerProvider } from './context/BannerContext';
-import {WishlistProvider} from './context/WishlistContext';
+import { WishlistProvider } from './context/WishlistContext';
 
 function App() {
   return (
@@ -24,14 +25,14 @@ function App() {
                 {/* User-specific providers */}
                 <CartProvider>
                   <OrderProvider>
-                      <ReviewProvider>
-                        {/* Admin-specific provider */}
-                        <DiscountProvider>
-                          <WishlistProvider>
+                    <ReviewProvider>
+                      {/* Admin-specific provider */}
+                      <DiscountProvider>
+                        <WishlistProvider>
                           <AppRouter />
-                          </WishlistProvider>
-                        </DiscountProvider>
-                      </ReviewProvider>
+                        </WishlistProvider>
+                      </DiscountProvider>
+                    </ReviewProvider>
                   </OrderProvider>
                 </CartProvider>
               </ProductProvider>

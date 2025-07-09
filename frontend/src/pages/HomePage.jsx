@@ -1,6 +1,5 @@
 import React, { useState, useContext, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import MiniBanner from '../components/layout/MiniBanner';
 import HeroSection from '../components/layout/Home/HeroSection';
 import FeaturedProducts from '../components/Products/FeaturedProducts';
 import ProductRowSlider from '../components/Products/ProductRowSlider';
@@ -119,7 +118,6 @@ function HomePage() {
 
   return (
     <div className='bg-[#F5F5F5] relative'>
-      <MiniBanner />
       <HeroSection />
       
       {/* Popular Categories Section */}

@@ -18,30 +18,22 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
     return null;
   }
 
-  // Normalize image URL
+  // Normalize image URL - Fixed to use import.meta.env
   const imageUrl = item.image
     ? typeof item.image === "string"
       ? item.image.startsWith("http")
         ? item.image
-        : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image}`
+        : `${import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image}`
       : item.image.url
         ? item.image.url.startsWith("http")
           ? item.image.url
-          : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image.url}`
+          : `${import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image.url}`
         : "/images/placeholder-product.png"
     : item.productId?.images?.[0]?.url
       ? item.productId.images[0].url.startsWith("http")
         ? item.productId.images[0].url
-        : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.productId.images[0].url}`
+        : `${import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.productId.images[0].url}`
       : "/images/placeholder-product.png";
-
-  // console.log("CartProductCard: Item image data:", {
-  //   itemId: item.productId._id,
-  //   title: item.title,
-  //   image: item.image,
-  //   productIdImages: item.productId?.images,
-  //   computedImageUrl: imageUrl,
-  // });
 
   const formattedPrice = new Intl.NumberFormat("en-PK", {
     style: "currency",
@@ -50,6 +42,13 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
   }).format(item.price || 0);
 
   const isDisabled = item.isUnavailable || item.isVariantUnavailable;
+
+  // Create variant options object for the new structure
+  const variantOptions = {
+    variantColor: item.variantColor,
+    storageCapacity: item.storageCapacity,
+    size: item.size,
+  };
 
   return (
     <div
@@ -62,6 +61,7 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
           unavailable
         </div>
       )}
+      
       {/* Image and Title Row */}
       <div className="flex items-center gap-3">
         <div className="w-16 h-16 flex-shrink-0">
@@ -84,6 +84,20 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
             {item.title || "Untitled Product"}
           </h2>
           <p className="text-xs text-gray-600 mt-1">SKU: {item.sku || "N/A"}</p>
+          {/* Display variant information if available */}
+          {(item.variantColor || item.storageCapacity || item.size) && (
+            <div className="text-xs text-gray-500 mt-1 space-y-1">
+              {item.variantColor && (
+                <p>Color: {item.variantColor}</p>
+              )}
+              {item.storageCapacity && (
+                <p>Storage: {item.storageCapacity}</p>
+              )}
+              {item.size && (
+                <p>Size: {item.size}</p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -93,11 +107,29 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
           Category: {item.productId?.category?.name || "No category"}
         </p>
         <p className="text-green-600">{item.stock || 0} in Stock</p>
+        {item.shippingCost > 0 && (
+          <p className="text-blue-600">
+            Shipping: {new Intl.NumberFormat("en-PK", {
+              style: "currency",
+              currency: "PKR",
+              minimumFractionDigits: 0,
+            }).format(item.shippingCost)}
+          </p>
+        )}
       </div>
 
       {/* Price and Actions Row */}
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium text-gray-900">{formattedPrice}</p>
+        <div>
+          <p className="text-sm font-medium text-gray-900">{formattedPrice}</p>
+          <p className="text-xs text-gray-500">
+            Total: {new Intl.NumberFormat("en-PK", {
+              style: "currency",
+              currency: "PKR",
+              minimumFractionDigits: 0,
+            }).format((item.price || 0) * item.quantity)}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1">
             <Button
@@ -105,7 +137,7 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
                 onUpdateQuantity(
                   item.productId._id,
                   item.quantity - 1,
-                  item.variantId
+                  variantOptions
                 )
               }
               className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
@@ -120,7 +152,7 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
                 onUpdateQuantity(
                   item.productId._id,
                   item.quantity + 1,
-                  item.variantId
+                  variantOptions
                 )
               }
               className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
@@ -131,7 +163,7 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
             </Button>
           </div>
           <Button
-            onClick={() => onRemove(item.productId._id, item.variantId)}
+            onClick={() => onRemove(item.productId._id, variantOptions)}
             className="bg-red-600 text-white hover:bg-red-700 p-2 rounded-full"
             aria-label={`Remove ${item.title} from cart`}
           >
@@ -150,16 +182,19 @@ function Cart() {
     isLoading,
     error,
     totalPrice,
+    totalShippingCost,
+    itemCount,
     fetchCart,
     updateQuantity,
     removeFromCart,
     clearCart,
+    getItemUniqueKey,
+    isFreeShipping,
   } = useCart();
   const navigate = useNavigate();
   const [redirectCount, setRedirectCount] = useState(0);
 
   useEffect(() => {
-    // console.log("Cart: cartItems:", cartItems);
     console.log("Cart: isLoading:", isLoading, "error:", error);
   }, [cartItems, isLoading, error]);
 
@@ -196,6 +231,18 @@ function Cart() {
     minimumFractionDigits: 0,
   }).format(totalPrice || 0);
 
+  const formattedShippingCost = new Intl.NumberFormat("en-PK", {
+    style: "currency",
+    currency: "PKR",
+    minimumFractionDigits: 0,
+  }).format(totalShippingCost || 0);
+
+  const formattedGrandTotal = new Intl.NumberFormat("en-PK", {
+    style: "currency",
+    currency: "PKR",
+    minimumFractionDigits: 0,
+  }).format((totalPrice || 0) + (totalShippingCost || 0));
+
   const handleRetry = async () => {
     try {
       await fetchCart();
@@ -207,10 +254,10 @@ function Cart() {
     }
   };
 
-  const handleUpdateQuantity = async (productId, newQuantity, variantId) => {
+  const handleUpdateQuantity = async (productId, newQuantity, variantOptions = {}) => {
     if (newQuantity < 1) return;
     try {
-      const result = await updateQuantity(productId, newQuantity, variantId);
+      const result = await updateQuantity(productId, newQuantity, variantOptions);
       if (!result.success) {
         toast.error(result.message || "Failed to update quantity");
       }
@@ -221,9 +268,9 @@ function Cart() {
     }
   };
 
-  const handleRemoveItem = async (productId, variantId) => {
+  const handleRemoveItem = async (productId, variantOptions = {}) => {
     try {
-      const result = await removeFromCart(productId, variantId);
+      const result = await removeFromCart(productId, variantOptions);
       if (!result.success) {
         toast.error(result.message || "Failed to remove item");
       }
@@ -246,7 +293,7 @@ function Cart() {
   if (isLoading && !cartItems.length) {
     return (
       <div className="min-h-screen bg-gray-100 py-6 px-4">
-        <div className="max-w-3-half mx-auto">
+        <div className="max-w-3xl mx-auto">
           <LoadingSkeleton
             type="text"
             width="40"
@@ -324,7 +371,7 @@ function Cart() {
           Your Shopping Cart
           {cartItems.length > 0 && (
             <span className="block text-xs md:text-sm font-normal text-gray-500 mt-1">
-              {cartItems.length} item{cartItems.length !== 1 ? "s" : ""}
+              {itemCount} item{itemCount !== 1 ? "s" : ""} in cart
             </span>
           )}
         </h1>
@@ -349,6 +396,14 @@ function Cart() {
           </div>
         ) : (
           <div className="flex flex-col gap-4">
+            {/* Free Shipping Banner */}
+            {isFreeShipping && (
+              <div className="bg-green-100 text-green-800 text-sm p-3 rounded-md text-center">
+                🎉 Congratulations! You qualify for free shipping!
+              </div>
+            )}
+
+            {/* Desktop Table View */}
             <div className="hidden md:block bg-white rounded-lg shadow-sm border border-gray-200">
               <table className="w-full text-left">
                 <thead>
@@ -368,34 +423,33 @@ function Cart() {
                       return null;
                     }
 
-                    // Normalize image URL
+                    // Create variant options object for the new structure
+                    const variantOptions = {
+                      variantColor: item.variantColor,
+                      storageCapacity: item.storageCapacity,
+                      size: item.size,
+                    };
+
+                    // Normalize image URL - Fixed to use import.meta.env
                     const imageUrl = item.image
                       ? typeof item.image === "string"
                         ? item.image.startsWith("http")
                           ? item.image
-                          : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image}`
+                          : `${import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image}`
                         : item.image.url
                           ? item.image.url.startsWith("http")
                             ? item.image.url
-                            : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image.url}`
+                            : `${import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.image.url}`
                           : "/images/placeholder-product.png"
                       : item.productId?.images?.[0]?.url
                         ? item.productId.images[0].url.startsWith("http")
                           ? item.productId.images[0].url
-                          : `${process.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.productId.images[0].url}`
+                          : `${import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000"}${item.productId.images[0].url}`
                         : "/images/placeholder-product.png";
-
-                    // console.log("Cart: Item image data:", {
-                    //   itemId: item.productId._id,
-                    //   title: item.title,
-                    //   image: item.image,
-                    //   productIdImages: item.productId?.images,
-                    //   computedImageUrl: imageUrl,
-                    // });
 
                     return (
                       <tr
-                        key={`${item.productId._id}-${item.variantId || "no-variant"}`}
+                        key={getItemUniqueKey(item)}
                         className={`border-b border-gray-200 last:border-b-0 ${
                           item.isUnavailable || item.isVariantUnavailable
                             ? "opacity-60"
@@ -427,6 +481,20 @@ function Cart() {
                             <p className="text-sm text-gray-600 truncate">
                               Category: {item.productId?.category?.name || "No category"}
                             </p>
+                            {/* Display variant information */}
+                            {(item.variantColor || item.storageCapacity || item.size) && (
+                              <div className="text-sm text-gray-500 mt-1">
+                                {item.variantColor && (
+                                  <span className="mr-2">Color: {item.variantColor}</span>
+                                )}
+                                {item.storageCapacity && (
+                                  <span className="mr-2">Storage: {item.storageCapacity}</span>
+                                )}
+                                {item.size && (
+                                  <span>Size: {item.size}</span>
+                                )}
+                              </div>
+                            )}
                             {(item.isUnavailable ||
                               item.isVariantUnavailable) && (
                               <p className="text-sm text-yellow-600">
@@ -446,7 +514,7 @@ function Cart() {
                                 handleUpdateQuantity(
                                   item.productId._id,
                                   item.quantity - 1,
-                                  item.variantId
+                                  variantOptions
                                 )
                               }
                               className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
@@ -466,7 +534,7 @@ function Cart() {
                                 handleUpdateQuantity(
                                   item.productId._id,
                                   item.quantity + 1,
-                                  item.variantId
+                                  variantOptions
                                 )
                               }
                               className="border border-gray-300 text-gray-600 hover:bg-gray-50 p-2 rounded-full"
@@ -492,7 +560,7 @@ function Cart() {
                             onClick={() =>
                               handleRemoveItem(
                                 item.productId._id,
-                                item.variantId
+                                variantOptions
                               )
                             }
                             className="bg-red-600 text-white hover:bg-red-700 p-2 rounded-full"
@@ -506,37 +574,73 @@ function Cart() {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile Card View */}
             <div className="block md:hidden space-y-4">
               {cartItems.map((item) => (
                 <CartProductCard
-                  key={`${item.productId._id}-${item.variantId || "no-variant"}`}
+                  key={getItemUniqueKey(item)}
                   item={item}
                   onUpdateQuantity={handleUpdateQuantity}
                   onRemove={handleRemoveItem}
                 />
               ))}
             </div>
+
+            {/* Cart Summary */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm md:text-base font-semibold text-gray-900">
-                  Total: {formattedTotalPrice}
-                </h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Subtotal:</span>
+                  <span className="text-sm font-medium text-gray-900">
+                    {formattedTotalPrice}
+                  </span>
+                </div>
+                {totalShippingCost > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Shipping:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {formattedShippingCost}
+                    </span>
+                  </div>
+                )}
+                {isFreeShipping && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Shipping:</span>
+                    <span className="text-sm font-medium text-green-600">
+                      Free!
+                    </span>
+                  </div>
+                )}
+                <div className="border-t pt-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-semibold text-gray-900">
+                      Total:
+                    </span>
+                    <span className="text-base font-semibold text-gray-900">
+                      {isFreeShipping ? formattedTotalPrice : formattedGrandTotal}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 mt-2">
                 <Button
                   onClick={handleClearCart}
-                  className="bg-gray-600 text-white hover:bg-gray-700 px-4 py-2 rounded-md text-sm"
+                  className="bg-gray-600 text-white hover:bg-gray-700 px-4 py-2 rounded-md text-sm flex-1"
                   disabled={isLoading}
                 >
                   {isLoading ? "Clearing..." : "Clear Cart"}
                 </Button>
+                <Button
+                  onClick={handleCheckout}
+                  className="bg-red-600 text-white hover:bg-red-700 py-2 rounded-md text-sm flex-2"
+                  aria-label="Proceed to checkout"
+                  disabled={isLoading || cartItems.length === 0}
+                >
+                  {isLoading ? "Processing..." : "Proceed to Checkout"}
+                </Button>
               </div>
-              <Button
-                onClick={handleCheckout}
-                className="w-full bg-red-600 text-white hover:bg-red-700 py-2 rounded-md text-sm"
-                aria-label="Proceed to checkout"
-                disabled={isLoading || cartItems.length === 0}
-              >
-                {isLoading ? "Processing..." : "Proceed to Checkout"}
-              </Button>
             </div>
           </div>
         )}
