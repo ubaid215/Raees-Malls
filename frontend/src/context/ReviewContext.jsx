@@ -1,6 +1,15 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 import { createReview, getReviews } from '../services/reviewService';
 import socketService from '../services/socketService';
+
+// Debounce utility
+const debounce = (func, delay) => {
+  let timeoutId;
+  return (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func(...args), delay);
+  };
+};
 
 export const ReviewContext = createContext();
 
@@ -8,6 +17,20 @@ export const ReviewProvider = ({ children }) => {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Debounced fetchReviews
+  const fetchReviews = useCallback(debounce(async (productId, page = 1, limit = 10, sort = 'recent', filter = 'all') => {
+    setLoading(true);
+    setError('');
+    try {
+      const reviewData = await getReviews(productId, page, limit, sort, filter);
+      setReviews(reviewData.reviews);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, 300), []);
 
   useEffect(() => {
     const userId = localStorage.getItem('userId');
@@ -22,26 +45,13 @@ export const ReviewProvider = ({ children }) => {
       socketService.off('reviewAdded');
       // socketService.disconnect(); // Optional
     };
-  }, []);
+  }, [fetchReviews]);
 
-  const fetchReviews = async (productId, page = 1, limit = 10) => {
+  const addReview = async (productId, orderId, rating, comment) => {
     setLoading(true);
     setError('');
     try {
-      const reviewData = await getReviews(productId, page, limit);
-      setReviews(reviewData);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const addReview = async (productId, rating, comment) => {
-    setLoading(true);
-    setError('');
-    try {
-      const review = await createReview(productId, rating, comment);
+      const review = await createReview(productId, orderId, rating, comment);
       await fetchReviews(productId);
       return review;
     } catch (err) {
@@ -61,4 +71,13 @@ export const ReviewProvider = ({ children }) => {
   };
 
   return <ReviewContext.Provider value={value}>{children}</ReviewContext.Provider>;
+};
+
+// Custom hook to access ReviewContext
+export const useReview = () => {
+  const context = useContext(ReviewContext);
+  if (!context) {
+    throw new Error('useReview must be used within a ReviewProvider');
+  }
+  return context;
 };
