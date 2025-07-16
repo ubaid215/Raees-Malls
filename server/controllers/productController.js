@@ -392,12 +392,12 @@ exports.updateProduct = async (req, res, next) => {
       return next(new ApiError(404, 'Product not found'));
     }
 
-    // Parse JSON fields
     const parseJsonField = (value) => {
       if (typeof value === 'string' && value) {
         try {
           return JSON.parse(value);
-        } catch {
+        } catch (error) {
+          console.warn(`Failed to parse JSON field: ${error.message}`);
           return value;
         }
       }
@@ -406,32 +406,30 @@ exports.updateProduct = async (req, res, next) => {
 
     const {
       title, description, price, discountPrice, shippingCost, categoryId, brand,
-      stock, specifications, features, variants, seo, isFeatured, color, 
-      removeBaseImages, imagesToKeep, imagesToDelete
+      stock, specifications, features, variants, seo, isFeatured, color,
+      removeBaseImages, imagesToKeep, imagesToDelete, variantImagesToDelete
     } = req.body;
 
     const shouldRemoveBaseImages = String(removeBaseImages).toLowerCase() === 'true';
 
-    // Parse complex fields
-    const parsedVariants = variants ? parseJsonField(variants) : undefined;
-    const parsedColor = color ? parseJsonField(color) : undefined;
-    const parsedSeo = seo ? parseJsonField(seo) : undefined;
-    const parsedSpecifications = specifications ? parseJsonField(specifications) : undefined;
-    const parsedFeatures = features ? parseJsonField(features) : undefined;
-    const parsedImagesToKeep = imagesToKeep ? parseJsonField(imagesToKeep) : undefined;
-    const parsedImagesToDelete = imagesToDelete ? parseJsonField(imagesToDelete) : undefined;
+    const parsedVariants = parseJsonField(variants);
+    const parsedColor = parseJsonField(color);
+    const parsedSeo = parseJsonField(seo);
+    const parsedSpecifications = parseJsonField(specifications);
+    const parsedFeatures = parseJsonField(features);
+    const parsedImagesToKeep = parseJsonField(imagesToKeep);
+    const parsedImagesToDelete = parseJsonField(imagesToDelete);
+    const parsedVariantImagesToDelete = parseJsonField(variantImagesToDelete) || [];
 
-    // Validate product must have either base pricing or variants
     const hasBasePricing = price !== undefined && stock !== undefined;
     const existingHasBasePricing = product.price !== undefined && product.stock !== undefined;
-    const hasVariants = parsedVariants && parsedVariants.length > 0;
+    const hasVariants = parsedVariants && Array.isArray(parsedVariants) && parsedVariants.length > 0;
     const existingHasVariants = product.variants && product.variants.length > 0;
 
     if (!hasBasePricing && !hasVariants && !existingHasBasePricing && !existingHasVariants) {
       return next(new ApiError(400, 'Product must have either base price/stock or variants'));
     }
 
-    // Process media uploads
     const processMediaFiles = (files) => {
       return files?.map(file => ({
         url: file.path,
@@ -440,12 +438,12 @@ exports.updateProduct = async (req, res, next) => {
       })) || [];
     };
 
-    // Handle individual image deletions
-    if (parsedImagesToDelete && parsedImagesToDelete.length > 0) {
-      const imagesToDeleteFromCloudinary = product.images.filter(img => 
+    // Handle base image deletions
+    if (parsedImagesToDelete && Array.isArray(parsedImagesToDelete) && parsedImagesToDelete.length > 0) {
+      const imagesToDeleteFromCloudinary = product.images.filter(img =>
         parsedImagesToDelete.includes(img._id.toString())
       );
-      
+
       const deletionResults = await Promise.all(
         imagesToDeleteFromCloudinary.map(img =>
           cloudinary.uploader.destroy(img.public_id)
@@ -453,19 +451,19 @@ exports.updateProduct = async (req, res, next) => {
             .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
         )
       );
-      
-      product.images = product.images.filter(img => 
+
+      product.images = product.images.filter(img =>
         !parsedImagesToDelete.includes(img._id.toString())
       );
       product.markModified('images');
     }
 
-    // Handle keeping specific images
-    if (parsedImagesToKeep && parsedImagesToKeep.length > 0) {
-      const imagesToDeleteFromCloudinary = product.images.filter(img => 
+    // Handle base images to keep
+    if (parsedImagesToKeep && Array.isArray(parsedImagesToKeep) && parsedImagesToKeep.length > 0) {
+      const imagesToDeleteFromCloudinary = product.images.filter(img =>
         !parsedImagesToKeep.includes(img._id.toString())
       );
-      
+
       const deletionResults = await Promise.all(
         imagesToDeleteFromCloudinary.map(img =>
           cloudinary.uploader.destroy(img.public_id)
@@ -473,17 +471,16 @@ exports.updateProduct = async (req, res, next) => {
             .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
         )
       );
-      
-      product.images = product.images.filter(img => 
+
+      product.images = product.images.filter(img =>
         parsedImagesToKeep.includes(img._id.toString())
       );
       product.markModified('images');
     }
 
-    // Handle base images
+    // Handle new base images or complete base image removal
     if (req.files?.baseImages?.length > 0) {
       if (!parsedImagesToKeep && !parsedImagesToDelete) {
-        // Replace all images
         const deletionResults = await Promise.all(
           product.images.map(img =>
             cloudinary.uploader.destroy(img.public_id)
@@ -493,25 +490,23 @@ exports.updateProduct = async (req, res, next) => {
         );
         product.images = processMediaFiles(req.files.baseImages);
       } else {
-        // Add new images to existing ones
         const newImages = processMediaFiles(req.files.baseImages);
         product.images = [...product.images, ...newImages];
       }
       product.markModified('images');
     } else if (shouldRemoveBaseImages) {
-      // Remove all base images
       const deletionResults = await Promise.all(
         product.images.map(img =>
           cloudinary.uploader.destroy(img.public_id)
             .then(result => ({ public_id: img.public_id, status: 'success', result }))
             .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
-        )
-      );
+          )
+        );
       product.images = [];
       product.markModified('images');
     }
 
-    // Process variant media
+    // Process variant images and videos from uploaded files
     const variantImages = {};
     const variantVideos = {};
 
@@ -533,74 +528,106 @@ exports.updateProduct = async (req, res, next) => {
       });
     }
 
-    // Process variants if provided
-    if (parsedVariants !== undefined) {
-      const processedVariants = parsedVariants.map((variant, index) => {
+    // Process variants
+    if (parsedVariants !== undefined && Array.isArray(parsedVariants)) {
+      const processedVariants = await Promise.all(parsedVariants.map(async (variant, index) => {
+        const existingVariant = product.variants[index] || {};
+        let variantImagesArray = variant.images && Array.isArray(variant.images) ? variant.images
+          : existingVariant.images || [];
+
+        // Handle variant image deletions
+        if (parsedVariantImagesToDelete[index]?.length > 0) {
+          const imagesToDeleteFromCloudinary = variantImagesArray.filter(img =>
+            parsedVariantImagesToDelete[index].includes(img._id?.toString())
+          );
+
+          const deletionResults = await Promise.all(
+            imagesToDeleteFromCloudinary.map(img =>
+              cloudinary.uploader.destroy(img.public_id)
+                .then(result => ({ public_id: img.public_id, status: 'success', result }))
+                .catch(err => ({ public_id: img.public_id, status: 'error', error: err.message }))
+            )
+          );
+
+          variantImagesArray = variantImagesArray.filter(img =>
+            !parsedVariantImagesToDelete[index].includes(img._id?.toString())
+          );
+        }
+
         const newVariant = {
-          color: typeof variant.color === 'string' ? { name: variant.color } : variant.color,
-          images: variantImages[index] || [],
-          videos: variantVideos[index] || []
+          color: typeof variant.color === 'string'
+            ? { name: variant.color.trim() }
+            : variant.color || existingVariant.color || { name: '' },
+          images: variantImagesArray,
+          videos: variant.videos && Array.isArray(variant.videos)
+            ? variant.videos
+            : existingVariant.videos || []
         };
 
-        const hasStorageOptions = variant.storageOptions && 
-          Array.isArray(variant.storageOptions) && 
+        const hasStorageOptions = variant.storageOptions &&
+          Array.isArray(variant.storageOptions) &&
           variant.storageOptions.length > 0;
-        
-        const hasSizeOptions = variant.sizeOptions && 
-          Array.isArray(variant.sizeOptions) && 
+
+        const hasSizeOptions = variant.sizeOptions &&
+          Array.isArray(variant.sizeOptions) &&
           variant.sizeOptions.length > 0;
 
-        const hasDirectPricing = !hasStorageOptions && 
-          !hasSizeOptions && 
+        const hasDirectPricing = !hasStorageOptions &&
+          !hasSizeOptions &&
           (
-            (variant.price !== undefined && variant.price !== null && variant.price > 0) ||
-            (variant.stock !== undefined && variant.stock !== null && variant.stock > 0) ||
-            (variant.price !== undefined && variant.stock !== undefined && 
-             typeof variant.price === 'number' && typeof variant.stock === 'number')
+            (variant.price !== undefined && variant.price !== null && parseFloat(variant.price) > 0) ||
+            (variant.stock !== undefined && variant.stock !== null && parseInt(variant.stock) >= 0) ||
+            (variant.price !== undefined && variant.stock !== undefined &&
+             typeof parseFloat(variant.price) === 'number' && typeof parseInt(variant.stock) === 'number')
           );
 
         if (hasDirectPricing) {
-          return {
-            ...newVariant,
-            price: parseFloat(variant.price),
-            discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : undefined,
-            stock: parseInt(variant.stock),
-            sku: variant.sku?.toUpperCase().trim()
-          };
+          newVariant.price = parseFloat(variant.price) || 0;
+          newVariant.discountPrice = variant.discountPrice
+            ? parseFloat(variant.discountPrice)
+            : undefined;
+          newVariant.stock = parseInt(variant.stock) || 0;
+          newVariant.sku = variant.sku?.toUpperCase().trim() || undefined;
         }
 
         if (hasStorageOptions) {
-          return {
-            ...newVariant,
-            storageOptions: variant.storageOptions.map(opt => ({
-              capacity: opt.capacity.trim(),
-              price: parseFloat(opt.price),
-              discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
-              stock: parseInt(opt.stock),
-              sku: opt.sku?.toUpperCase().trim()
-            }))
-          };
+          newVariant.storageOptions = variant.storageOptions.map(opt => ({
+            capacity: opt.capacity?.trim() || '',
+            price: parseFloat(opt.price) || 0,
+            discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
+            stock: parseInt(opt.stock) || 0,
+            sku: opt.sku?.toUpperCase().trim() || undefined
+          }));
         }
 
         if (hasSizeOptions) {
-          return {
-            ...newVariant,
-            sizeOptions: variant.sizeOptions.map(opt => ({
-              size: opt.size.toString().toUpperCase().trim(),
-              price: parseFloat(opt.price),
-              discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
-              stock: parseInt(opt.stock),
-              sku: opt.sku?.toUpperCase().trim()
-            }))
-          };
+          newVariant.sizeOptions = variant.sizeOptions.map(opt => ({
+            size: opt.size?.toString().toUpperCase().trim() || '',
+            price: parseFloat(opt.price) || 0,
+            discountPrice: opt.discountPrice ? parseFloat(opt.discountPrice) : undefined,
+            stock: parseInt(opt.stock) || 0,
+            sku: opt.sku?.toUpperCase().trim() || undefined
+          }));
         }
-      });
+
+        // Append new variant images if uploaded
+        if (variantImages[index]) {
+          newVariant.images = [...variantImagesArray, ...variantImages[index]];
+        }
+
+        // Append new variant videos if uploaded
+        if (variantVideos[index]) {
+          newVariant.videos = [...newVariant.videos, ...variantVideos[index]];
+        }
+
+        return newVariant;
+      }));
 
       product.variants = processedVariants;
       product.markModified('variants');
     }
 
-    // Update product fields
+    // Update other product fields
     if (title !== undefined) product.title = title;
     if (description !== undefined) product.description = description;
     if (price !== undefined) product.price = parseFloat(price);

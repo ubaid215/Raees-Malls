@@ -32,7 +32,7 @@ const ProductForm = ({
     brand: product?.brand || "",
     stock: product?.stock || "",
     sku: product?.sku || "",
-    color: product?.color?.name || "",
+    color: typeof product?.color === 'string' ? product.color : product?.color?.name || "",
     seo: {
       title: product?.seo?.title || "",
       description: product?.seo?.description || "",
@@ -59,29 +59,47 @@ const ProductForm = ({
   const [newImageFiles, setNewImageFiles] = useState([]);
   const [existingVideos, setExistingVideos] = useState(product?.videos || []);
   const [newVideoFiles, setNewVideoFiles] = useState([]);
-  const [specifications, setSpecifications] = useState(
-    product?.specifications || []
-  );
+  const [specifications, setSpecifications] = useState(product?.specifications || []);
   const [features, setFeatures] = useState(product?.features || []);
   const [variants, setVariants] = useState(
     product?.variants?.map((v) => ({
       ...v,
       newImageFiles: [],
       newVideoFiles: [],
-      price: v.price || "",
-      discountPrice: v.discountPrice || "",
-      stock: v.stock || "",
+      price: v.price?.toString() || "",
+      discountPrice: v.discountPrice?.toString() || "",
+      stock: v.stock?.toString() || "",
       sku: v.sku || "",
-      storageOptions: Array.isArray(v.storageOptions) ? v.storageOptions : [],
-      sizeOptions: Array.isArray(v.sizeOptions) ? v.sizeOptions : [],
-      color: v.color?.name || "",
+      storageOptions: Array.isArray(v.storageOptions)
+        ? v.storageOptions.map((opt) => ({
+            ...opt,
+            price: opt.price?.toString() || "",
+            discountPrice: opt.discountPrice?.toString() || "",
+            stock: opt.stock?.toString() || "",
+            sku: opt.sku || "",
+          }))
+        : [],
+      sizeOptions: Array.isArray(v.sizeOptions)
+        ? v.sizeOptions.map((opt) => ({
+            ...opt,
+            price: opt.price?.toString() || "",
+            discountPrice: opt.discountPrice?.toString() || "",
+            stock: opt.stock?.toString() || "",
+            sku: opt.sku || "",
+          }))
+        : [],
+      color: typeof v.color === 'string' ? v.color : v.color?.name || "",
+      images: v.images || [], // Explicitly preserve images
+      videos: v.videos || [], // Explicitly preserve videos
     })) || []
+  );
+  const [variantImagesToDelete, setVariantImagesToDelete] = useState(
+    product?.variants?.map(() => []) || []
   );
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [currentStage, setCurrentStage] = useState("");
 
-  // Create a unique key for session storage based on product ID
   const formStorageKey = `productFormData_${product?._id || 'new'}`;
 
   const skuValidation = skuOptional
@@ -102,11 +120,9 @@ const ProductForm = ({
         maxLength: { value: 20, message: "SKU cannot exceed 20 characters" },
       };
 
-  // Handle form data persistence with product-specific storage
   useEffect(() => {
     const savedFormData = sessionStorage.getItem(formStorageKey);
     if (savedFormData && !isEditMode) {
-      // Only restore session data for new products, not when editing
       try {
         const parsedData = JSON.parse(savedFormData);
         reset(parsedData);
@@ -117,7 +133,6 @@ const ProductForm = ({
     }
   }, [formStorageKey, reset, isEditMode]);
 
-  // Reset form when product changes (for edit mode)
   useEffect(() => {
     if (product) {
       reset(defaultValues);
@@ -130,22 +145,40 @@ const ProductForm = ({
           ...v,
           newImageFiles: [],
           newVideoFiles: [],
-          price: v.price || "",
-          discountPrice: v.discountPrice || "",
-          stock: v.stock || "",
+          price: v.price?.toString() || "",
+          discountPrice: v.discountPrice?.toString() || "",
+          stock: v.stock?.toString() || "",
           sku: v.sku || "",
-          storageOptions: Array.isArray(v.storageOptions) ? v.storageOptions : [],
-          sizeOptions: Array.isArray(v.sizeOptions) ? v.sizeOptions : [],
-          color: v.color?.name || "",
+          storageOptions: Array.isArray(v.storageOptions)
+            ? v.storageOptions.map((opt) => ({
+                ...opt,
+                price: opt.price?.toString() || "",
+                discountPrice: opt.discountPrice?.toString() || "",
+                stock: opt.stock?.toString() || "",
+                sku: opt.sku || "",
+              }))
+            : [],
+          sizeOptions: Array.isArray(v.sizeOptions)
+            ? v.sizeOptions.map((opt) => ({
+                ...opt,
+                price: opt.price?.toString() || "",
+                discountPrice: opt.discountPrice?.toString() || "",
+                stock: opt.stock?.toString() || "",
+                sku: opt.sku || "",
+              }))
+            : [],
+          color: typeof v.color === 'string' ? v.color : v.color?.name || "",
+          images: v.images || [], // Explicitly preserve images
+          videos: v.videos || [], // Explicitly preserve videos
         })) || []
       );
+      setVariantImagesToDelete(product.variants?.map(() => []) || []);
     }
   }, [product, reset]);
 
-  // Save form data to session storage (only for new products)
   const handleFormChange = () => {
     if (!isEditMode) {
-      const currentFormData = watch(); // Get all form data
+      const currentFormData = watch();
       sessionStorage.setItem(formStorageKey, JSON.stringify(currentFormData));
     }
   };
@@ -174,9 +207,7 @@ const ProductForm = ({
     for (const file of files) {
       try {
         if (!file.type.startsWith("image/")) {
-          toastError(
-            `Invalid file type: ${file.name}. Only JPEG and PNG allowed.`
-          );
+          toastError(`Invalid file type: ${file.name}. Only JPEG and PNG allowed.`);
           continue;
         }
 
@@ -229,7 +260,7 @@ const ProductForm = ({
       if (file.size > 50 * 1024 * 1024) {
         toastError(`File too large: ${file.name}. Max 50MB.`);
         continue;
-      }
+        }
       validFiles.push(file);
     }
 
@@ -253,9 +284,7 @@ const ProductForm = ({
     for (const file of files) {
       try {
         if (!file.type.startsWith("image/")) {
-          toastError(
-            `Invalid file type: ${file.name}. Only JPEG and PNG allowed.`
-          );
+          toastError(`Invalid file type: ${file.name}. Only JPEG and PNG allowed.`);
           console.warn("Invalid variant image type:", file.type);
           continue;
         }
@@ -336,7 +365,7 @@ const ProductForm = ({
         continue;
       }
       if (file.size > 50 * 1024 * 1024) {
-        toastError(`File too large: ${file.name}. Max 50MB.`);
+        toasterror(`File too large: ${file.name}. Max 50MB.`);
         console.warn("Variant video too large:", file.size);
         continue;
       }
@@ -391,11 +420,7 @@ const ProductForm = ({
     console.log("Updated videos:", { existingVideos, newVideoFiles });
   };
 
-  const handleRemoveVariantImage = (
-    variantIndex,
-    imageIndex,
-    isNew = false
-  ) => {
+  const handleRemoveVariantImage = (variantIndex, imageIndex, isNew = false) => {
     console.log("Removing variant image:", { variantIndex, imageIndex, isNew });
     setVariants((prev) =>
       prev.map((v, i) => {
@@ -403,10 +428,16 @@ const ProductForm = ({
         if (isNew) {
           return {
             ...v,
-            newImageFiles: v.newImageFiles.filter(
-              (_, idx) => idx !== imageIndex
-            ),
+            newImageFiles: v.newImageFiles.filter((_, idx) => idx !== imageIndex),
           };
+        }
+        const imageId = v.images[imageIndex]?._id;
+        if (imageId) {
+          setVariantImagesToDelete((prev) =>
+            prev.map((ids, idx) =>
+              idx === variantIndex ? [...ids, imageId.toString()] : ids
+            )
+          );
         }
         return {
           ...v,
@@ -417,11 +448,7 @@ const ProductForm = ({
     console.log("Updated variant images:", { variantIndex, variants });
   };
 
-  const handleRemoveVariantVideo = (
-    variantIndex,
-    videoIndex,
-    isNew = false
-  ) => {
+  const handleRemoveVariantVideo = (variantIndex, videoIndex, isNew = false) => {
     console.log("Removing variant video:", { variantIndex, videoIndex, isNew });
     setVariants((prev) =>
       prev.map((v, i) => {
@@ -429,9 +456,7 @@ const ProductForm = ({
         if (isNew) {
           return {
             ...v,
-            newVideoFiles: v.newVideoFiles.filter(
-              (_, idx) => idx !== videoIndex
-            ),
+            newVideoFiles: v.newVideoFiles.filter((_, idx) => idx !== videoIndex),
           };
         }
         return {
@@ -508,6 +533,7 @@ const ProductForm = ({
         newVideoFiles: [],
       },
     ]);
+    setVariantImagesToDelete((prev) => [...prev, []]);
   };
 
   const handleVariantChange = (index, field, value) => {
@@ -538,12 +564,7 @@ const ProductForm = ({
     );
   };
 
-  const handleStorageOptionChange = (
-    variantIndex,
-    optionIndex,
-    field,
-    value
-  ) => {
+  const handleStorageOptionChange = (variantIndex, optionIndex, field, value) => {
     setVariants((prev) =>
       prev.map((v, i) =>
         i === variantIndex
@@ -564,9 +585,7 @@ const ProductForm = ({
         i === variantIndex
           ? {
               ...v,
-              storageOptions: v.storageOptions.filter(
-                (_, idx) => idx !== optionIndex
-              ),
+              storageOptions: v.storageOptions.filter((_, idx) => idx !== optionIndex),
             }
           : v
       )
@@ -610,9 +629,7 @@ const ProductForm = ({
         i === variantIndex
           ? {
               ...v,
-              sizeOptions: v.sizeOptions.filter(
-                (_, idx) => idx !== optionIndex
-              ),
+              sizeOptions: v.sizeOptions.filter((_, idx) => idx !== optionIndex),
             }
           : v
       )
@@ -621,6 +638,7 @@ const ProductForm = ({
 
   const handleRemoveVariant = (index) => {
     setVariants((prev) => prev.filter((_, i) => i !== index));
+    setVariantImagesToDelete((prev) => prev.filter((_, i) => i !== index));
   };
 
   const onSubmitHandler = async (data) => {
@@ -683,8 +701,8 @@ const ProductForm = ({
     const processedVariants = variants.map((v) => {
       const variantData = {
         color: v.color && v.color.trim() ? { name: v.color.trim() } : undefined,
-        images: v.images || [],
-        videos: v.videos || [],
+        images: v.images || [], // Preserve existing images
+        videos: v.videos || [], // Preserve existing videos
       };
 
       if (v.price !== undefined && v.stock !== undefined) {
@@ -750,10 +768,7 @@ const ProductForm = ({
         : undefined,
       shippingCost: parseFloat(data.shippingCost) || 0,
       stock: data.stock ? parseInt(data.stock) : undefined,
-      color:
-        data.color && data.color.trim()
-          ? { name: data.color.trim() }
-          : undefined,
+      color: data.color && data.color.trim() ? { name: data.color.trim() } : undefined,
       specifications: specifications
         .filter((s) => s.key.trim() && s.value.trim())
         .map((s) => ({ key: s.key.trim(), value: s.value.trim() })),
@@ -761,6 +776,7 @@ const ProductForm = ({
       variants: filteredVariants,
       sku: data.sku?.trim() || undefined,
       removeBaseImages: data.removeBaseImages,
+      variantImagesToDelete, // Include images to delete
     };
 
     const media = {
@@ -772,7 +788,6 @@ const ProductForm = ({
 
     try {
       const response = await onSubmit(productData, media);
-      // Clear session storage after successful submission
       sessionStorage.removeItem(formStorageKey);
       setExistingImages([]);
       setNewImageFiles([]);
@@ -781,6 +796,7 @@ const ProductForm = ({
       setSpecifications([]);
       setFeatures([]);
       setVariants([]);
+      setVariantImagesToDelete([]);
       reset();
       onSuccess?.();
       toastSuccess(

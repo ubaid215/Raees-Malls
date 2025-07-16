@@ -20,7 +20,7 @@ import LoadingSpinner from "../core/LoadingSpinner";
 // SafeHTMLRenderer component - renders HTML content safely
 const SafeHTMLRenderer = ({ html, className = "" }) => {
   return (
-    <div 
+    <div
       className={`prose prose-sm max-w-none ${className}`}
       dangerouslySetInnerHTML={{ __html: html }}
     />
@@ -44,6 +44,44 @@ const ProductDetails = () => {
     specifications: false,
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [timeLeft, setTimeLeft] = useState({
+    hours: 3,
+    minutes: 0,
+    seconds: 0,
+  });
+
+  useEffect(() => {
+    // Set the countdown to 3 hours when component mounts
+    const endTime = new Date();
+    endTime.setHours(endTime.getHours() + 3);
+
+    const timer = setInterval(() => {
+      const now = new Date();
+      const difference = endTime - now;
+
+      if (difference <= 0) {
+        clearInterval(timer);
+        return;
+      }
+
+      const hours = Math.floor((difference / (1000 * 60 * 60)) % 24);
+      const minutes = Math.floor((difference / 1000 / 60) % 60);
+      const seconds = Math.floor((difference / 1000) % 60);
+
+      setTimeLeft({
+        hours,
+        minutes,
+        seconds,
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // Format time for display
+  const formatTime = (time) => {
+    return time < 10 ? `0${time}` : time;
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -313,7 +351,7 @@ const ProductDetails = () => {
       const variantOptions = {
         variantColor: selectedColor || null,
         storageCapacity: selectedStorage || null,
-        size: selectedSize ? selectedSize.replace(/\s+/g, '') : null, // Remove spaces from size
+        size: selectedSize ? selectedSize.replace(/\s+/g, "") : null, // Remove spaces from size
       };
       const result = await addItemToCart(product._id, variantOptions, 1);
       if (result.success) {
@@ -351,7 +389,6 @@ const ProductDetails = () => {
     if (navigator.share) {
       navigator.share({
         title: product.title,
-        text: product.description,
         url: window.location.href,
       });
     } else {
@@ -420,7 +457,7 @@ const ProductDetails = () => {
                   </div>
                 </div>
               )}
-              
+
               {/* New/Hot Badge */}
               <div className="absolute top-4 right-4 z-10">
                 <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1 rounded-full font-bold text-xs shadow-lg">
@@ -547,7 +584,10 @@ const ProductDetails = () => {
                         );
                       }
                       return (
-                        <FaRegStar key={i} className="text-yellow-400 text-sm" />
+                        <FaRegStar
+                          key={i}
+                          className="text-yellow-400 text-sm"
+                        />
                       );
                     })}
                   </div>
@@ -559,16 +599,24 @@ const ProductDetails = () => {
 
               {/* Hurry up with fire emoji */}
               <div className="flex items-center gap-2 bg-red-50 px-3 py-2 rounded-lg animate-pulse">
-                <span className="text-red-600 font-medium text-sm">Hurry up</span>
+                <span className="text-red-600 font-medium text-sm">
+                  Hurry up
+                </span>
                 <FaFire className="text-orange-500 animate-bounce" />
+                <span className="font-bold text-red-700">
+                  {formatTime(timeLeft.hours)}:{formatTime(timeLeft.minutes)}:
+                  {formatTime(timeLeft.seconds)}
+                </span>
               </div>
 
               {/* Stock count */}
-              <div className={`px-3 py-2 rounded-lg font-medium text-sm ${
-                stockCount > 0 
-                  ? "bg-green-50 text-green-700" 
-                  : "bg-red-50 text-red-600"
-              }`}>
+              <div
+                className={`px-3 py-2 rounded-lg font-medium text-sm ${
+                  stockCount > 0
+                    ? "bg-green-50 text-green-700"
+                    : "bg-red-50 text-red-600"
+                }`}
+              >
                 {stockCount > 0 ? `Only ${stockCount} left` : "Out of stock"}
               </div>
             </div>
@@ -666,9 +714,13 @@ const ProductDetails = () => {
                         : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
                     }`}
                   >
-                    <div className={`text-base font-semibold ${
-                      selectedStorage === storage ? "text-blue-600" : "text-gray-700"
-                    }`}>
+                    <div
+                      className={`text-base font-semibold ${
+                        selectedStorage === storage
+                          ? "text-blue-600"
+                          : "text-gray-700"
+                      }`}
+                    >
                       {storage}
                     </div>
                   </button>
@@ -695,9 +747,13 @@ const ProductDetails = () => {
                         : "border-gray-200 hover:bg-gray-50 hover:border-gray-300"
                     }`}
                   >
-                    <div className={`text-base font-semibold ${
-                      selectedSize === size ? "text-green-600" : "text-gray-700"
-                    }`}>
+                    <div
+                      className={`text-base font-semibold ${
+                        selectedSize === size
+                          ? "text-green-600"
+                          : "text-gray-700"
+                      }`}
+                    >
                       {size}
                     </div>
                   </button>
@@ -737,11 +793,15 @@ const ProductDetails = () => {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-6 h-6 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"></div>
-                    <h3 className="font-bold text-lg text-gray-800">Description</h3>
+                    <h3 className="font-bold text-lg text-gray-800">
+                      Description
+                    </h3>
                   </div>
-                  <div className={`transition-transform duration-300 ${
-                    expandedSections.description ? "rotate-180" : ""
-                  }`}>
+                  <div
+                    className={`transition-transform duration-300 ${
+                      expandedSections.description ? "rotate-180" : ""
+                    }`}
+                  >
                     <FaChevronDown className="text-gray-500 w-5 h-5" />
                   </div>
                 </button>
@@ -765,11 +825,15 @@ const ProductDetails = () => {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-6 h-6 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full"></div>
-                    <h3 className="font-bold text-lg text-gray-800">Features</h3>
+                    <h3 className="font-bold text-lg text-gray-800">
+                      Features
+                    </h3>
                   </div>
-                  <div className={`transition-transform duration-300 ${
-                    expandedSections.features ? "rotate-180" : ""
-                  }`}>
+                  <div
+                    className={`transition-transform duration-300 ${
+                      expandedSections.features ? "rotate-180" : ""
+                    }`}
+                  >
                     <FaChevronDown className="text-gray-500 w-5 h-5" />
                   </div>
                 </button>
@@ -779,7 +843,9 @@ const ProductDetails = () => {
                       <ul className="space-y-2">
                         {product.features.map((feature, i) => (
                           <li key={i} className="flex items-start gap-2">
-                            <span className="text-green-500 font-bold mt-1">✓</span>
+                            <span className="text-green-500 font-bold mt-1">
+                              ✓
+                            </span>
                             <span>{feature}</span>
                           </li>
                         ))}
@@ -799,11 +865,15 @@ const ProductDetails = () => {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-6 h-6 bg-gradient-to-r from-orange-500 to-red-500 rounded-full"></div>
-                    <h3 className="font-bold text-lg text-gray-800">Specifications</h3>
+                    <h3 className="font-bold text-lg text-gray-800">
+                      Specifications
+                    </h3>
                   </div>
-                  <div className={`transition-transform duration-300 ${
-                    expandedSections.specifications ? "rotate-180" : ""
-                  }`}>
+                  <div
+                    className={`transition-transform duration-300 ${
+                      expandedSections.specifications ? "rotate-180" : ""
+                    }`}
+                  >
                     <FaChevronDown className="text-gray-500 w-5 h-5" />
                   </div>
                 </button>
@@ -813,7 +883,10 @@ const ProductDetails = () => {
                       <table className="w-full">
                         <tbody className="divide-y divide-gray-100">
                           {product.specifications.map((spec, i) => (
-                            <tr key={i} className="hover:bg-gradient-to-r hover:from-gray-50 hover:to-orange-50 transition-all duration-200">
+                            <tr
+                              key={i}
+                              className="hover:bg-gradient-to-r hover:from-gray-50 hover:to-orange-50 transition-all duration-200"
+                            >
                               <td className="px-6 py-4 bg-gradient-to-r from-gray-50 to-orange-50 font-semibold text-gray-700 capitalize">
                                 {spec.key}
                               </td>

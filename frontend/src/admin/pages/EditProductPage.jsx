@@ -37,14 +37,15 @@ const EditProductPage = () => {
         throw new Error('Product not found');
       }
 
-      // Normalize variant data for the form - with proper null checks
       const normalizedVariants = product.variants?.map(variant => ({
         ...variant,
-        color: variant.color?.name || '',
+        color: typeof variant.color === 'string' ? variant.color : variant.color?.name || '',
         price: variant.price !== undefined && variant.price !== null ? variant.price.toString() : '',
         discountPrice: variant.discountPrice !== undefined && variant.discountPrice !== null ? variant.discountPrice.toString() : '',
         stock: variant.stock !== undefined && variant.stock !== null ? variant.stock.toString() : '',
         sku: variant.sku || '',
+        images: variant.images || [],
+        videos: variant.videos || [],
         storageOptions: variant.storageOptions?.map(opt => ({
           ...opt,
           capacity: opt.capacity || '',
@@ -69,7 +70,9 @@ const EditProductPage = () => {
         discountPrice: product.discountPrice !== undefined && product.discountPrice !== null ? product.discountPrice.toString() : '',
         stock: product.stock !== undefined && product.stock !== null ? product.stock.toString() : '',
         shippingCost: product.shippingCost !== undefined && product.shippingCost !== null ? product.shippingCost.toString() : '0',
-        color: product.color?.name || '',
+        color: typeof product.color === 'string' ? product.color : product.color?.name || '',
+        images: product.images || [],
+        videos: product.videos || [],
         specifications: product.specifications || [],
         features: product.features || [],
         variants: normalizedVariants,
@@ -96,10 +99,9 @@ const EditProductPage = () => {
     setCurrentStage('Preparing product data...');
 
     try {
-      // Process variants for submission
       const processedVariants = formData.variants?.map(variant => {
-        const colorValue = typeof variant.color === 'string' 
-          ? variant.color.trim() 
+        const colorValue = typeof variant.color === 'string'
+          ? variant.color.trim()
           : variant.color?.name?.trim() || '';
 
         const processed = {
@@ -108,7 +110,6 @@ const EditProductPage = () => {
           videos: variant.videos || []
         };
 
-        // Handle direct pricing
         if (variant.price !== undefined && variant.stock !== undefined) {
           processed.price = parseFloat(variant.price) || 0;
           processed.stock = parseInt(variant.stock) || 0;
@@ -121,7 +122,6 @@ const EditProductPage = () => {
           processed.sku = variant.sku?.trim() || undefined;
         }
 
-        // Handle storage options
         if (variant.storageOptions?.length > 0) {
           processed.storageOptions = variant.storageOptions.map(opt => {
             if (!opt.capacity || !opt.price || opt.stock === undefined) {
@@ -137,7 +137,6 @@ const EditProductPage = () => {
           });
         }
 
-        // Handle size options
         if (variant.sizeOptions?.length > 0) {
           processed.sizeOptions = variant.sizeOptions.map(opt => {
             if (!opt.size || !opt.price || opt.stock === undefined) {
@@ -163,11 +162,14 @@ const EditProductPage = () => {
         shippingCost: parseFloat(formData.shippingCost) || 0,
         stock: formData.stock ? parseInt(formData.stock) : undefined,
         color: formData.color && formData.color.trim() ? { name: formData.color.trim() } : undefined,
+        images: formData.images || [],
+        videos: formData.videos || [],
         specifications: formData.specifications || [],
         features: formData.features || [],
         variants: processedVariants,
         sku: formData.sku?.trim() || undefined,
-        removeBaseImages: formData.removeBaseImages
+        removeBaseImages: formData.removeBaseImages || false,
+        variantImagesToDelete: formData.variantImagesToDelete || [] // Include variant images to delete
       };
 
       if (submissionData.color === undefined) {
@@ -185,6 +187,7 @@ const EditProductPage = () => {
         timeout: 300000,
       };
 
+      setCurrentStage('Updating product...');
       const updatedProduct = await updateProduct(id, submissionData, media, config);
 
       toastSuccess('Product updated successfully');
@@ -192,10 +195,11 @@ const EditProductPage = () => {
       return updatedProduct;
     } catch (err) {
       console.error('Update failed:', err);
-      const errorMessage = err.response?.data?.errors 
+      const errorMessage = err.response?.data?.errors
         ? err.response.data.errors.map(e => e.message || e.msg).join(', ')
         : err.response?.data?.message || err.message || 'Failed to update product';
       setError(errorMessage);
+      toastError(errorMessage);
       throw err;
     } finally {
       setIsSubmitting(false);
@@ -233,7 +237,7 @@ const EditProductPage = () => {
       <Helmet>
         <title>Edit Product | Admin Dashboard</title>
       </Helmet>
-      
+
       <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-between items-center mb-6">

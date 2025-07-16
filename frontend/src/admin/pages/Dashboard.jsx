@@ -492,7 +492,7 @@ const Dashboard = () => {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Total Revenue</p>
@@ -509,7 +509,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100">
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Total Orders</p>
@@ -524,7 +524,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        <Card className="bg-gradient-to-br from-purple-50 to-purple-100">
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Customers</p>
@@ -541,7 +541,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        <Card className="bg-gradient-to-br from-amber-50 to-amber-100">
+        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Products Sold</p>
@@ -558,7 +558,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100">
+        <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">
@@ -577,7 +577,7 @@ const Dashboard = () => {
           </div>
         </Card>
 
-        <Card className="bg-gradient-to-br from-pink-50 to-pink-100">
+        <Card className="bg-gradient-to-br from-pink-50 to-pink-100 cursor-pointer">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">

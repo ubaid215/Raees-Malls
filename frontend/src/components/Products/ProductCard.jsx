@@ -440,7 +440,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
 
   const mediaUrl = displayImage.url.startsWith('http')
     ? displayImage.url
-    : `${process.env.REACT_APP_API_URL || 'http://localhost:5000'}${displayImage.url}`;
+    : `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${displayImage.url}`;
 
   return (
     <div
