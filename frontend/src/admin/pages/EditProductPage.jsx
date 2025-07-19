@@ -100,9 +100,13 @@ const EditProductPage = () => {
 
     try {
       const processedVariants = formData.variants?.map(variant => {
-        const colorValue = typeof variant.color === 'string'
-          ? variant.color.trim()
-          : variant.color?.name?.trim() || '';
+        // Safely handle color value
+        let colorValue = '';
+        if (typeof variant.color === 'string') {
+          colorValue = variant.color.trim();
+        } else if (variant.color && typeof variant.color.name === 'string') {
+          colorValue = variant.color.name.trim();
+        }
 
         const processed = {
           color: colorValue ? { name: colorValue } : undefined,
@@ -155,13 +159,21 @@ const EditProductPage = () => {
         return processed;
       }) || [];
 
+      // Safely handle base product color
+      let baseColorValue = '';
+      if (typeof formData.color === 'string') {
+        baseColorValue = formData.color.trim();
+      } else if (formData.color && typeof formData.color.name === 'string') {
+        baseColorValue = formData.color.name.trim();
+      }
+
       const submissionData = {
         ...formData,
         price: formData.price ? parseFloat(formData.price) : undefined,
         discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : undefined,
         shippingCost: parseFloat(formData.shippingCost) || 0,
         stock: formData.stock ? parseInt(formData.stock) : undefined,
-        color: formData.color && formData.color.trim() ? { name: formData.color.trim() } : undefined,
+        color: baseColorValue ? { name: baseColorValue } : undefined,
         images: formData.images || [],
         videos: formData.videos || [],
         specifications: formData.specifications || [],
@@ -169,10 +181,10 @@ const EditProductPage = () => {
         variants: processedVariants,
         sku: formData.sku?.trim() || undefined,
         removeBaseImages: formData.removeBaseImages || false,
-        variantImagesToDelete: formData.variantImagesToDelete || [] // Include variant images to delete
+        variantImagesToDelete: formData.variantImagesToDelete || []
       };
 
-      if (submissionData.color === undefined) {
+      if (!submissionData.color) {
         delete submissionData.color;
       }
 

@@ -5,44 +5,102 @@ const ApiError = require('../utils/apiError');
 const addToCartValidator = [
   body('productId')
     .isMongoId().withMessage('Invalid product ID'),
+  
   body('variantColor')
     .optional()
     .isString().withMessage('Variant color must be a string')
     .trim()
     .isLength({ min: 1, max: 50 }).withMessage('Variant color must be between 1 and 50 characters'),
+  
   body('storageCapacity')
     .optional()
     .isString().withMessage('Storage capacity must be a string')
     .trim()
-    .matches(/^[0-9]+[KMGT]B$/i).withMessage('Storage capacity must be in valid format (e.g., 64GB, 256GB, 1TB)'),
+    .matches(/^[0-9]+[KMGT]B(\+[0-9]+[KMGT]B)*$/i).withMessage('Storage capacity must be in valid format (e.g., 64GB, 256GB, 1TB, 8GB+128GB)'),
+  
   body('size')
     .optional()
     .isString().withMessage('Size must be a string')
     .trim()
     .matches(/^[A-Z0-9]+$/i).withMessage('Size must contain only letters and numbers (e.g., S, M, L, XL, 32, 42)'),
+  
   body('quantity')
     .isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
+  
   // Custom validation to ensure variant configuration is valid
   body().custom((value, { req }) => {
     const { variantColor, storageCapacity, size } = req.body;
     
+    // Log the values being validated
+    console.log('🔍 Custom validation - Variant fields:', {
+      variantColor,
+      storageCapacity,
+      size
+    });
+    
     // If any variant field is provided, variantColor is required
     if ((storageCapacity || size) && !variantColor) {
+      console.error('❌ Validation Error: Variant color is required when specifying storage capacity or size');
       throw new Error('Variant color is required when specifying storage capacity or size');
     }
     
     // Cannot have both storage capacity and size
     if (storageCapacity && size) {
+      console.error('❌ Validation Error: Cannot specify both storage capacity and size for the same item');
       throw new Error('Cannot specify both storage capacity and size for the same item');
     }
     
+    console.log('✅ Custom validation passed');
     return true;
   }),
+  
+  // Enhanced error handling middleware with detailed logging
   (req, res, next) => {
     const errors = validationResult(req);
+    
+    // Log request details for debugging
+    console.log('\n=== CART VALIDATION DEBUG INFO ===');
+    console.log('📍 Endpoint:', req.method, req.originalUrl);
+    console.log('📦 Request Body:', JSON.stringify(req.body, null, 2));
+    console.log('⏰ Timestamp:', new Date().toISOString());
+    
     if (!errors.isEmpty()) {
-      return next(new ApiError(400, 'Validation failed', errors.array()));
+      const errorArray = errors.array();
+      
+      console.log('❌ VALIDATION FAILED');
+      console.log('🔢 Total Errors:', errorArray.length);
+      
+      // Log each validation error with details
+      errorArray.forEach((error, index) => {
+        console.log(`\n--- Error #${index + 1} ---`);
+        console.log('Field:', error.path || error.param);
+        console.log('Value:', JSON.stringify(error.value));
+        console.log('Message:', error.msg);
+        console.log('Location:', error.location);
+        
+        if (error.nestedErrors) {
+          console.log('Nested Errors:', error.nestedErrors);
+        }
+      });
+      
+      // Create formatted error response
+      const formattedErrors = errorArray.map(error => ({
+        field: error.path || error.param,
+        message: error.msg,
+        value: error.value,
+        location: error.location
+      }));
+      
+      console.log('\n📋 Formatted Errors for Response:');
+      console.log(JSON.stringify(formattedErrors, null, 2));
+      console.log('=================================\n');
+      
+      // Return detailed error response
+      return next(new ApiError(400, 'Validation failed', formattedErrors));
     }
+    
+    console.log('✅ VALIDATION PASSED');
+    console.log('=================================\n');
     next();
   }
 ];

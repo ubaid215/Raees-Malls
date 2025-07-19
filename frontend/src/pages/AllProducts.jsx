@@ -22,12 +22,18 @@ function AllProducts() {
     pages: 1,
     total: 0,
   });
-  const [needsFetch, setNeedsFetch] = useState(true);
+  const [forceUpdate, setForceUpdate] = useState(0); // New force update trigger
   const navigate = useNavigate();
   const location = useLocation();
   const { categories, fetchCategories } = useContext(CategoryContext);
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
   const dropdownRef = useRef(null);
+  const productsRef = useRef(products); // Ref to track current products
+
+  // Update ref when products change
+  useEffect(() => {
+    productsRef.current = products;
+  }, [products]);
 
   // Create a hierarchical structure for categories
   const categoriesWithSubcategories = useMemo(() => {
@@ -111,7 +117,7 @@ function AllProducts() {
       if (categoryId && categoryId !== selectedCategory) {
         setSelectedCategory(categoryId);
         setPagination(prev => ({ ...prev, page: 1 }));
-        setNeedsFetch(true);
+        setForceUpdate(prev => prev + 1); // Force immediate update
       }
     }
   }, [location.search, safeCategories, selectedCategory]);
@@ -125,8 +131,8 @@ function AllProducts() {
     });
   }, [pagination.page]);
 
-  const debouncedFetchProducts = useCallback(
-    debounce(async (page, limit, categoryId, retries = 3) => {
+  const fetchProductsWithRetry = useCallback(
+    async (page, limit, categoryId, retries = 3) => {
       let attempts = 0;
       while (attempts < retries) {
         try {
@@ -165,7 +171,6 @@ function AllProducts() {
             pages: result.totalPages || 1,
             total: result.totalItems || 0,
           }));
-          setNeedsFetch(false);
           return;
         } catch (err) {
           attempts++;
@@ -182,8 +187,20 @@ function AllProducts() {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-    }, 500),
+    },
     [fetchProducts]
+  );
+
+  // Debounced version for user-initiated actions
+  const debouncedFetchProducts = useCallback(
+    debounce(fetchProductsWithRetry, 300),
+    [fetchProductsWithRetry]
+  );
+
+  // Immediate version for socket events
+  const immediateFetchProducts = useCallback(
+    () => fetchProductsWithRetry(pagination.page, pagination.limit, selectedCategory),
+    [fetchProductsWithRetry, pagination.page, pagination.limit, selectedCategory]
   );
 
   // Fetch initial data
@@ -201,7 +218,7 @@ function AllProducts() {
     fetchInitialData();
   }, [fetchCategories, debouncedFetchProducts, pagination.page, pagination.limit, selectedCategory]);
 
-  // Socket.IO integration
+  // Socket.IO integration with optimistic updates
   useEffect(() => {
     const handleProductCreated = data => {
       console.log('DEBUG: AllProducts - Socket Product Created:', {
@@ -214,11 +231,10 @@ function AllProducts() {
           size: v.sizeOptions?.map(o => o.stock) || [],
         })),
       });
-      if (
-        isInStock(data.product) &&
-        (selectedCategory === 'all' || data.product.categoryId === selectedCategory)
-      ) {
-        setNeedsFetch(true);
+      
+      // Optimistically update if the product belongs to current category
+      if (selectedCategory === 'all' || data.product.categoryId === selectedCategory) {
+        immediateFetchProducts();
       }
     };
 
@@ -233,20 +249,26 @@ function AllProducts() {
           size: v.sizeOptions?.map(o => o.stock) || [],
         })),
       });
+      
+      // Immediate update if the product belongs to current category
       if (selectedCategory === 'all' || data.product.categoryId === selectedCategory) {
-        setNeedsFetch(true);
+        immediateFetchProducts();
       }
     };
 
-    const handleProductDeleted = () => {
-      console.log('DEBUG: AllProducts - Socket Product Deleted');
-      setNeedsFetch(true);
+    const handleProductDeleted = data => {
+      console.log('DEBUG: AllProducts - Socket Product Deleted:', {
+        productId: data.productId,
+      });
+      
+      // Optimistically remove the product from the list
+      immediateFetchProducts();
     };
 
     const handleCategoryUpdated = ({ category }) => {
       console.log('DEBUG: AllProducts - Socket Category Updated:', { categoryId: category._id });
       if (selectedCategory !== 'all' && category._id === selectedCategory) {
-        setNeedsFetch(true);
+        immediateFetchProducts();
       }
     };
 
@@ -255,7 +277,7 @@ function AllProducts() {
       if (categoryIds.includes(selectedCategory)) {
         setSelectedCategory('all');
       }
-      setNeedsFetch(true);
+      immediateFetchProducts();
     };
 
     SocketService.on('productCreated', handleProductCreated);
@@ -271,19 +293,16 @@ function AllProducts() {
       SocketService.off('categoryUpdated', handleCategoryUpdated);
       SocketService.off('categoryDeleted', handleCategoryDeleted);
     };
-  }, [selectedCategory]);
+  }, [selectedCategory, immediateFetchProducts]);
 
   // Fetch products when needed
   useEffect(() => {
-    if (needsFetch) {
-      debouncedFetchProducts(pagination.page, pagination.limit, selectedCategory);
-    }
-  }, [pagination.page, selectedCategory, needsFetch, debouncedFetchProducts]);
+    debouncedFetchProducts(pagination.page, pagination.limit, selectedCategory);
+  }, [pagination.page, selectedCategory, forceUpdate, debouncedFetchProducts]);
 
   const handlePageChange = newPage => {
     if (newPage >= 1 && newPage <= pagination.pages) {
       setPagination(prev => ({ ...prev, page: newPage }));
-      setNeedsFetch(true);
     }
   };
 
@@ -306,9 +325,10 @@ function AllProducts() {
 
     setSelectedCategory(categoryId);
     setPagination(prev => ({ ...prev, page: 1 }));
-    setNeedsFetch(true);
+    setForceUpdate(prev => prev + 1); 
     setIsCategoryDropdownOpen(false);
   };
+
 
   const toggleCategoryDropdown = e => {
     e.stopPropagation();
@@ -493,12 +513,12 @@ function AllProducts() {
   return (
     <section className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <Helmet>
-        <title>All Products | Your Store</title>
+        <title>Shop | Raees Malls</title>
         <meta name="description" content="Browse our full collection of products" />
       </Helmet>
 
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-4">
           Our Products
           {selectedCategory !== 'all' && (
             <span className="text-lg font-normal block mt-2 text-gray-600">
@@ -540,7 +560,7 @@ function AllProducts() {
 
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Mobile Category Dropdown */}
-          <div className="lg:hidden w-full mb-6">
+          <div className="lg:hidden w-full mb-3">
             <div className="relative" id="category-dropdown" ref={dropdownRef}>
               <button
                 onClick={toggleCategoryDropdown}

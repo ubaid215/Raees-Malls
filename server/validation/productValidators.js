@@ -232,11 +232,11 @@ const commonProductValidators = [
     .withMessage('Product title must be between 3 and 100 characters'),
 
   body('description')
-    .trim()
-    .notEmpty()
-    .withMessage('Product description is required')
-    .isLength({ min: 10, max: 3000 })
-    .withMessage('Product description must be between 10 and 3000 characters'),
+  .optional({ checkFalsy: true }) 
+  .trim()
+  .isLength({ min: 10, max: 3000 })
+  .withMessage('If provided, product description must be between 10 and 3000 characters'),
+
 
   body('price')
     .optional()

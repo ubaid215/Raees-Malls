@@ -6,6 +6,7 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  normalizeProduct,
 } from '../services/productService';
 import SocketService from '../services/socketService';
 import { debounce } from 'lodash';
@@ -52,16 +53,21 @@ export const ProductProvider = ({ children }) => {
     }
   }, []);
 
-  const clearRelatedCaches = useCallback((productId) => {
-    if (productId) {
-      clearCache(`product_${productId}`);
-    }
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('products_') || key.startsWith('featured_products_')) {
+const clearRelatedCaches = useCallback((productId) => {
+  if (productId) {
+    clearCache(`product_${productId}`);
+  }
+  
+  // Clear only relevant caches based on current filters
+  Object.keys(localStorage).forEach(key => {
+    if (key.startsWith('products_') || key.startsWith('featured_products_')) {
+      // Don't clear all caches, just those matching current category if exists
+      if (!pagination.categoryId || key.includes(`_${pagination.categoryId}_`)) {
         clearCache(key);
       }
-    });
-  }, [clearCache]);
+    }
+  });
+}, [clearCache, pagination.categoryId]);
 
   useEffect(() => {
     const cleanupExpiredCache = () => {
@@ -81,103 +87,60 @@ export const ProductProvider = ({ children }) => {
     return () => clearInterval(intervalId);
   }, [getCache, clearCache]);
 
-  useEffect(() => {
-    SocketService.connect();
+useEffect(() => {
+  SocketService.connect();
 
-    const handleProductCreated = (data) => {
-      const product = data.product || {};
-      const normalizedProduct = {
-        ...product,
-        price: Number.isFinite(parseFloat(product.price)) ? parseFloat(product.price) : null,
-        discountPrice: product.discountPrice
-          ? Number.isFinite(parseFloat(product.discountPrice))
-            ? parseFloat(product.discountPrice)
-            : null
-          : null,
-        stock: Number.isFinite(parseInt(product.stock)) ? parseInt(product.stock) : 0,
-        displayPrice: product.discountPrice
-          ? Number.isFinite(parseFloat(product.discountPrice))
-            ? parseFloat(product.discountPrice)
-            : parseFloat(product.price) || 0
-          : parseFloat(product.price) || 0,
-        color: product.color && typeof product.color === 'object'
-          ? { name: product.color.name || '' }
-          : { name: '' },
-        variants: product.variants?.map(variant => ({
-          ...variant,
-          storageOptions: Array.isArray(variant.storageOptions) ? variant.storageOptions : [],
-          sizeOptions: Array.isArray(variant.sizeOptions) ? variant.sizeOptions : [],
-          images: Array.isArray(variant.images) ? variant.images : [],
-          videos: Array.isArray(variant.videos) ? variant.videos : [],
-        })) || [],
-        specifications: Array.isArray(product.specifications) ? product.specifications : [],
-        features: Array.isArray(product.features) ? product.features : [],
-        images: Array.isArray(product.images) ? product.images : [],
-        videos: Array.isArray(product.videos) ? product.videos : [],
-      };
+  const handleProductCreated = (data) => {
+    const product = data.product || {};
+    const normalizedProduct = normalizeProduct(product);
+    setProducts(prev => {
+      // Check if product already exists (prevent duplicates)
+      const exists = prev.some(p => p._id === normalizedProduct._id);
+      if (exists) return prev;
+      
+      // Add new product if it matches current filters
+      const shouldAdd = !normalizedProduct.isFeatured && 
+        (pagination.categoryId ? normalizedProduct.categoryId === pagination.categoryId : true);
+      
+      return shouldAdd ? [...prev, normalizedProduct] : prev;
+    });
+    clearRelatedCaches();
+  };
 
-      if (!normalizedProduct.isFeatured) {
-        setProducts(prev => [...prev, normalizedProduct]);
-      }
-      clearRelatedCaches();
-    };
-
-    const handleProductUpdated = (data) => {
-      const product = data.product || {};
-      const normalizedProduct = {
-        ...product,
-        price: Number.isFinite(parseFloat(product.price)) ? parseFloat(product.price) : null,
-        discountPrice: product.discountPrice
-          ? Number.isFinite(parseFloat(product.discountPrice))
-            ? parseFloat(product.discountPrice)
-            : null
-          : null,
-        stock: Number.isFinite(parseInt(product.stock)) ? parseInt(product.stock) : 0,
-        displayPrice: product.discountPrice
-          ? Number.isFinite(parseFloat(product.discountPrice))
-            ? parseFloat(product.discountPrice)
-            : parseFloat(product.price) || 0
-          : parseFloat(product.price) || 0,
-        color: product.color && typeof product.color === 'object'
-          ? { name: product.color.name || '' }
-          : { name: '' },
-        variants: product.variants?.map(variant => ({
-          ...variant,
-          storageOptions: Array.isArray(variant.storageOptions) ? variant.storageOptions : [],
-          sizeOptions: Array.isArray(variant.sizeOptions) ? variant.sizeOptions : [],
-          images: Array.isArray(variant.images) ? variant.images : [],
-          videos: Array.isArray(variant.videos) ? variant.videos : [],
-        })) || [],
-        specifications: Array.isArray(product.specifications) ? product.specifications : [],
-        features: Array.isArray(product.features) ? product.features : [],
-        images: Array.isArray(product.images) ? product.images : [],
-        videos: Array.isArray(product.videos) ? product.videos : [],
-      };
-
-      if (!normalizedProduct.isFeatured) {
-        setProducts(prev => prev.map(p => 
+  const handleProductUpdated = (data) => {
+    const product = data.product || {};
+    const normalizedProduct = normalizeProduct(product);
+    setProducts(prev => {
+      // Update existing product or add if it matches current filters
+      const exists = prev.some(p => p._id === normalizedProduct._id);
+      const shouldAdd = !normalizedProduct.isFeatured && 
+        (pagination.categoryId ? normalizedProduct.categoryId === pagination.categoryId : true);
+      
+      if (exists) {
+        return prev.map(p => 
           p._id === normalizedProduct._id ? normalizedProduct : p
-        ));
+        );
       }
-      clearRelatedCaches(normalizedProduct._id);
-    };
+      return shouldAdd ? [...prev, normalizedProduct] : prev;
+    });
+    clearRelatedCaches(normalizedProduct._id);
+  };
 
-    const handleProductDeleted = (data) => {
-      setProducts(prev => prev.filter(p => p._id !== data.productId));
-      clearRelatedCaches(data.productId);
-    };
+  const handleProductDeleted = (data) => {
+    setProducts(prev => prev.filter(p => p._id !== data.productId));
+    clearRelatedCaches(data.productId);
+  };
 
-    SocketService.on('productCreated', handleProductCreated);
-    SocketService.on('productUpdated', handleProductUpdated);
-    SocketService.on('productDeleted', handleProductDeleted);
+  SocketService.on('productCreated', handleProductCreated);
+  SocketService.on('productUpdated', handleProductUpdated);
+  SocketService.on('productDeleted', handleProductDeleted);
 
-    return () => {
-      SocketService.off('productCreated', handleProductCreated);
-      SocketService.off('productUpdated', handleProductUpdated);
-      SocketService.off('productDeleted', handleProductDeleted);
-      SocketService.disconnect();
-    };
-  }, [clearRelatedCaches]);
+  return () => {
+    SocketService.off('productCreated', handleProductCreated);
+    SocketService.off('productUpdated', handleProductUpdated);
+    SocketService.off('productDeleted', handleProductDeleted);
+  };
+}, [clearRelatedCaches, pagination.categoryId]);
 
   const withRetry = useCallback(async (fn, retries = 3, delay = 1000) => {
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -236,7 +199,7 @@ export const ProductProvider = ({ children }) => {
         if (color) filters.color = color;
 
         const result = await withRetry(() =>
-          getProducts(page, limit, sort, filters, { isPublic })
+          getProducts(page, limit, sort, filters, { isPublic, includeOutOfStock: false })
         );
 
         const responseData = {
@@ -257,6 +220,7 @@ export const ProductProvider = ({ children }) => {
         return responseData;
       } catch (err) {
         setError(err.message || 'Failed to fetch products');
+        console.error('fetchProducts: Error:', err);
         const cached = getCache(cacheKey);
         if (cached?.data) {
           setProducts(cached.data.products || []);

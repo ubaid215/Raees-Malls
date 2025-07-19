@@ -17,7 +17,6 @@ import { useCart } from "../../context/CartContext";
 import Button from "../core/Button";
 import LoadingSpinner from "../core/LoadingSpinner";
 
-// SafeHTMLRenderer component - renders HTML content safely
 const SafeHTMLRenderer = ({ html, className = "" }) => {
   return (
     <div
@@ -50,8 +49,29 @@ const ProductDetails = () => {
     seconds: 0,
   });
 
+  // Helper to extract clean variant data (handles Mongoose docs)
+  const getCleanVariant = (variant) => variant._doc || variant;
+
+  // Debug logger
   useEffect(() => {
-    // Set the countdown to 3 hours when component mounts
+    if (product) {
+      console.log("CURRENT PRODUCT DATA:", {
+        product,
+        selectedColor,
+        selectedStorage,
+        selectedSize,
+        availableColors: allColors,
+        availableStorages,
+        availableSizes,
+        priceInfo,
+        baseProductStock: product.stock,
+        hasVariants: !!product.variants?.length
+      });
+    }
+  }, [product, selectedColor, selectedStorage, selectedSize]);
+
+  // Countdown timer
+  useEffect(() => {
     const endTime = new Date();
     endTime.setHours(endTime.getHours() + 3);
 
@@ -68,31 +88,125 @@ const ProductDetails = () => {
       const minutes = Math.floor((difference / 1000 / 60) % 60);
       const seconds = Math.floor((difference / 1000) % 60);
 
-      setTimeLeft({
-        hours,
-        minutes,
-        seconds,
-      });
+      setTimeLeft({ hours, minutes, seconds });
     }, 1000);
 
     return () => clearInterval(timer);
   }, []);
 
-  // Format time for display
-  const formatTime = (time) => {
-    return time < 10 ? `0${time}` : time;
-  };
-
+  // Responsive check
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
     };
-
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Get all media (images + videos) for the product
+  // Get all possible colors (handles Mongoose docs)
+  const allColors = useMemo(() => {
+    if (!product?.variants) return [];
+    const colors = new Set();
+    product.variants.forEach(variant => {
+      const variantData = getCleanVariant(variant);
+      if (variantData.color?.name) {
+        colors.add(variantData.color.name);
+      }
+    });
+    return Array.from(colors);
+  }, [product]);
+
+  // Check if base product has stock
+  const hasBaseStock = useMemo(() => {
+    return product?.stock > 0;
+  }, [product]);
+
+  // Auto-selection logic when product data changes
+  useEffect(() => {
+    if (!product || !product.variants?.length) return;
+
+    console.log("Running auto-selection logic...", {
+      hasBaseStock,
+      currentSelections: { selectedColor, selectedStorage, selectedSize }
+    });
+
+    // If base product has no stock or we need to auto-select variants
+    if (!hasBaseStock || !selectedColor) {
+      const variants = product.variants.map(getCleanVariant);
+      
+      // Find first color with available stock
+      let firstAvailableColor = null;
+      let firstAvailableStorage = null;
+      let firstAvailableSize = null;
+
+      for (const variant of variants) {
+        if (!variant.color?.name) continue;
+        
+        // Check if this variant has any available options
+        const hasVariantStock = variant.stock > 0;
+        const hasStorageStock = variant.storageOptions?.some(opt => opt.stock > 0);
+        const hasSizeStock = variant.sizeOptions?.some(opt => opt.stock > 0);
+        
+        if (hasVariantStock || hasStorageStock || hasSizeStock) {
+          if (!firstAvailableColor) {
+            firstAvailableColor = variant.color.name;
+            
+            // Auto-select first available storage if exists
+            if (!firstAvailableStorage && hasStorageStock) {
+              const availableStorage = variant.storageOptions.find(opt => opt.stock > 0);
+              firstAvailableStorage = availableStorage?.capacity;
+            }
+            
+            // Auto-select first available size if exists
+            if (!firstAvailableSize && hasSizeStock) {
+              const availableSize = variant.sizeOptions.find(opt => opt.stock > 0);
+              firstAvailableSize = availableSize?.size;
+            }
+          }
+        }
+      }
+
+      // Set selections
+      if (firstAvailableColor && !selectedColor) {
+        console.log("Auto-selecting color:", firstAvailableColor);
+        setSelectedColor(firstAvailableColor);
+      }
+      
+      if (firstAvailableStorage && !selectedStorage) {
+        console.log("Auto-selecting storage:", firstAvailableStorage);
+        setSelectedStorage(firstAvailableStorage);
+      }
+      
+      if (firstAvailableSize && !selectedSize) {
+        console.log("Auto-selecting size:", firstAvailableSize);
+        setSelectedSize(firstAvailableSize);
+      }
+    }
+  }, [product, hasBaseStock, selectedColor, selectedStorage, selectedSize]);
+
+  // Fetch product data
+  useEffect(() => {
+    const fetchProductData = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const fetchedProduct = await getProductById(productId, { isPublic: true });
+        if (!fetchedProduct) throw new Error("Product not found");
+        
+        setProduct(fetchedProduct);
+      } catch (err) {
+        console.error("Error fetching product:", err);
+        setError(err.message || "Failed to load product details");
+        toast.error(err.message || "Failed to load product details");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    if (productId) fetchProductData();
+  }, [productId]);
+
+  // Get all media (images + videos)
   const allMedia = useMemo(() => {
     const media = [];
 
@@ -106,22 +220,25 @@ const ProductDetails = () => {
 
     // Variant media for selected color
     if (selectedColor && product?.variants) {
-      const colorVariant = product.variants.find(
-        (v) => v.color?.name === selectedColor
-      );
+      const colorVariant = product.variants.find(v => {
+        const variantData = getCleanVariant(v);
+        return variantData.color?.name === selectedColor;
+      });
+      
       if (colorVariant) {
-        if (colorVariant.images) {
+        const variantData = getCleanVariant(colorVariant);
+        if (variantData.images) {
           media.push(
-            ...colorVariant.images.map((img) => ({
+            ...variantData.images.map((img) => ({
               ...img,
               type: "image",
               variant: true,
             }))
           );
         }
-        if (colorVariant.videos) {
+        if (variantData.videos) {
           media.push(
-            ...colorVariant.videos.map((vid) => ({
+            ...variantData.videos.map((vid) => ({
               ...vid,
               type: "video",
               variant: true,
@@ -133,203 +250,187 @@ const ProductDetails = () => {
 
     return media.length > 0
       ? media
-      : [
-          {
-            url: "/images/placeholder-product.png",
-            alt: "Product image",
-            type: "image",
-          },
-        ];
+      : [{ url: "/images/placeholder-product.png", alt: "Product image", type: "image" }];
   }, [product, selectedColor]);
 
-  // Get all unique colors from variants
-  const availableColors = useMemo(() => {
-    if (!product?.variants) return [];
-    const colors = new Set();
-    product.variants.forEach((variant) => {
-      if (variant.color?.name) {
-        colors.add(variant.color.name);
-      }
-    });
-    return Array.from(colors);
-  }, [product]);
-
-  // Get variants for selected color
-  const colorVariants = useMemo(() => {
+  // Find IN-STOCK variants for selected color
+  const availableVariants = useMemo(() => {
     if (!selectedColor || !product?.variants) return [];
-    return product.variants.filter((v) => v.color?.name === selectedColor);
+    
+    return product.variants.filter(variant => {
+      const variantData = getCleanVariant(variant);
+      if (variantData.color?.name !== selectedColor) return false;
+      
+      return (
+        variantData.stock > 0 ||
+        variantData.storageOptions?.some(opt => opt.stock > 0) || 
+        variantData.sizeOptions?.some(opt => opt.stock > 0)       
+      );
+    });
   }, [selectedColor, product]);
 
-  // Get available storage options for selected color
-  const storageOptions = useMemo(() => {
-    if (!colorVariants.length) return [];
+  // Get available storage options
+  const availableStorages = useMemo(() => {
     const options = new Set();
-    colorVariants.forEach((variant) => {
-      variant.storageOptions?.forEach((opt) => {
-        if (opt.stock > 0) {
-          options.add(opt.capacity);
-        }
+    availableVariants.forEach(variant => {
+      const variantData = getCleanVariant(variant);
+      variantData.storageOptions?.forEach(opt => {
+        if (opt.stock > 0) options.add(opt.capacity);
       });
     });
     return Array.from(options);
-  }, [colorVariants]);
+  }, [availableVariants]);
 
-  // Get available size options for selected color
-  const sizeOptions = useMemo(() => {
-    if (!colorVariants.length) return [];
+  // Get available size options
+  const availableSizes = useMemo(() => {
     const options = new Set();
-    colorVariants.forEach((variant) => {
-      variant.sizeOptions?.forEach((opt) => {
-        if (opt.stock > 0) {
-          options.add(opt.size);
-        }
+    availableVariants.forEach(variant => {
+      const variantData = getCleanVariant(variant);
+      variantData.sizeOptions?.forEach(opt => {
+        if (opt.stock > 0) options.add(opt.size);
       });
     });
     return Array.from(options);
-  }, [colorVariants]);
+  }, [availableVariants]);
 
-  // Get selected variant based on selections
-  const selectedVariant = useMemo(() => {
-    if (!selectedColor) return null;
-
-    return colorVariants.find((variant) => {
-      const hasSelectedStorage =
-        !selectedStorage ||
-        variant.storageOptions?.some((opt) => opt.capacity === selectedStorage);
-      const hasSelectedSize =
-        !selectedSize ||
-        variant.sizeOptions?.some((opt) => opt.size === selectedSize);
-      return hasSelectedStorage && hasSelectedSize;
+  // Get first variant image for color selection
+  const getColorImage = (colorName) => {
+    const variant = product?.variants?.find(v => {
+      const variantData = getCleanVariant(v);
+      return variantData.color?.name === colorName;
     });
-  }, [selectedColor, selectedStorage, selectedSize, colorVariants]);
+    const variantData = variant ? getCleanVariant(variant) : null;
+    return variantData?.images?.[0] || { url: "/images/placeholder-product.png" };
+  };
 
-  // Get selected option (storage or size) with price and stock
-  const selectedOption = useMemo(() => {
-    if (!selectedVariant) return null;
-
-    if (selectedStorage) {
-      return selectedVariant.storageOptions?.find(
-        (opt) => opt.capacity === selectedStorage
-      );
+  // Handle color change
+  const handleColorChange = (color) => {
+    console.log("Color change triggered:", color);
+    setSelectedColor(color);
+    setSelectedStorage(null);
+    setSelectedSize(null);
+    setActiveImageIndex(0);
+    
+    // Auto-select first available options for the new color
+    const variantsForColor = product.variants
+      .map(v => getCleanVariant(v))
+      .filter(v => v.color?.name === color);
+    
+    // Auto-select first available storage
+    const firstStorage = variantsForColor.flatMap(v => 
+      v.storageOptions?.filter(o => o.stock > 0) || []
+    )[0]?.capacity;
+    if (firstStorage) {
+      console.log("Auto-selecting storage for new color:", firstStorage);
+      setSelectedStorage(firstStorage);
     }
-    if (selectedSize) {
-      return selectedVariant.sizeOptions?.find(
-        (opt) => opt.size === selectedSize
-      );
+    
+    // Auto-select first available size
+    const firstSize = variantsForColor.flatMap(v => 
+      v.sizeOptions?.filter(o => o.stock > 0) || []
+    )[0]?.size;
+    if (firstSize) {
+      console.log("Auto-selecting size for new color:", firstSize);
+      setSelectedSize(firstSize);
     }
-    return null;
-  }, [selectedVariant, selectedStorage, selectedSize]);
+  };
 
-  // Get display price and discount info
+  // Calculate price info
   const priceInfo = useMemo(() => {
-    let originalPrice = 0;
-    let discountPrice = 0;
-    let hasDiscount = false;
-    let discountPercentage = 0;
+    let originalPrice = product?.price || 0;
+    let discountPrice = product?.discountPrice || originalPrice;
 
-    if (selectedOption) {
-      originalPrice = selectedOption.price;
-      discountPrice = selectedOption.discountPrice || selectedOption.price;
-      hasDiscount =
-        selectedOption.discountPrice &&
-        selectedOption.discountPrice < selectedOption.price;
-    } else if (selectedVariant) {
-      originalPrice = selectedVariant.price;
-      discountPrice = selectedVariant.discountPrice || selectedVariant.price;
-      hasDiscount =
-        selectedVariant.discountPrice &&
-        selectedVariant.discountPrice < selectedVariant.price;
-    } else if (product) {
-      originalPrice = product.price || 0;
-      discountPrice = product.discountPrice || product.price || 0;
-      hasDiscount =
-        product.discountPrice && product.discountPrice < product.price;
+    // Get all variants as clean objects
+    const variants = product?.variants?.map(getCleanVariant) || [];
+
+    // Priority order: size option > storage option > simple variant > base product
+    
+    // Check for selected size option first
+    if (selectedSize && selectedColor) {
+      const option = variants
+        .filter(v => v.color?.name === selectedColor)
+        .flatMap(v => v.sizeOptions?.filter(o => o.size === selectedSize && o.stock > 0) || [])
+        [0];
+      if (option) {
+        originalPrice = option.price;
+        discountPrice = option.discountPrice || option.price;
+      }
     }
-
-    if (hasDiscount) {
-      discountPercentage = Math.round(
-        ((originalPrice - discountPrice) / originalPrice) * 100
+    // Check for selected storage option
+    else if (selectedStorage && selectedColor) {
+      const option = variants
+        .filter(v => v.color?.name === selectedColor)
+        .flatMap(v => v.storageOptions?.filter(o => o.capacity === selectedStorage && o.stock > 0) || [])
+        [0];
+      if (option) {
+        originalPrice = option.price;
+        discountPrice = option.discountPrice || option.price;
+      }
+    }
+    // Check for simple color variant
+    else if (selectedColor) {
+      const variant = variants.find(v => 
+        v.color?.name === selectedColor && v.stock > 0
       );
+      if (variant) {
+        originalPrice = variant.price;
+        discountPrice = variant.discountPrice || variant.price;
+      }
     }
+
+    const hasDiscount = discountPrice < originalPrice;
+    const discountPercentage = hasDiscount
+      ? Math.round(((originalPrice - discountPrice) / originalPrice) * 100)
+      : 0;
 
     return {
       originalPrice,
       discountPrice,
       hasDiscount,
-      discountPercentage,
+      discountPercentage
     };
-  }, [selectedOption, selectedVariant, product]);
-
-  // Get stock count
-  const stockCount = useMemo(() => {
-    if (selectedOption) return selectedOption.stock;
-    if (selectedVariant) return selectedVariant.stock;
-    return product?.stock || 0;
-  }, [selectedOption, selectedVariant, product]);
-
-  // Get first variant image for color selection
-  const getColorImage = (colorName) => {
-    const variant = product?.variants?.find((v) => v.color?.name === colorName);
-    return variant?.images?.[0] || { url: "/images/placeholder-product.png" };
-  };
-
-  // Auto-select default options when product loads or color changes
-  useEffect(() => {
-    if (!product || !selectedColor) return;
-
-    const colorVariant = product.variants?.find(
-      (v) => v.color?.name === selectedColor
-    );
-    if (!colorVariant) return;
-
-    // Auto-select first storage option if not selected and options exist
-    if (!selectedStorage && colorVariant.storageOptions?.length > 0) {
-      const firstAvailableStorage = colorVariant.storageOptions.find(
-        (opt) => opt.stock > 0
-      );
-      if (firstAvailableStorage) {
-        setSelectedStorage(firstAvailableStorage.capacity);
-      }
-    }
-
-    // Auto-select first size option if not selected and options exist
-    if (!selectedSize && colorVariant.sizeOptions?.length > 0) {
-      const firstAvailableSize = colorVariant.sizeOptions.find(
-        (opt) => opt.stock > 0
-      );
-      if (firstAvailableSize) {
-        setSelectedSize(firstAvailableSize.size);
-      }
-    }
   }, [product, selectedColor, selectedStorage, selectedSize]);
 
-  useEffect(() => {
-    const fetchProductData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const fetchedProduct = await getProductById(productId, {
-          isPublic: true,
-        });
-        if (!fetchedProduct) throw new Error("Product not found");
+  // Calculate stock count
+  const stockCount = useMemo(() => {
+    const variants = product?.variants?.map(getCleanVariant) || [];
+    
+    // Priority order: size option > storage option > simple variant > base product
+    
+    // Size option
+    if (selectedSize && selectedColor) {
+      const option = variants
+        .filter(v => v.color?.name === selectedColor)
+        .flatMap(v => v.sizeOptions?.filter(o => o.size === selectedSize && o.stock > 0) || [])
+        [0];
+      return option?.stock || 0;
+    }
+    
+    // Storage option
+    if (selectedStorage && selectedColor) {
+      const option = variants
+        .filter(v => v.color?.name === selectedColor)
+        .flatMap(v => v.storageOptions?.filter(o => o.capacity === selectedStorage && o.stock > 0) || [])
+        [0];
+      return option?.stock || 0;
+    }
+    
+    // Simple color variant
+    if (selectedColor) {
+      const variant = variants.find(v => 
+        v.color?.name === selectedColor && v.stock > 0
+      );
+      return variant?.stock || 0;
+    }
+    
+    // Base product
+    return product?.stock || 0;
+  }, [product, selectedColor, selectedStorage, selectedSize]);
 
-        setProduct(fetchedProduct);
-
-        // Auto-select first available color if variants exist
-        if (fetchedProduct.variants?.length > 0) {
-          const firstColor = fetchedProduct.variants[0]?.color?.name;
-          if (firstColor) setSelectedColor(firstColor);
-        }
-      } catch (err) {
-        setError(err.message || "Failed to load product details");
-        toast.error(err.message || "Failed to load product details");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (productId) fetchProductData();
-  }, [productId]);
+  // Format time for display
+  const formatTime = (time) => {
+    return time < 10 ? `0${time}` : time;
+  };
 
   const handleAddToCart = async () => {
     if (!product) return;
@@ -339,11 +440,13 @@ const ProductDetails = () => {
       return;
     }
 
-    if (
-      (storageOptions.length > 0 && !selectedStorage) ||
-      (sizeOptions.length > 0 && !selectedSize)
-    ) {
-      toast.info("Please select all required options");
+    if (availableStorages.length > 0 && !selectedStorage) {
+      toast.info("Please select a storage option");
+      return;
+    }
+
+    if (availableSizes.length > 0 && !selectedSize) {
+      toast.info("Please select a size");
       return;
     }
 
@@ -351,8 +454,9 @@ const ProductDetails = () => {
       const variantOptions = {
         variantColor: selectedColor || null,
         storageCapacity: selectedStorage || null,
-        size: selectedSize ? selectedSize.replace(/\s+/g, "") : null, // Remove spaces from size
+        size: selectedSize ? selectedSize.replace(/\s+/g, "") : null,
       };
+      
       const result = await addItemToCart(product._id, variantOptions, 1);
       if (result.success) {
         toast.success("Added to cart");
@@ -360,27 +464,12 @@ const ProductDetails = () => {
         throw new Error(result.message || "Failed to add to cart");
       }
     } catch (err) {
+      console.error("Add to cart error:", err);
       toast.error(err.message || "Failed to add to cart");
     }
   };
 
   const handleBuyNow = () => {
-    if (!product) return;
-
-    if (!selectedColor && product.variants?.length > 0) {
-      toast.info("Please select a color");
-      return;
-    }
-
-    if (
-      (storageOptions.length > 0 && !selectedStorage) ||
-      (sizeOptions.length > 0 && !selectedSize)
-    ) {
-      toast.info("Please select all required options");
-      return;
-    }
-
-    // Add to cart first, then navigate to checkout
     handleAddToCart();
     navigate("/checkout");
   };
@@ -392,7 +481,6 @@ const ProductDetails = () => {
         url: window.location.href,
       });
     } else {
-      // Fallback: copy to clipboard
       navigator.clipboard.writeText(window.location.href);
       toast.success("Product link copied to clipboard!");
     }
@@ -416,7 +504,6 @@ const ProductDetails = () => {
     e.target.onerror = null;
   };
 
-  // Handle seamless image transition
   const handleImageChange = (index) => {
     setActiveImageIndex(index);
   };
@@ -530,9 +617,9 @@ const ProductDetails = () => {
           </div>
         </div>
 
-        {/* Product Details - Consolidated into one div */}
+        {/* Product Details */}
         <div className="lg:w-1/2 space-y-6 bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
-          {/* Product Title with Share Icon - Enhanced */}
+          {/* Product Title with Share Icon */}
           <div className="relative bg-gradient-to-r from-gray-50 to-blue-50 rounded-2xl p-6 border border-gray-100 shadow-sm mb-6">
             <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-red-500/10 to-blue-500/10 rounded-full blur-xl"></div>
             <div className="relative flex items-start gap-4">
@@ -559,7 +646,7 @@ const ProductDetails = () => {
             </div>
           </div>
 
-          {/* Rating, Reviews, Stock Info - Enhanced */}
+          {/* Rating, Reviews, Stock Info */}
           <div className="mb-6">
             <div className="flex items-center gap-4 flex-wrap">
               {/* Rating */}
@@ -622,7 +709,7 @@ const ProductDetails = () => {
             </div>
           </div>
 
-          {/* Price with Discount - Enhanced */}
+          {/* Price with Discount */}
           <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-xl p-6 border border-red-100 shadow-sm relative overflow-hidden mb-6">
             <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-red-500/10 to-orange-500/10 rounded-full blur-2xl"></div>
             <div className="relative space-y-3">
@@ -658,8 +745,8 @@ const ProductDetails = () => {
             </div>
           </div>
 
-          {/* Color Selection - Enhanced */}
-          {availableColors.length > 0 && (
+          {/* Color Selection */}
+          {allColors.length > 0 && (
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-6 h-6 bg-gradient-to-r from-red-500 to-pink-500 rounded-full"></div>
@@ -668,21 +755,27 @@ const ProductDetails = () => {
                 </h3>
               </div>
               <div className="flex gap-3 flex-wrap">
-                {availableColors.map((color) => (
+                {allColors.map((color) => (
                   <button
                     key={color}
-                    onClick={() => {
-                      setSelectedColor(color);
-                      setSelectedStorage(null);
-                      setSelectedSize(null);
-                      setActiveImageIndex(0);
-                    }}
+                    onClick={() => handleColorChange(color)}
                     className={`w-16 h-16 rounded-xl border-3 overflow-hidden transition-all duration-300 hover:scale-110 ${
                       selectedColor === color
                         ? "border-purple-500 scale-105 shadow-lg ring-4 ring-purple-200"
                         : "border-gray-200 hover:border-gray-400"
+                    } ${
+                      !availableVariants.some(v => {
+                        const variantData = getCleanVariant(v);
+                        return variantData.color?.name === color;
+                      })
+                        ? "opacity-50 cursor-not-allowed"
+                        : ""
                     }`}
                     title={color}
+                    disabled={!availableVariants.some(v => {
+                      const variantData = getCleanVariant(v);
+                      return variantData.color?.name === color;
+                    })}
                   >
                     <img
                       src={getColorImage(color).url}
@@ -696,15 +789,15 @@ const ProductDetails = () => {
             </div>
           )}
 
-          {/* Storage Options - Enhanced */}
-          {storageOptions.length > 0 && (
+          {/* Storage Options */}
+          {availableStorages.length > 0 && (
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-full"></div>
                 <h3 className="font-bold text-xl text-gray-800">Storage</h3>
               </div>
               <div className="flex flex-wrap gap-3">
-                {storageOptions.map((storage) => (
+                {availableStorages.map((storage) => (
                   <button
                     key={storage}
                     onClick={() => setSelectedStorage(storage)}
@@ -729,15 +822,15 @@ const ProductDetails = () => {
             </div>
           )}
 
-          {/* Size Options - Enhanced */}
-          {sizeOptions.length > 0 && (
+          {/* Size Options */}
+          {availableSizes.length > 0 && (
             <div className="mb-6">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-6 h-6 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full"></div>
                 <h3 className="font-bold text-xl text-gray-800">Size</h3>
               </div>
               <div className="flex flex-wrap gap-3">
-                {sizeOptions.map((size) => (
+                {availableSizes.map((size) => (
                   <button
                     key={size}
                     onClick={() => setSelectedSize(size)}
@@ -762,7 +855,7 @@ const ProductDetails = () => {
             </div>
           )}
 
-          {/* Desktop Action Buttons - Enhanced */}
+          {/* Desktop Action Buttons */}
           {!isMobile && (
             <div className="flex flex-col sm:flex-row gap-4 pt-6">
               <Button
@@ -782,7 +875,7 @@ const ProductDetails = () => {
             </div>
           )}
 
-          {/* Expandable Sections - Enhanced */}
+          {/* Expandable Sections */}
           <div className="pt-6 space-y-4">
             {/* Description */}
             {product.description && (
@@ -906,7 +999,7 @@ const ProductDetails = () => {
         </div>
       </div>
 
-      {/* Mobile Action Buttons (Fixed at bottom) - Enhanced */}
+      {/* Mobile Action Buttons */}
       {isMobile && (
         <div className="fixed bottom-0 left-0 right-0 bg-white shadow-2xl border-t border-gray-200 p-4 z-10">
           <div className="flex gap-3">

@@ -159,12 +159,19 @@ const productSchema = new mongoose.Schema({
     maxlength: [100, 'Title cannot exceed 100 characters'],
   },
   description: {
-    type: String,
-    required: [true, 'Product description is required'],
-    trim: true,
-    minlength: [10, 'Description must be at least 10 characters'],
-    maxlength: [3000, 'Description cannot exceed 3000 characters'],
-  },
+  type: String,
+  required: false,
+  validate: {
+    validator: function(value) {
+      // If no value or empty string, it's valid (optional field)
+      if (!value || value.trim() === '') return true;
+      
+      // If value exists, check length
+      return value.length >= 10 && value.length <= 3000;
+    },
+    message: 'Description must be empty or contain at least 10 characters'
+  }
+},
   price: {
     type: Number,
     min: [0, 'Price cannot be negative'],
@@ -431,8 +438,6 @@ productSchema.pre('save', async function (next) {
 });
 
 // Index for better performance
-productSchema.index({ 'seo.slug': 1 });
-productSchema.index({ sku: 1 });
 productSchema.index({ categoryId: 1 });
 productSchema.index({ brand: 1 });
 productSchema.index({ isFeatured: 1 });

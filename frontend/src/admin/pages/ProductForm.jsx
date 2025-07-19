@@ -1023,7 +1023,7 @@ const ProductForm = ({
             }}
             label="Product Description"
             error={errors.description?.message}
-            required
+            required = {false}
           />
         </div>
       </div>

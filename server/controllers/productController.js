@@ -688,13 +688,14 @@ exports.getAllProducts = async (req, res, next) => {
     const conditions = [];
 
     // Stock availability check
-    conditions.push({
-      $or: [
-        { stock: { $gt: 0 } },
-        { 'variants.storageOptions.stock': { $gt: 0 } },
-        { 'variants.sizeOptions.stock': { $gt: 0 } },
-      ]
-    });
+   conditions.push({
+  $or: [
+    { stock: { $gt: 0 } },  // Root-level stock
+    { 'variants.stock': { $gt: 0 } },  // Direct variant stock (for color variants)
+    { 'variants.storageOptions.stock': { $gt: 0 } },  // Storage options
+    { 'variants.sizeOptions.stock': { $gt: 0 } },  // Size options
+  ]
+});
 
     if (categoryId) query.categoryId = categoryId;
 
@@ -879,6 +880,7 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
     conditions.push({
       $or: [
         { stock: { $gt: 0 } },
+        { 'variants.stock': { $gt: 0 } }, // Added for simple color variants
         { 'variants.storageOptions.stock': { $gt: 0 } },
         { 'variants.sizeOptions.stock': { $gt: 0 } },
       ]
@@ -898,6 +900,19 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
           },
           {
             discountPrice: {
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+          },
+          {
+            'variants.price': { // Added for simple color variants
+              ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
+              ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
+            },
+            'variants.discountPrice': null,
+          },
+          {
+            'variants.discountPrice': { // Added for simple color variants
               ...(minPrice ? { $gte: parseFloat(minPrice) } : {}),
               ...(maxPrice ? { $lte: parseFloat(maxPrice) } : {}),
             },
@@ -948,6 +963,7 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
           { description: { $regex: search, $options: 'i' } },
           { brand: { $regex: search, $options: 'i' } },
           { sku: { $regex: search, $options: 'i' } },
+          { 'variants.sku': { $regex: search, $options: 'i' } }, // Added for simple color variants
           { 'variants.storageOptions.sku': { $regex: search, $options: 'i' } },
           { 'variants.sizeOptions.sku': { $regex: search, $options: 'i' } },
         ]
@@ -976,9 +992,10 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
       const productObj = product.toObject();
       return {
         ...productObj,
-        displayPrice: product.discountPrice || product.price,
+        displayPrice: product.discountPrice || product.price || getMinVariantPrice(productObj.variants),
         variants: productObj.variants.map(variant => ({
           ...variant,
+          displayPrice: variant.discountPrice || variant.price || getMinOptionPrice(variant),
           storageOptions: variant.storageOptions?.map(option => ({
             ...option,
             displayPrice: option.discountPrice || option.price
@@ -1001,13 +1018,55 @@ exports.getAllProductsForCustomers = async (req, res, next) => {
       totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
+    console.error('getAllProductsForCustomers: Error:', error);
     return next(error);
   }
 };
 
+// Helper function to get minimum price from variants
+function getMinVariantPrice(variants) {
+  const prices = [];
+  variants.forEach(variant => {
+    if (variant.price !== undefined) {
+      prices.push(variant.discountPrice || variant.price);
+    }
+    if (variant.storageOptions) {
+      variant.storageOptions.forEach(opt => {
+        prices.push(opt.discountPrice || opt.price);
+      });
+    }
+    if (variant.sizeOptions) {
+      variant.sizeOptions.forEach(opt => {
+        prices.push(opt.discountPrice || opt.price);
+      });
+    }
+  });
+  return prices.length > 0 ? Math.min(...prices) : null;
+}
+
+// Helper function to get minimum price from variant options
+function getMinOptionPrice(variant) {
+  const prices = [];
+  if (variant.price !== undefined) {
+    prices.push(variant.discountPrice || variant.price);
+  }
+  if (variant.storageOptions) {
+    variant.storageOptions.forEach(opt => {
+      prices.push(opt.discountPrice || opt.price);
+    });
+  }
+  if (variant.sizeOptions) {
+    variant.sizeOptions.forEach(opt => {
+      prices.push(opt.discountPrice || opt.price);
+    });
+  }
+  return prices.length > 0 ? Math.min(...prices) : null;
+}
+
 exports.getProductDetailsForCustomers = async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      console.error('getProductDetailsForCustomers: Invalid product ID:', req.params.id);
       return next(new ApiError(400, 'Invalid product ID'));
     }
 
@@ -1015,6 +1074,7 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       _id: req.params.id,
       $or: [
         { stock: { $gt: 0 } },
+        { 'variants.stock': { $gt: 0 } }, // Added for simple color variants
         { 'variants.storageOptions.stock': { $gt: 0 } },
         { 'variants.sizeOptions.stock': { $gt: 0 } },
       ]
@@ -1023,14 +1083,16 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       .populate('categoryId', 'name slug');
 
     if (!product) {
+      console.error('getProductDetailsForCustomers: Product not found or out of stock, ID:', req.params.id);
       return next(new ApiError(404, 'Product not found or out of stock'));
     }
 
     const productWithDisplayPrice = {
       ...product.toObject(),
-      displayPrice: product.discountPrice || product.price,
+      displayPrice: product.discountPrice || product.price || getMinVariantPrice(product.variants),
       variants: product.variants.map(variant => ({
         ...variant,
+        displayPrice: variant.discountPrice || variant.price || getMinOptionPrice(variant),
         storageOptions: variant.storageOptions?.map(option => ({
           ...option,
           displayPrice: option.discountPrice || option.price
@@ -1046,6 +1108,7 @@ exports.getProductDetailsForCustomers = async (req, res, next) => {
       product: productWithDisplayPrice,
     });
   } catch (error) {
+    console.error('getProductDetailsForCustomers: Error:', error);
     return next(error);
   }
 };

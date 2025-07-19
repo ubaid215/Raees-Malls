@@ -1,33 +1,57 @@
 @import "tailwindcss";
 
-:root 
-  /* Color Palette */
-  /* --color-white: #FFFFFF;
-  --color-red: #D32F2F;
-  --color-gray-soft: #F5F5F5;
-  --color-gray-dark: #424242;
-  --color-light-red: #FFCDD2;
-  --color-charcoal: #212121; */
-
-
-/* Color-list : 
-1. #232F3F,
-2. #F80000,
-3. #BA0001, second shade of red
-4. #F5F5F5,
-5. #FFFFFF, */
-
-
-h1,h2,h3,h4{
-  font-family: poppins;
+/* iOS Safari fixes */
+* {
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
 }
-h5,h6,p{
-  font-family:  mulish;
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
 }
-button{
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Prevent iOS bounce scroll */
+  position: fixed;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Your existing font rules */
+h1, h2, h3, h4 {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+h5, h6, p {
+  font-family: mulish;
+}
+
+button {
   cursor: pointer;
+  /* Fix iOS button appearance */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
+/* Fix iOS input styling */
+input, textarea, select {
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 0;
+}
+
+/* Your existing animations */
 @keyframes shimmer {
   0% {
     background-position: -468px 0;
@@ -36,6 +60,7 @@ button{
     background-position: 468px 0;
   }
 }
+
 .animate-shimmer {
   background: linear-gradient(to right, #e5e7eb 8%, #f3f4f6 18%, #e5e7eb 33%);
   background-size: 800px 104px;
@@ -54,4 +79,3 @@ button{
 .blink-animation {
   animation: blink 3s linear infinite;
 }
-
