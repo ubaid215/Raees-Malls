@@ -65,7 +65,7 @@ const ProductDetails = () => {
         availableSizes,
         priceInfo,
         baseProductStock: product.stock,
-        hasVariants: !!product.variants?.length
+        hasVariants: !!product.variants?.length,
       });
     }
   }, [product, selectedColor, selectedStorage, selectedSize]);
@@ -107,7 +107,7 @@ const ProductDetails = () => {
   const allColors = useMemo(() => {
     if (!product?.variants) return [];
     const colors = new Set();
-    product.variants.forEach(variant => {
+    product.variants.forEach((variant) => {
       const variantData = getCleanVariant(variant);
       if (variantData.color?.name) {
         colors.add(variantData.color.name);
@@ -127,13 +127,13 @@ const ProductDetails = () => {
 
     console.log("Running auto-selection logic...", {
       hasBaseStock,
-      currentSelections: { selectedColor, selectedStorage, selectedSize }
+      currentSelections: { selectedColor, selectedStorage, selectedSize },
     });
 
     // If base product has no stock or we need to auto-select variants
     if (!hasBaseStock || !selectedColor) {
       const variants = product.variants.map(getCleanVariant);
-      
+
       // Find first color with available stock
       let firstAvailableColor = null;
       let firstAvailableStorage = null;
@@ -141,25 +141,31 @@ const ProductDetails = () => {
 
       for (const variant of variants) {
         if (!variant.color?.name) continue;
-        
+
         // Check if this variant has any available options
         const hasVariantStock = variant.stock > 0;
-        const hasStorageStock = variant.storageOptions?.some(opt => opt.stock > 0);
-        const hasSizeStock = variant.sizeOptions?.some(opt => opt.stock > 0);
-        
+        const hasStorageStock = variant.storageOptions?.some(
+          (opt) => opt.stock > 0
+        );
+        const hasSizeStock = variant.sizeOptions?.some((opt) => opt.stock > 0);
+
         if (hasVariantStock || hasStorageStock || hasSizeStock) {
           if (!firstAvailableColor) {
             firstAvailableColor = variant.color.name;
-            
+
             // Auto-select first available storage if exists
             if (!firstAvailableStorage && hasStorageStock) {
-              const availableStorage = variant.storageOptions.find(opt => opt.stock > 0);
+              const availableStorage = variant.storageOptions.find(
+                (opt) => opt.stock > 0
+              );
               firstAvailableStorage = availableStorage?.capacity;
             }
-            
+
             // Auto-select first available size if exists
             if (!firstAvailableSize && hasSizeStock) {
-              const availableSize = variant.sizeOptions.find(opt => opt.stock > 0);
+              const availableSize = variant.sizeOptions.find(
+                (opt) => opt.stock > 0
+              );
               firstAvailableSize = availableSize?.size;
             }
           }
@@ -171,12 +177,12 @@ const ProductDetails = () => {
         console.log("Auto-selecting color:", firstAvailableColor);
         setSelectedColor(firstAvailableColor);
       }
-      
+
       if (firstAvailableStorage && !selectedStorage) {
         console.log("Auto-selecting storage:", firstAvailableStorage);
         setSelectedStorage(firstAvailableStorage);
       }
-      
+
       if (firstAvailableSize && !selectedSize) {
         console.log("Auto-selecting size:", firstAvailableSize);
         setSelectedSize(firstAvailableSize);
@@ -190,9 +196,11 @@ const ProductDetails = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const fetchedProduct = await getProductById(productId, { isPublic: true });
+        const fetchedProduct = await getProductById(productId, {
+          isPublic: true,
+        });
         if (!fetchedProduct) throw new Error("Product not found");
-        
+
         setProduct(fetchedProduct);
       } catch (err) {
         console.error("Error fetching product:", err);
@@ -202,7 +210,7 @@ const ProductDetails = () => {
         setIsLoading(false);
       }
     };
-    
+
     if (productId) fetchProductData();
   }, [productId]);
 
@@ -220,11 +228,11 @@ const ProductDetails = () => {
 
     // Variant media for selected color
     if (selectedColor && product?.variants) {
-      const colorVariant = product.variants.find(v => {
+      const colorVariant = product.variants.find((v) => {
         const variantData = getCleanVariant(v);
         return variantData.color?.name === selectedColor;
       });
-      
+
       if (colorVariant) {
         const variantData = getCleanVariant(colorVariant);
         if (variantData.images) {
@@ -250,21 +258,27 @@ const ProductDetails = () => {
 
     return media.length > 0
       ? media
-      : [{ url: "/images/placeholder-product.png", alt: "Product image", type: "image" }];
+      : [
+          {
+            url: "/images/placeholder-product.png",
+            alt: "Product image",
+            type: "image",
+          },
+        ];
   }, [product, selectedColor]);
 
   // Find IN-STOCK variants for selected color
   const availableVariants = useMemo(() => {
     if (!selectedColor || !product?.variants) return [];
-    
-    return product.variants.filter(variant => {
+
+    return product.variants.filter((variant) => {
       const variantData = getCleanVariant(variant);
       if (variantData.color?.name !== selectedColor) return false;
-      
+
       return (
         variantData.stock > 0 ||
-        variantData.storageOptions?.some(opt => opt.stock > 0) || 
-        variantData.sizeOptions?.some(opt => opt.stock > 0)       
+        variantData.storageOptions?.some((opt) => opt.stock > 0) ||
+        variantData.sizeOptions?.some((opt) => opt.stock > 0)
       );
     });
   }, [selectedColor, product]);
@@ -272,9 +286,9 @@ const ProductDetails = () => {
   // Get available storage options
   const availableStorages = useMemo(() => {
     const options = new Set();
-    availableVariants.forEach(variant => {
+    availableVariants.forEach((variant) => {
       const variantData = getCleanVariant(variant);
-      variantData.storageOptions?.forEach(opt => {
+      variantData.storageOptions?.forEach((opt) => {
         if (opt.stock > 0) options.add(opt.capacity);
       });
     });
@@ -284,9 +298,9 @@ const ProductDetails = () => {
   // Get available size options
   const availableSizes = useMemo(() => {
     const options = new Set();
-    availableVariants.forEach(variant => {
+    availableVariants.forEach((variant) => {
       const variantData = getCleanVariant(variant);
-      variantData.sizeOptions?.forEach(opt => {
+      variantData.sizeOptions?.forEach((opt) => {
         if (opt.stock > 0) options.add(opt.size);
       });
     });
@@ -295,12 +309,14 @@ const ProductDetails = () => {
 
   // Get first variant image for color selection
   const getColorImage = (colorName) => {
-    const variant = product?.variants?.find(v => {
+    const variant = product?.variants?.find((v) => {
       const variantData = getCleanVariant(v);
       return variantData.color?.name === colorName;
     });
     const variantData = variant ? getCleanVariant(variant) : null;
-    return variantData?.images?.[0] || { url: "/images/placeholder-product.png" };
+    return (
+      variantData?.images?.[0] || { url: "/images/placeholder-product.png" }
+    );
   };
 
   // Handle color change
@@ -310,24 +326,24 @@ const ProductDetails = () => {
     setSelectedStorage(null);
     setSelectedSize(null);
     setActiveImageIndex(0);
-    
+
     // Auto-select first available options for the new color
     const variantsForColor = product.variants
-      .map(v => getCleanVariant(v))
-      .filter(v => v.color?.name === color);
-    
+      .map((v) => getCleanVariant(v))
+      .filter((v) => v.color?.name === color);
+
     // Auto-select first available storage
-    const firstStorage = variantsForColor.flatMap(v => 
-      v.storageOptions?.filter(o => o.stock > 0) || []
+    const firstStorage = variantsForColor.flatMap(
+      (v) => v.storageOptions?.filter((o) => o.stock > 0) || []
     )[0]?.capacity;
     if (firstStorage) {
       console.log("Auto-selecting storage for new color:", firstStorage);
       setSelectedStorage(firstStorage);
     }
-    
+
     // Auto-select first available size
-    const firstSize = variantsForColor.flatMap(v => 
-      v.sizeOptions?.filter(o => o.stock > 0) || []
+    const firstSize = variantsForColor.flatMap(
+      (v) => v.sizeOptions?.filter((o) => o.stock > 0) || []
     )[0]?.size;
     if (firstSize) {
       console.log("Auto-selecting size for new color:", firstSize);
@@ -344,13 +360,17 @@ const ProductDetails = () => {
     const variants = product?.variants?.map(getCleanVariant) || [];
 
     // Priority order: size option > storage option > simple variant > base product
-    
+
     // Check for selected size option first
     if (selectedSize && selectedColor) {
       const option = variants
-        .filter(v => v.color?.name === selectedColor)
-        .flatMap(v => v.sizeOptions?.filter(o => o.size === selectedSize && o.stock > 0) || [])
-        [0];
+        .filter((v) => v.color?.name === selectedColor)
+        .flatMap(
+          (v) =>
+            v.sizeOptions?.filter(
+              (o) => o.size === selectedSize && o.stock > 0
+            ) || []
+        )[0];
       if (option) {
         originalPrice = option.price;
         discountPrice = option.discountPrice || option.price;
@@ -359,9 +379,13 @@ const ProductDetails = () => {
     // Check for selected storage option
     else if (selectedStorage && selectedColor) {
       const option = variants
-        .filter(v => v.color?.name === selectedColor)
-        .flatMap(v => v.storageOptions?.filter(o => o.capacity === selectedStorage && o.stock > 0) || [])
-        [0];
+        .filter((v) => v.color?.name === selectedColor)
+        .flatMap(
+          (v) =>
+            v.storageOptions?.filter(
+              (o) => o.capacity === selectedStorage && o.stock > 0
+            ) || []
+        )[0];
       if (option) {
         originalPrice = option.price;
         discountPrice = option.discountPrice || option.price;
@@ -369,8 +393,8 @@ const ProductDetails = () => {
     }
     // Check for simple color variant
     else if (selectedColor) {
-      const variant = variants.find(v => 
-        v.color?.name === selectedColor && v.stock > 0
+      const variant = variants.find(
+        (v) => v.color?.name === selectedColor && v.stock > 0
       );
       if (variant) {
         originalPrice = variant.price;
@@ -387,42 +411,50 @@ const ProductDetails = () => {
       originalPrice,
       discountPrice,
       hasDiscount,
-      discountPercentage
+      discountPercentage,
     };
   }, [product, selectedColor, selectedStorage, selectedSize]);
 
   // Calculate stock count
   const stockCount = useMemo(() => {
     const variants = product?.variants?.map(getCleanVariant) || [];
-    
+
     // Priority order: size option > storage option > simple variant > base product
-    
+
     // Size option
     if (selectedSize && selectedColor) {
       const option = variants
-        .filter(v => v.color?.name === selectedColor)
-        .flatMap(v => v.sizeOptions?.filter(o => o.size === selectedSize && o.stock > 0) || [])
-        [0];
+        .filter((v) => v.color?.name === selectedColor)
+        .flatMap(
+          (v) =>
+            v.sizeOptions?.filter(
+              (o) => o.size === selectedSize && o.stock > 0
+            ) || []
+        )[0];
       return option?.stock || 0;
     }
-    
+
     // Storage option
     if (selectedStorage && selectedColor) {
       const option = variants
-        .filter(v => v.color?.name === selectedColor)
-        .flatMap(v => v.storageOptions?.filter(o => o.capacity === selectedStorage && o.stock > 0) || [])
-        [0];
+        .filter((v) => v.color?.name === selectedColor)
+        .flatMap(
+          (v) =>
+            v.storageOptions?.filter(
+              (o) => o.capacity === selectedStorage && o.stock > 0
+            ) || []
+        )[0];
       return option?.stock || 0;
     }
-    
+
     // Simple color variant
     if (selectedColor) {
-      const variant = variants.find(v => 
-        v.color?.name === selectedColor && v.stock > 0
+      const variant = variants.find(
+        (v) => v.color?.name === selectedColor && v.stock > 0
       );
       return variant?.stock || 0;
     }
-    
+
     // Base product
     return product?.stock || 0;
   }, [product, selectedColor, selectedStorage, selectedSize]);
@@ -456,7 +488,7 @@ const ProductDetails = () => {
         storageCapacity: selectedStorage || null,
         size: selectedSize ? selectedSize.replace(/\s+/g, "") : null,
       };
-      
+
       const result = await addItemToCart(product._id, variantOptions, 1);
       if (result.success) {
         toast.success("Added to cart");
@@ -764,7 +796,7 @@ const ProductDetails = () => {
                         ? "border-purple-500 scale-105 shadow-lg ring-4 ring-purple-200"
                         : "border-gray-200 hover:border-gray-400"
                     } ${
-                      !availableVariants.some(v => {
+                      !availableVariants.some((v) => {
                         const variantData = getCleanVariant(v);
                         return variantData.color?.name === color;
                       })
@@ -772,10 +804,19 @@ const ProductDetails = () => {
                         : ""
                     }`}
                     title={color}
-                    disabled={!availableVariants.some(v => {
-                      const variantData = getCleanVariant(v);
-                      return variantData.color?.name === color;
-                    })}
+                    disabled={
+                      !product.variants.some((v) => {
+                        const variantData = getCleanVariant(v);
+                        return (
+                          variantData.color?.name === color &&
+                          (variantData.stock > 0 ||
+                            variantData.storageOptions?.some(
+                              (o) => o.stock > 0
+                            ) ||
+                            variantData.sizeOptions?.some((o) => o.stock > 0))
+                        );
+                      })
+                    }
                   >
                     <img
                       src={getColorImage(color).url}
