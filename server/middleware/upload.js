@@ -1,16 +1,15 @@
-// middleware/upload.js
 const multer = require('multer');
 const cloudinary = require('../config/cloudinary');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const ApiError = require('../utils/apiError');
 
-// Configure Cloudinary storage for both images and videos
+// Configure Cloudinary storage
 const getStorage = (folder) => new CloudinaryStorage({
   cloudinary: cloudinary,
   params: (req, file) => ({
     folder: `raees_mobiles/${folder}`,
-    resource_type: file.fieldname.includes('Videos') || file.fieldname.includes('videos') ? 'video' : 'image',
-    allowed_formats: file.fieldname.includes('Videos') || file.fieldname.includes('videos')
+    resource_type: file.fieldname.includes('Videos') ? 'video' : 'image',
+    allowed_formats: file.fieldname.includes('Videos')
       ? ['mp4', 'webm', 'mov'] 
       : ['jpg', 'jpeg', 'png', 'webp'],
     public_id: `${file.fieldname}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${file.originalname.split('.')[0]}`
@@ -26,9 +25,8 @@ const fileFilter = (req, file, cb) => {
 
   if (mimetype && extname) {
     return cb(null, true);
-  } else {
-    cb(new ApiError(400, `Only JPEG, JPG, PNG, and WebP images are allowed (Field: ${file.fieldname}, MIME: ${file.mimetype})`));
   }
+  cb(new ApiError(400, `Only JPEG, JPG, PNG, and WebP images are allowed (Field: ${file.fieldname}, MIME: ${file.mimetype})`));
 };
 
 // File filter for videos
@@ -41,121 +39,87 @@ const videoFileFilter = (req, file, cb) => {
 
   if (mimetype && extname) {
     return cb(null, true);
-  } else {
-    cb(new ApiError(400, `Only MP4, WebM, and MOV videos are allowed (Field: ${file.fieldname}, MIME: ${file.mimetype})`));
   }
+  cb(new ApiError(400, `Only MP4, WebM, and MOV videos are allowed (Field: ${file.fieldname}, MIME: ${file.mimetype})`));
 };
 
-// Helper function to determine if field is for video uploads
-const isVideoField = (fieldname) => {
-  const videoFields = ['videos', 'baseVideos', 'variantVideos'];
-  return videoFields.some(field => 
-    fieldname === field || 
-    fieldname.startsWith(`${field}[`) || 
-    fieldname.includes('videos') || 
-    fieldname.includes('Videos')
-  );
-};
+// Helper functions
+const isVideoField = (fieldname) => fieldname.includes('Videos') || fieldname.includes('videos');
+const isImageField = (fieldname) => fieldname.includes('image') || fieldname.includes('Images');
 
-// Helper function to determine if field is for image uploads
-const isImageField = (fieldname) => {
-  const imageFields = ['image', 'images', 'baseImages', 'variantImages', 'banners'];
-  return imageFields.some(field => 
-    fieldname === field || 
-    fieldname.startsWith(`${field}[`) ||
-    fieldname.includes('image') ||
-    fieldname.includes('Images')
-  );
-};
-
-// Helper function to validate variant field names
 const validateVariantField = (fieldname) => {
-  const variantRegex = /^(variantImages|variantVideos)\[\d+\]$/;
-  if (variantRegex.test(fieldname)) {
-    const index = parseInt(fieldname.match(/\[(\d+)\]/)[1], 10);
-    if (isNaN(index) || index < 0) {
-      throw new ApiError(400, `Invalid variant index in field: ${fieldname}`);
+  const variantRegex = /^(variantImages|variantVideos)\[(\d+)\]$/;
+  const match = fieldname.match(variantRegex);
+  
+  if (match) {
+    const index = parseInt(match[2], 10);
+    if (isNaN(index) || index < 0 || index > 5) {
+      throw new ApiError(400, `Invalid variant index in field: ${fieldname}. Maximum 6 variants allowed (0-5)`);
     }
     return true;
   }
   return false;
 };
 
-// Multer configurations for different use cases
+// Multer configurations
 const upload = {
-  // For single image uploads (e.g., banners)
   single: (fieldName, folder = 'misc') => multer({
     storage: getStorage(folder),
     fileFilter: fileFilter,
-    limits: { fileSize: 30 * 1024 * 1024 } // 30MB 
+    limits: { fileSize: 30 * 1024 * 1024 }
   }).single(fieldName),
 
-  // For single video uploads
   singleVideo: (fieldName, folder = 'videos') => multer({
     storage: getStorage(folder),
     fileFilter: videoFileFilter,
-    limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+    limits: { fileSize: 100 * 1024 * 1024 }
   }).single(fieldName),
 
-  // For multiple image uploads (e.g., products with baseImages)
   array: (fieldName, maxCount, folder = 'products') => multer({
     storage: getStorage(folder),
     fileFilter: fileFilter,
-    limits: { fileSize: 30 * 1024 * 1024 } 
+    limits: { fileSize: 30 * 1024 * 1024 }
   }).array(fieldName, maxCount),
 
-  // For multiple video uploads (e.g., products with baseVideos)
   arrayVideos: (fieldName, maxCount, folder = 'videos') => multer({
     storage: getStorage(folder),
     fileFilter: videoFileFilter,
-    limits: { fileSize: 100 * 1024 * 1024 } 
+    limits: { fileSize: 100 * 1024 * 1024 }
   }).array(fieldName, maxCount),
 
-  // For multiple fields (e.g., products with baseImages, baseVideos, variantImages, variantVideos, banners)
   fields: (fields, folder = 'products') => {
-    // Dynamically generate fields for up to 3 variants (based on ProductForm.js max variants)
-    const dynamicFields = [
-      ...fields.filter(field => 
-        !field.name.startsWith('variantImages[') && !field.name.startsWith('variantVideos[')
-      ),
-      // Add fields for variantImages[0] to variantImages[2]
-      { name: 'variantImages[0]', maxCount: 15 },
-      { name: 'variantImages[1]', maxCount: 15 },
-      { name: 'variantImages[2]', maxCount: 5 },
-      // Add fields for variantVideos[0] to variantVideos[2]
-      { name: 'variantVideos[0]', maxCount: 3 },
-      { name: 'variantVideos[1]', maxCount: 3 },
-      { name: 'variantVideos[2]', maxCount: 3 },
-    ];
+    // Generate fields for up to 6 variants
+    const variantFields = [];
+    for (let i = 0; i < 6; i++) {
+      variantFields.push(
+        { name: `variantImages[${i}]`, maxCount: i < 2 ? 15 : (i < 4 ? 10 : 5) },
+        { name: `variantVideos[${i}]`, maxCount: 3 }
+      );
+    }
 
     return multer({
       storage: getStorage(folder),
       fileFilter: (req, file, cb) => {
-        console.log('Processing field:', file.fieldname);
         try {
           if (isVideoField(file.fieldname)) {
-            if (file.fieldname.startsWith('variantVideos[')) {
-              validateVariantField(file.fieldname);
-            }
+            if (file.fieldname.startsWith('variantVideos[')) validateVariantField(file.fieldname);
             videoFileFilter(req, file, cb);
           } else if (isImageField(file.fieldname)) {
-            if (file.fieldname.startsWith('variantImages[')) {
-              validateVariantField(file.fieldname);
-            }
+            if (file.fieldname.startsWith('variantImages[')) validateVariantField(file.fieldname);
             fileFilter(req, file, cb);
           } else {
-            cb(new ApiError(400, `Invalid field name: ${file.fieldname}. Allowed fields include: image, images, baseImages, variantImages[*], banners, videos, baseVideos, variantVideos[*]`));
+            cb(new ApiError(400, `Invalid field: ${file.fieldname}`));
           }
         } catch (error) {
           cb(error);
         }
       },
       limits: {
-        fileSize: 100 * 1024 * 1024, // 100MB limit
-        fields: 50, // Allow more non-file fields for product data
-        files: 36, // Max: 10 baseImages + 3 baseVideos + (15 variantImages[0] + 15 variantImages[1] + 5 variantImages[2]) + (3 variantVideos[0] + 3 variantVideos[1] + 3 variantVideos[2])
+        fileSize: 100 * 1024 * 1024,
+        fields: 100,
+        files: 100 
       }
-    }).fields(dynamicFields);
+    }).fields([...fields, ...variantFields]);
   }
 };
 

@@ -32,7 +32,10 @@ const ProductForm = ({
     brand: product?.brand || "",
     stock: product?.stock || "",
     sku: product?.sku || "",
-    color: typeof product?.color === 'string' ? product.color : product?.color?.name || "",
+    color:
+      typeof product?.color === "string"
+        ? product.color
+        : product?.color?.name || "",
     seo: {
       title: product?.seo?.title || "",
       description: product?.seo?.description || "",
@@ -59,7 +62,9 @@ const ProductForm = ({
   const [newImageFiles, setNewImageFiles] = useState([]);
   const [existingVideos, setExistingVideos] = useState(product?.videos || []);
   const [newVideoFiles, setNewVideoFiles] = useState([]);
-  const [specifications, setSpecifications] = useState(product?.specifications || []);
+  const [specifications, setSpecifications] = useState(
+    product?.specifications || []
+  );
   const [features, setFeatures] = useState(product?.features || []);
   const [variants, setVariants] = useState(
     product?.variants?.map((v) => ({
@@ -88,7 +93,7 @@ const ProductForm = ({
             sku: opt.sku || "",
           }))
         : [],
-      color: typeof v.color === 'string' ? v.color : v.color?.name || "",
+      color: typeof v.color === "string" ? v.color : v.color?.name || "",
       images: v.images || [], // Explicitly preserve images
       videos: v.videos || [], // Explicitly preserve videos
     })) || []
@@ -100,7 +105,7 @@ const ProductForm = ({
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [currentStage, setCurrentStage] = useState("");
 
-  const formStorageKey = `productFormData_${product?._id || 'new'}`;
+  const formStorageKey = `productFormData_${product?._id || "new"}`;
 
   const skuValidation = skuOptional
     ? {
@@ -167,7 +172,7 @@ const ProductForm = ({
                 sku: opt.sku || "",
               }))
             : [],
-          color: typeof v.color === 'string' ? v.color : v.color?.name || "",
+          color: typeof v.color === "string" ? v.color : v.color?.name || "",
           images: v.images || [], // Explicitly preserve images
           videos: v.videos || [], // Explicitly preserve videos
         })) || []
@@ -207,7 +212,9 @@ const ProductForm = ({
     for (const file of files) {
       try {
         if (!file.type.startsWith("image/")) {
-          toastError(`Invalid file type: ${file.name}. Only JPEG and PNG allowed.`);
+          toastError(
+            `Invalid file type: ${file.name}. Only JPEG and PNG allowed.`
+          );
           continue;
         }
 
@@ -260,7 +267,7 @@ const ProductForm = ({
       if (file.size > 50 * 1024 * 1024) {
         toastError(`File too large: ${file.name}. Max 50MB.`);
         continue;
-        }
+      }
       validFiles.push(file);
     }
 
@@ -284,7 +291,9 @@ const ProductForm = ({
     for (const file of files) {
       try {
         if (!file.type.startsWith("image/")) {
-          toastError(`Invalid file type: ${file.name}. Only JPEG and PNG allowed.`);
+          toastError(
+            `Invalid file type: ${file.name}. Only JPEG and PNG allowed.`
+          );
           console.warn("Invalid variant image type:", file.type);
           continue;
         }
@@ -420,7 +429,11 @@ const ProductForm = ({
     console.log("Updated videos:", { existingVideos, newVideoFiles });
   };
 
-  const handleRemoveVariantImage = (variantIndex, imageIndex, isNew = false) => {
+  const handleRemoveVariantImage = (
+    variantIndex,
+    imageIndex,
+    isNew = false
+  ) => {
     console.log("Removing variant image:", { variantIndex, imageIndex, isNew });
     setVariants((prev) =>
       prev.map((v, i) => {
@@ -428,7 +441,9 @@ const ProductForm = ({
         if (isNew) {
           return {
             ...v,
-            newImageFiles: v.newImageFiles.filter((_, idx) => idx !== imageIndex),
+            newImageFiles: v.newImageFiles.filter(
+              (_, idx) => idx !== imageIndex
+            ),
           };
         }
         const imageId = v.images[imageIndex]?._id;
@@ -448,7 +463,11 @@ const ProductForm = ({
     console.log("Updated variant images:", { variantIndex, variants });
   };
 
-  const handleRemoveVariantVideo = (variantIndex, videoIndex, isNew = false) => {
+  const handleRemoveVariantVideo = (
+    variantIndex,
+    videoIndex,
+    isNew = false
+  ) => {
     console.log("Removing variant video:", { variantIndex, videoIndex, isNew });
     setVariants((prev) =>
       prev.map((v, i) => {
@@ -456,7 +475,9 @@ const ProductForm = ({
         if (isNew) {
           return {
             ...v,
-            newVideoFiles: v.newVideoFiles.filter((_, idx) => idx !== videoIndex),
+            newVideoFiles: v.newVideoFiles.filter(
+              (_, idx) => idx !== videoIndex
+            ),
           };
         }
         return {
@@ -512,29 +533,29 @@ const ProductForm = ({
     console.log("Removed feature:", { index, features });
   };
 
-  const handleAddVariant = () => {
-    if (variants.length >= 3) {
-      toastError("Maximum 3 variants allowed");
-      return;
-    }
-    setVariants((prev) => [
-      ...prev,
-      {
-        color: "",
-        price: "",
-        discountPrice: "",
-        stock: "",
-        sku: "",
-        storageOptions: [],
-        sizeOptions: [],
-        images: [],
-        videos: [],
-        newImageFiles: [],
-        newVideoFiles: [],
-      },
-    ]);
-    setVariantImagesToDelete((prev) => [...prev, []]);
-  };
+ const handleAddVariant = () => {
+  if (variants.length >= 6) {
+    toastError("Maximum 6 variants allowed");
+    return;
+  }
+  setVariants((prev) => [
+    ...prev,
+    {
+      color: "",
+      price: "",
+      discountPrice: "",
+      stock: "",
+      sku: "",
+      storageOptions: [],
+      sizeOptions: [],
+      images: [],
+      videos: [],
+      newImageFiles: [],
+      newVideoFiles: [],
+    },
+  ]);
+  setVariantImagesToDelete((prev) => [...prev, []]);
+};
 
   const handleVariantChange = (index, field, value) => {
     setVariants((prev) =>
@@ -564,7 +585,12 @@ const ProductForm = ({
     );
   };
 
-  const handleStorageOptionChange = (variantIndex, optionIndex, field, value) => {
+  const handleStorageOptionChange = (
+    variantIndex,
+    optionIndex,
+    field,
+    value
+  ) => {
     setVariants((prev) =>
       prev.map((v, i) =>
         i === variantIndex
@@ -585,7 +611,9 @@ const ProductForm = ({
         i === variantIndex
           ? {
               ...v,
-              storageOptions: v.storageOptions.filter((_, idx) => idx !== optionIndex),
+              storageOptions: v.storageOptions.filter(
+                (_, idx) => idx !== optionIndex
+              ),
             }
           : v
       )
@@ -629,7 +657,9 @@ const ProductForm = ({
         i === variantIndex
           ? {
               ...v,
-              sizeOptions: v.sizeOptions.filter((_, idx) => idx !== optionIndex),
+              sizeOptions: v.sizeOptions.filter(
+                (_, idx) => idx !== optionIndex
+              ),
             }
           : v
       )
@@ -768,7 +798,10 @@ const ProductForm = ({
         : undefined,
       shippingCost: parseFloat(data.shippingCost) || 0,
       stock: data.stock ? parseInt(data.stock) : undefined,
-      color: data.color && data.color.trim() ? { name: data.color.trim() } : undefined,
+      color:
+        data.color && data.color.trim()
+          ? { name: data.color.trim() }
+          : undefined,
       specifications: specifications
         .filter((s) => s.key.trim() && s.value.trim())
         .map((s) => ({ key: s.key.trim(), value: s.value.trim() })),
@@ -1023,7 +1056,7 @@ const ProductForm = ({
             }}
             label="Product Description"
             error={errors.description?.message}
-            required = {false}
+            required={false}
           />
         </div>
       </div>
@@ -1262,7 +1295,8 @@ const ProductForm = ({
             onClick={handleAddVariant}
             variant="outline"
             size="sm"
-            disabled={variants.length >= 3}
+            disabled={variants.length >= 6}
+            title={variants.length >= 6 ? "Maximum 6 variants allowed" : ""}
           >
             Add Variant
           </Button>

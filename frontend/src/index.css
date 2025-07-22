@@ -37,19 +37,9 @@ h5, h6, p {
   font-family: mulish;
 }
 
-button {
-  cursor: pointer;
-  /* Fix iOS button appearance */
-  -webkit-appearance: none;
-  appearance: none;
-}
 
-/* Fix iOS input styling */
-input, textarea, select {
-  -webkit-appearance: none;
-  appearance: none;
-  border-radius: 0;
-}
+
+
 
 /* Your existing animations */
 @keyframes shimmer {

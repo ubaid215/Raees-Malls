@@ -4,7 +4,7 @@ import React from 'react';
 function MiniBanner() {
   const messages = [
     { icon: <Star size={18} fill="white" />, text: "Welcome to RaeesMalls - Your Premium Shopping Destination" },
-    { icon: <Truck size={18} fill="white" />, text: "Free Delivery on Orders Above Rs. 2,500 PKR" },
+    { icon: <SmilePlus size={18} fill="white" />, text: "Say Goodbye to Fake Products — Shop Original & Verified Picks" },
     { icon: <Tag size={18} fill="white" />, text: "Up to 50% OFF on Selected Items - Limited Time Only!" },
     { icon: <ShieldCheck size={18} fill="white" />, text: "100% Authentic Products with 7-Day Money Back Guarantee" },
     { icon: <Zap size={18} fill="white" />, text: "Flash Sale Every Friday - Get Ready for Amazing Deals!" },

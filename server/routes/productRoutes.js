@@ -23,9 +23,8 @@ router.post(
   authorizeRoles('admin'),
   upload.fields([
     { name: 'baseImages', maxCount: 10 },
-    { name: 'baseVideos', maxCount: 5 },
-    { name: 'variantImages', maxCount: 10 }, // Generic field for all variant images
-    { name: 'variantVideos', maxCount: 5 }  // Generic field for all variant videos
+    { name: 'baseVideos', maxCount: 5 }
+    // Variant fields are now handled dynamically in upload middleware
   ]),
   createProductValidator,
   productController.createProduct
@@ -53,9 +52,8 @@ router.put(
   authorizeRoles('admin'),
   upload.fields([
     { name: 'baseImages', maxCount: 10 },
-    { name: 'baseVideos', maxCount: 5 },
-    { name: 'variantImages', maxCount: 10 }, // Generic field for all variant images
-    { name: 'variantVideos', maxCount: 5 }  // Generic field for all variant videos
+    { name: 'baseVideos', maxCount: 5 }
+    // Variant fields are now handled dynamically in upload middleware
   ]),
   updateProductValidator,
   productController.updateProduct

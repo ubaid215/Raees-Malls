@@ -49,6 +49,7 @@ const deepParseVariantFields = (variant) => {
   return variant;
 };
 
+
 // Helper function to validate variant structure
 const validateVariant = (variant, index) => {
   if (!variant) {
@@ -63,7 +64,7 @@ const validateVariant = (variant, index) => {
     throw new Error(`Variant ${index + 1}: Color name cannot exceed 50 characters`);
   }
 
-  // Check variant type - FIXED LOGIC
+  // Check variant type
   const hasDirectPricing = (variant.price !== undefined && variant.price !== null && variant.price > 0) && 
                           (variant.stock !== undefined && variant.stock !== null);
   
@@ -73,18 +74,6 @@ const validateVariant = (variant, index) => {
   // Count actual pricing types (not just presence of fields)
   const variantTypes = [hasDirectPricing, hasStorageOptions, hasSizeOptions].filter(Boolean);
   
-  // Debug logging
-  console.log(`Variant ${index + 1} validation:`, {
-    hasDirectPricing,
-    hasStorageOptions,
-    hasSizeOptions,
-    variantTypes: variantTypes.length,
-    price: variant.price,
-    stock: variant.stock,
-    storageOptionsCount: variant.storageOptions?.length || 0,
-    sizeOptionsCount: variant.sizeOptions?.length || 0
-  });
-
   if (variantTypes.length === 0) {
     throw new Error(`Variant ${index + 1} must have at least one pricing type (direct pricing, storage options, or size options)`);
   }
@@ -123,6 +112,11 @@ const validateVariant = (variant, index) => {
     // Storage options validation
     if (!Array.isArray(variant.storageOptions) || variant.storageOptions.length === 0) {
       throw new Error(`Variant ${index + 1}: Storage options must be a non-empty array`);
+    }
+    
+    // Validate maximum 6 storage options per variant
+    if (variant.storageOptions.length > 6) {
+      throw new Error(`Variant ${index + 1}: Maximum 6 storage options allowed`);
     }
     
     variant.storageOptions.forEach((option, optIndex) => {
@@ -172,6 +166,11 @@ const validateVariant = (variant, index) => {
     // Size options validation
     if (!Array.isArray(variant.sizeOptions) || variant.sizeOptions.length === 0) {
       throw new Error(`Variant ${index + 1}: Size options must be a non-empty array`);
+    }
+    
+    // Validate maximum 6 size options per variant
+    if (variant.sizeOptions.length > 6) {
+      throw new Error(`Variant ${index + 1}: Maximum 6 size options allowed`);
     }
     
     variant.sizeOptions.forEach((option, optIndex) => {
@@ -483,7 +482,6 @@ const commonProductValidators = [
 const createProductValidator = [
   ...commonProductValidators,
 
-  // Variants validation with comprehensive error handling
   body('variants')
     .optional()
     .customSanitizer((value) => {
@@ -496,8 +494,6 @@ const createProductValidator = [
     })
     .custom((variants, { req }) => {
       try {
-        console.log('Raw variants input:', JSON.stringify(variants, null, 2));
-        
         // Handle case where variants is not provided or is null/undefined
         if (!variants) {
           variants = [];
@@ -508,11 +504,15 @@ const createProductValidator = [
           throw new Error('Variants must be an array');
         }
 
+        // Validate maximum 6 variants
+        if (variants.length > 6) {
+          throw new Error('Maximum 6 variants allowed');
+        }
+
         // Parse variants with error handling
         const parsedVariants = variants.map((variant, index) => {
           try {
             const parsed = deepParseVariantFields(variant);
-            console.log(`Parsed variant ${index}:`, JSON.stringify(parsed, null, 2));
             return parsed;
           } catch (error) {
             throw new Error(`Invalid variant at index ${index}: ${error.message}`);
@@ -521,7 +521,7 @@ const createProductValidator = [
 
         req.body.variants = parsedVariants;
 
-        // Check for base pricing - more robust check
+        // Check for base pricing
         const hasBasePricing = req.body.price !== undefined && 
                               req.body.price !== null && 
                               req.body.price !== '' &&
@@ -532,20 +532,12 @@ const createProductValidator = [
 
         const hasVariants = parsedVariants && parsedVariants.length > 0;
 
-        console.log('Product pricing validation:', {
-          hasBasePricing,
-          hasVariants,
-          basePrice: req.body.price,
-          baseStock: req.body.stock,
-          variantCount: parsedVariants.length
-        });
-
         // Product must have either base pricing or variants
         if (!hasBasePricing && !hasVariants) {
           throw new Error('Product must have either base price/stock or variants');
         }
 
-        // If has both base pricing and variants, that's also invalid
+        // If has both base pricing and variants, that's invalid
         if (hasBasePricing && hasVariants) {
           throw new Error('Product cannot have both base pricing and variants. Choose one approach.');
         }
@@ -571,18 +563,11 @@ const createProductValidator = [
 
   // Final validation handler
   (req, res, next) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        console.error('Validation errors:', JSON.stringify(errors.array(), null, 2));
-        console.error('Request body:', JSON.stringify(req.body, null, 2));
-        return next(new ApiError(400, 'Validation failed', errors.array()));
-      }
-      next();
-    } catch (error) {
-      console.error('Validation handler error:', error);
-      return next(new ApiError(500, 'Internal validation error', error.message));
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new ApiError(400, 'Validation failed', errors.array()));
     }
+    next();
   }
 ];
 
@@ -590,20 +575,22 @@ const createProductValidator = [
 const updateProductValidator = [
   ...commonProductValidators,
 
-  // Variants validation for updates
   body('variants')
     .optional()
     .customSanitizer(parseJsonField)
     .custom((variants, { req }) => {
       try {
-        console.log('UpdateProductValidator: Incoming variants data:', JSON.stringify(variants, null, 2));
-        
         if (!variants) {
           variants = [];
         }
 
         if (!Array.isArray(variants)) {
           throw new Error('Variants must be an array');
+        }
+
+        // Validate maximum 6 variants
+        if (variants.length > 6) {
+          throw new Error('Maximum 6 variants allowed');
         }
 
         const parsedVariants = variants.map((variant, index) => {
@@ -615,8 +602,6 @@ const updateProductValidator = [
         });
 
         req.body.variants = parsedVariants;
-
-        console.log('UpdateProductValidator: Parsed variants:', JSON.stringify(parsedVariants, null, 2));
 
         // Check for base pricing in update
         const hasBasePricing = req.body.price !== undefined && 
@@ -634,14 +619,7 @@ const updateProductValidator = [
         const hasVariants = parsedVariants && parsedVariants.length > 0;
         const existingHasVariants = req.product?.variants && req.product.variants.length > 0;
 
-        console.log('UpdateProductValidator: Validation checks:', {
-          hasBasePricing,
-          existingHasBasePricing,
-          hasVariants,
-          existingHasVariants,
-        });
-
-        // For updates, we need to ensure the product will have some form of pricing after update
+        // For updates, ensure the product will have some form of pricing after update
         const willHaveBasePricing = hasBasePricing || (existingHasBasePricing && !hasVariants);
         const willHaveVariants = hasVariants;
 
@@ -649,7 +627,6 @@ const updateProductValidator = [
           throw new Error('Product must have either base price/stock or variants after update');
         }
 
-        // If updating to have both, that's invalid
         if (willHaveBasePricing && willHaveVariants) {
           throw new Error('Product cannot have both base pricing and variants. Choose one approach.');
         }
@@ -675,13 +652,10 @@ const updateProductValidator = [
 
   // Final validation handler
   (req, res, next) => {
-    console.log('UpdateProductValidator: Final validation check');
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.error('UpdateProductValidator: Validation errors:', JSON.stringify(errors.array(), null, 2));
       return next(new ApiError(400, 'Validation failed', errors.array()));
     }
-    console.log('UpdateProductValidator: Validation passed');
     next();
   }
 ];
