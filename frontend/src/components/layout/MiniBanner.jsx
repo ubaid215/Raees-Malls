@@ -1,4 +1,4 @@
-import { Star, Truck, ShieldCheck, Tag, Gift, Zap } from 'lucide-react';
+import { Star, ShieldCheck, Tag, Zap, SmilePlus } from 'lucide-react';
 import React from 'react';
 
 function MiniBanner() {
