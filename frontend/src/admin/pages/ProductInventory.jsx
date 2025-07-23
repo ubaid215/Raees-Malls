@@ -12,11 +12,11 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   FiEdit2,
   FiTrash2,
-  FiEye,
   FiRefreshCw,
   FiPlus,
   FiMinus,
   FiSearch,
+  FiChevronDown,
 } from "react-icons/fi";
 import { FaPalette, FaMemory, FaRulerVertical } from "react-icons/fa";
 import { toast } from "react-toastify";
@@ -553,22 +553,22 @@ const ProductInventory = memo(() => {
             <table className="min-w-full bg-white border border-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Product
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Pricing
+                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Price
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Stock
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                     Variants
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 lg:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -585,12 +585,12 @@ const ProductInventory = memo(() => {
                   return (
                     <React.Fragment key={product._id}>
                       <tr className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 lg:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10">
+                            <div className="flex-shrink-0 h-8 w-8 lg:h-10 lg:w-10">
                               {product.images?.[0] ? (
                                 <img
-                                  className="h-10 w-10 rounded object-cover"
+                                  className="h-8 w-8 lg:h-10 lg:w-10 rounded object-cover"
                                   src={
                                     product.images[0].url.startsWith("http")
                                       ? product.images[0].url
@@ -603,7 +603,7 @@ const ProductInventory = memo(() => {
                                 />
                               ) : getFirstVariantImage(product) ? (
                                 <img
-                                  className="h-10 w-10 rounded object-cover"
+                                  className="h-8 w-8 lg:h-10 lg:w-10 rounded object-cover"
                                   src={
                                     getFirstVariantImage(
                                       product
@@ -617,34 +617,43 @@ const ProductInventory = memo(() => {
                                   }
                                 />
                               ) : (
-                                <div className="h-10 w-10 rounded bg-gray-200"></div>
+                                <div className="h-8 w-8 lg:h-10 lg:w-10 rounded bg-gray-200"></div>
                               )}
                             </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
+                            <div className="ml-2 lg:ml-4 min-w-0 flex-1">
+                              <div className="text-sm font-medium text-gray-900 truncate lg:whitespace-normal">
                                 {product.title}
                               </div>
-                              <div className="text-sm text-gray-500">
+                              <div className="text-xs lg:text-sm text-gray-500 truncate lg:whitespace-normal">
                                 {getCategoryName(product.categoryId)}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-2 lg:px-6 py-4 whitespace-nowrap text-xs lg:text-sm text-gray-500">
                           {priceRange.min === priceRange.max ? (
-                            `PKR ${priceRange.min.toFixed(2)}`
+                            <div className="flex flex-col lg:flex-row lg:items-center">
+                              <span className="text-xs lg:text-sm">PKR</span>
+                              <span className="font-medium">
+                                {priceRange.min.toFixed(0)}
+                              </span>
+                            </div>
                           ) : (
-                            <div className="flex items-center gap-1">
-                              <span>PKR {priceRange.min.toFixed(2)}</span>
-                              <FiMinus className="text-gray-400" />
-                              <span>PKR {priceRange.max.toFixed(2)}</span>
+                            <div className="flex flex-col lg:flex-row lg:items-center lg:gap-1">
+                              <span className="text-xs">
+                                PKR {priceRange.min.toFixed(0)}
+                              </span>
+                              <FiMinus className="text-gray-400 hidden lg:block" />
+                              <span className="text-xs">
+                                PKR {priceRange.max.toFixed(0)}
+                              </span>
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-2 lg:px-6 py-4 whitespace-nowrap text-xs lg:text-sm text-gray-500">
                           {totalStock > 0 ? (
                             <span
-                              className={`px-2 py-1 rounded-full ${
+                              className={`px-1 lg:px-2 py-1 rounded-full text-xs ${
                                 totalStock <= 10
                                   ? "bg-yellow-100 text-yellow-800"
                                   : "bg-green-100 text-green-800"
@@ -653,10 +662,10 @@ const ProductInventory = memo(() => {
                               {totalStock}
                             </span>
                           ) : (
-                            "Out of stock"
+                            <span className="text-xs text-red-500">Out</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-2 lg:px-6 py-4 whitespace-nowrap text-xs lg:text-sm text-gray-500 hidden lg:table-cell">
                           <div className="flex items-center gap-2">
                             {getVariantIcon(variantType)}
                             <span>
@@ -673,26 +682,43 @@ const ProductInventory = memo(() => {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-2 lg:px-6 py-4 whitespace-nowrap">
                           <span
-                            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                            className={`px-1 lg:px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                               stockStatus
                                 ? "bg-[#E6FFE6] text-[#008000]"
                                 : "bg-[#FFE6E8] text-[#E63946]"
                             }`}
                           >
-                            {stockStatus ? "In Stock" : "Out of Stock"}
+                            <span className="lg:hidden">
+                              {stockStatus ? "✓" : "✗"}
+                            </span>
+                            <span className="hidden lg:inline">
+                              {stockStatus ? "In Stock" : "Out of Stock"}
+                            </span>
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex justify-end gap-5 space-x-2">
+                        <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex justify-end gap-2 lg:gap-5">
+                            {/* Show variant toggle on mobile/tablet if variants exist */}
+                            {variantCount > 0 && (
+                              <button
+                                onClick={() => toggleExpandProduct(product._id)}
+                                className="text-gray-600 hover:text-gray-800 lg:hidden"
+                                title="Toggle variants"
+                              >
+                                <FiChevronDown
+                                  className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                                />
+                              </button>
+                            )}
                             <Link to={`/admin/edit-product/${product._id}`}>
                               <button
                                 className="text-indigo-600 hover:text-indigo-900"
                                 title="Edit"
                                 aria-label={`Edit ${product.title}`}
                               >
-                                <FiEdit2 className="h-5 w-5" />
+                                <FiEdit2 className="h-4 w-4 lg:h-5 lg:w-5" />
                               </button>
                             </Link>
                             <button
@@ -706,7 +732,7 @@ const ProductInventory = memo(() => {
                               title="Delete"
                               aria-label={`Delete ${product.title}`}
                             >
-                              <FiTrash2 className="h-5 w-5" />
+                              <FiTrash2 className="h-4 w-4 lg:h-5 lg:w-5" />
                             </button>
                           </div>
                         </td>
@@ -715,12 +741,12 @@ const ProductInventory = memo(() => {
                       {/* Expanded variant details */}
                       {isExpanded && product.variants?.length > 0 && (
                         <tr className="bg-gray-50">
-                          <td colSpan="6" className="px-6 py-4">
-                            <div className="ml-14">
-                              <h4 className="font-medium text-gray-700 mb-2">
+                          <td colSpan="6" className="px-3 lg:px-6 py-4">
+                            <div className="ml-6 lg:ml-14">
+                              <h4 className="font-medium text-gray-700 mb-2 text-sm lg:text-base">
                                 Variant Details:
                               </h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-4">
                                 {product.variants.map((variant, idx) => {
                                   // Get the effective price for this variant
                                   const variantPrice =
@@ -740,9 +766,9 @@ const ProductInventory = memo(() => {
                                   return (
                                     <div
                                       key={`${product._id}-${idx}`}
-                                      className="border rounded p-3 bg-white"
+                                      className="border rounded p-2 lg:p-3 bg-white"
                                     >
-                                      <div className="flex items-start gap-3">
+                                      <div className="flex items-start gap-2 lg:gap-3">
                                         {variant.images?.[0] && (
                                           <img
                                             src={
@@ -756,22 +782,22 @@ const ProductInventory = memo(() => {
                                               variant.color?.name ||
                                               `Variant ${idx + 1}`
                                             }
-                                            className="w-16 h-16 object-cover rounded"
+                                            className="w-12 h-12 lg:w-16 lg:h-16 object-cover rounded"
                                           />
                                         )}
-                                        <div>
+                                        <div className="min-w-0 flex-1">
                                           {variant.color && (
-                                            <p className="text-sm font-medium">
+                                            <p className="text-xs lg:text-sm font-medium">
                                               Color:{" "}
                                               <span className="text-gray-600">
                                                 {variant.color.name}
                                               </span>
                                             </p>
                                           )}
-                                          <p className="text-sm font-medium mt-1">
-                                            Price: PKR {variantPrice.toFixed(2)}
+                                          <p className="text-xs lg:text-sm font-medium mt-1">
+                                            Price: PKR {variantPrice.toFixed(0)}
                                           </p>
-                                          <p className="text-sm">
+                                          <p className="text-xs lg:text-sm">
                                             Stock: {variantStock}
                                           </p>
                                           {/* Display storage/size options if they exist */}
@@ -796,7 +822,7 @@ const ProductInventory = memo(() => {
                                                         {(
                                                           opt.discountPrice ||
                                                           opt.price
-                                                        ).toFixed(2)}
+                                                        ).toFixed(0)}
                                                         ({opt.stock || 0})
                                                       </span>
                                                     </li>
