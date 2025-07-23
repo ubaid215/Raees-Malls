@@ -550,25 +550,25 @@ const ProductInventory = memo(() => {
       ) : (
         <>
           <div className="hidden md:block overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-200">
+            <table className="min-w-full bg-white border border-gray-200  table-fixed">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-2/5 px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Product
                   </th>
-                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-1/6 px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Price
                   </th>
-                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-1/8 px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Stock
                   </th>
-                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                  <th className="w-1/6 px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                     Variants
                   </th>
-                  <th className="px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-1/8 px-2 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-3 lg:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="w-1/8 px-3 lg:px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
@@ -620,17 +620,17 @@ const ProductInventory = memo(() => {
                                 <div className="h-8 w-8 lg:h-10 lg:w-10 rounded bg-gray-200"></div>
                               )}
                             </div>
-                            <div className="ml-2 lg:ml-4 min-w-0 flex-1">
-                              <div className="text-sm font-medium text-gray-900 truncate lg:whitespace-normal">
+                            <div className="ml-2 lg:ml-4 min-w-0 flex-1 overflow-hidden">
+                              <div className="text-sm font-medium text-gray-900 truncate">
                                 {product.title}
                               </div>
-                              <div className="text-xs lg:text-sm text-gray-500 truncate lg:whitespace-normal">
+                              <div className="text-xs lg:text-sm text-gray-500 truncate">
                                 {getCategoryName(product.categoryId)}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-2 lg:px-6 py-4 whitespace-nowrap text-xs lg:text-sm text-gray-500">
+                        <td className="px-2 lg:px-6 py-4 whitespace-nowrap text-xs lg:text-sm text-gray-500 min-w-[100px]">
                           {priceRange.min === priceRange.max ? (
                             <div className="flex flex-col lg:flex-row lg:items-center">
                               <span className="text-xs lg:text-sm">PKR</span>
