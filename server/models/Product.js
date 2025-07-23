@@ -273,7 +273,7 @@ const productSchema = new mongoose.Schema({
     title: {
       type: String,
       trim: true,
-      maxlength: [60, 'SEO title cannot exceed 60 characters'],
+      maxlength: [300, 'SEO title cannot exceed 60 characters'],
     },
     description: {
       type: String,

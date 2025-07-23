@@ -1170,7 +1170,7 @@ const ProductForm = ({
           <Input
             label="SEO Title"
             {...register("seo.title", {
-              maxLength: { value: 60, message: "Maximum 60 characters" },
+              maxLength: { value: 300, message: "Maximum 300 characters" },
             })}
             error={errors.seo?.title?.message}
             onChange={(e) => {
@@ -1183,7 +1183,7 @@ const ProductForm = ({
             label="SEO Description"
             rows={2}
             {...register("seo.description", {
-              maxLength: { value: 160, message: "Maximum 160 characters" },
+              maxLength: { value: 3000, message: "Maximum 3000 characters" },
             })}
             error={errors.seo?.description?.message}
             onChange={(e) => {

@@ -414,7 +414,7 @@ const commonProductValidators = [
       if (typeof seo !== 'object') {
         throw new Error('SEO must be an object');
       }
-      if (seo.title && (typeof seo.title !== 'string' || seo.title.length > 60)) {
+      if (seo.title && (typeof seo.title !== 'string' || seo.title.length > 300)) {
         throw new Error('SEO title must be a string with max 60 characters');
       }
       if (seo.description && (typeof seo.description !== 'string' || seo.description.length > 3000)) {
