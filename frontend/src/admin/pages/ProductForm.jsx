@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { getCategories } from "../../services/categoryService";
@@ -94,8 +94,8 @@ const ProductForm = ({
           }))
         : [],
       color: typeof v.color === "string" ? v.color : v.color?.name || "",
-      images: v.images || [], // Explicitly preserve images
-      videos: v.videos || [], // Explicitly preserve videos
+      images: v.images || [],
+      videos: v.videos || [],
     })) || []
   );
   const [variantImagesToDelete, setVariantImagesToDelete] = useState(
@@ -106,6 +106,8 @@ const ProductForm = ({
   const [currentStage, setCurrentStage] = useState("");
 
   const formStorageKey = `productFormData_${product?._id || "new"}`;
+  const autoSaveTimeoutRef = useRef(null);
+  const objectUrlsRef = useRef(new Set()); // Track object URLs for cleanup
 
   const skuValidation = skuOptional
     ? {
@@ -125,12 +127,78 @@ const ProductForm = ({
         maxLength: { value: 20, message: "SKU cannot exceed 20 characters" },
       };
 
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+      objectUrlsRef.current.clear();
+    };
+  }, []);
+
+  // Helper function to create and track object URLs
+  const createObjectURL = useCallback((file) => {
+    const url = URL.createObjectURL(file);
+    objectUrlsRef.current.add(url);
+    return url;
+  }, []);
+
+  // Helper function to revoke object URL
+  const revokeObjectURL = useCallback((url) => {
+    if (objectUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url);
+      objectUrlsRef.current.delete(url);
+    }
+  }, []);
+
+  // Debounced auto-save function
+  const debouncedSave = useCallback(() => {
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      if (!isEditMode) {
+        try {
+          const currentFormData = watch();
+          const saveData = {
+            ...currentFormData,
+            specifications,
+            features,
+            variants: variants.map(v => ({
+              ...v,
+              // Don't save file objects, only the metadata
+              newImageFiles: [],
+              newVideoFiles: []
+            }))
+          };
+          sessionStorage.setItem(formStorageKey, JSON.stringify(saveData));
+          console.log("Form data auto-saved");
+        } catch (error) {
+          console.error("Error auto-saving form data:", error);
+        }
+      }
+    }, 1000); // Save after 1 second of inactivity
+  }, [watch, specifications, features, variants, isEditMode, formStorageKey]);
+
+  // Load saved form data on mount
   useEffect(() => {
     const savedFormData = sessionStorage.getItem(formStorageKey);
     if (savedFormData && !isEditMode) {
       try {
         const parsedData = JSON.parse(savedFormData);
         reset(parsedData);
+        if (parsedData.specifications) setSpecifications(parsedData.specifications);
+        if (parsedData.features) setFeatures(parsedData.features);
+        if (parsedData.variants) {
+          setVariants(parsedData.variants.map(v => ({
+            ...v,
+            newImageFiles: [],
+            newVideoFiles: []
+          })));
+        }
+        console.log("Restored form data from session storage");
       } catch (error) {
         console.error("Error parsing saved form data:", error);
         sessionStorage.removeItem(formStorageKey);
@@ -138,6 +206,7 @@ const ProductForm = ({
     }
   }, [formStorageKey, reset, isEditMode]);
 
+  // Reset form when product changes
   useEffect(() => {
     if (product) {
       reset(defaultValues);
@@ -173,21 +242,15 @@ const ProductForm = ({
               }))
             : [],
           color: typeof v.color === "string" ? v.color : v.color?.name || "",
-          images: v.images || [], // Explicitly preserve images
-          videos: v.videos || [], // Explicitly preserve videos
+          images: v.images || [],
+          videos: v.videos || [],
         })) || []
       );
       setVariantImagesToDelete(product.variants?.map(() => []) || []);
     }
   }, [product, reset]);
 
-  const handleFormChange = () => {
-    if (!isEditMode) {
-      const currentFormData = watch();
-      sessionStorage.setItem(formStorageKey, JSON.stringify(currentFormData));
-    }
-  };
-
+  // Load categories
   useEffect(() => {
     const loadCategories = async () => {
       setCategoriesLoading(true);
@@ -253,6 +316,7 @@ const ProductForm = ({
 
     setNewImageFiles((prev) => [...prev, ...validFiles]);
     setCurrentStage("");
+    debouncedSave();
   };
 
   const handleVideoChange = async (e) => {
@@ -277,16 +341,13 @@ const ProductForm = ({
     }
 
     setNewVideoFiles((prev) => [...prev, ...validFiles]);
+    debouncedSave();
   };
 
   const handleVariantImageChange = async (variantIndex, e) => {
     const files = Array.from(e.target.files);
     const validFiles = [];
     setCurrentStage("Compressing variant images...");
-    console.log("Variant Image Change:", {
-      variantIndex,
-      files: files.map((f) => f.name),
-    });
 
     for (const file of files) {
       try {
@@ -294,7 +355,6 @@ const ProductForm = ({
           toastError(
             `Invalid file type: ${file.name}. Only JPEG and PNG allowed.`
           );
-          console.warn("Invalid variant image type:", file.type);
           continue;
         }
 
@@ -307,7 +367,6 @@ const ProductForm = ({
 
         if (compressedFile.size > 5 * 1024 * 1024) {
           toastError(`File still too large after compression: ${file.name}`);
-          console.warn("Variant image too large:", compressedFile.size);
           continue;
         }
 
@@ -319,10 +378,6 @@ const ProductForm = ({
         });
 
         validFiles.push(correctedFile);
-        console.log("Processed variant image:", {
-          fileName,
-          size: correctedFile.size,
-        });
       } catch (error) {
         console.error("Variant image compression error:", error);
         toastError(`Failed to process file: ${file.name}`);
@@ -335,12 +390,6 @@ const ProductForm = ({
 
     if (currentImages + currentNewImages + validFiles.length > maxImages) {
       toastError(`Maximum ${maxImages} images allowed for this variant`);
-      console.warn("Max variant images exceeded:", {
-        variantIndex,
-        currentImages,
-        currentNewImages,
-        added: validFiles.length,
-      });
       setCurrentStage("");
       return;
     }
@@ -353,29 +402,20 @@ const ProductForm = ({
       )
     );
     setCurrentStage("");
-    console.log("Updated variant newImageFiles:", {
-      variantIndex,
-      files: validFiles.map((f) => f.name),
-    });
+    debouncedSave();
   };
 
   const handleVariantVideoChange = async (variantIndex, e) => {
     const files = Array.from(e.target.files);
     const validFiles = [];
-    console.log("Variant Video Change:", {
-      variantIndex,
-      files: files.map((f) => f.name),
-    });
 
     for (const file of files) {
       if (!["video/mp4", "video/webm", "video/quicktime"].includes(file.type)) {
         toastError(`Invalid file type: ${file.name}. Use MP4, WebM, or MOV.`);
-        console.warn("Invalid variant video type:", file.type);
         continue;
       }
       if (file.size > 50 * 1024 * 1024) {
-        toasterror(`File too large: ${file.name}. Max 50MB.`);
-        console.warn("Variant video too large:", file.size);
+        toastError(`File too large: ${file.name}. Max 50MB.`);
         continue;
       }
       validFiles.push(file);
@@ -387,12 +427,6 @@ const ProductForm = ({
 
     if (currentVideos + currentNewVideos + validFiles.length > maxVideos) {
       toastError(`Maximum ${maxVideos} videos allowed for this variant`);
-      console.warn("Max variant videos exceeded:", {
-        variantIndex,
-        currentVideos,
-        currentNewVideos,
-        added: validFiles.length,
-      });
       return;
     }
 
@@ -403,47 +437,50 @@ const ProductForm = ({
           : v
       )
     );
-    console.log("Updated variant newVideoFiles:", {
-      variantIndex,
-      files: validFiles.map((f) => f.name),
-    });
+    debouncedSave();
   };
 
   const handleRemoveImage = (index, isNew = false) => {
-    console.log("Removing image:", { index, isNew });
     if (isNew) {
+      const fileToRemove = newImageFiles[index];
+      if (fileToRemove) {
+        const url = createObjectURL(fileToRemove);
+        revokeObjectURL(url);
+      }
       setNewImageFiles((prev) => prev.filter((_, i) => i !== index));
     } else {
       setExistingImages((prev) => prev.filter((_, i) => i !== index));
     }
-    console.log("Updated images:", { existingImages, newImageFiles });
+    debouncedSave();
   };
 
   const handleRemoveVideo = (index, isNew = false) => {
-    console.log("Removing video:", { index, isNew });
     if (isNew) {
+      const fileToRemove = newVideoFiles[index];
+      if (fileToRemove) {
+        const url = createObjectURL(fileToRemove);
+        revokeObjectURL(url);
+      }
       setNewVideoFiles((prev) => prev.filter((_, i) => i !== index));
     } else {
       setExistingVideos((prev) => prev.filter((_, i) => i !== index));
     }
-    console.log("Updated videos:", { existingVideos, newVideoFiles });
+    debouncedSave();
   };
 
-  const handleRemoveVariantImage = (
-    variantIndex,
-    imageIndex,
-    isNew = false
-  ) => {
-    console.log("Removing variant image:", { variantIndex, imageIndex, isNew });
+  const handleRemoveVariantImage = (variantIndex, imageIndex, isNew = false) => {
     setVariants((prev) =>
       prev.map((v, i) => {
         if (i !== variantIndex) return v;
         if (isNew) {
+          const fileToRemove = v.newImageFiles[imageIndex];
+          if (fileToRemove) {
+            const url = createObjectURL(fileToRemove);
+            revokeObjectURL(url);
+          }
           return {
             ...v,
-            newImageFiles: v.newImageFiles.filter(
-              (_, idx) => idx !== imageIndex
-            ),
+            newImageFiles: v.newImageFiles.filter((_, idx) => idx !== imageIndex),
           };
         }
         const imageId = v.images[imageIndex]?._id;
@@ -460,24 +497,22 @@ const ProductForm = ({
         };
       })
     );
-    console.log("Updated variant images:", { variantIndex, variants });
+    debouncedSave();
   };
 
-  const handleRemoveVariantVideo = (
-    variantIndex,
-    videoIndex,
-    isNew = false
-  ) => {
-    console.log("Removing variant video:", { variantIndex, videoIndex, isNew });
+  const handleRemoveVariantVideo = (variantIndex, videoIndex, isNew = false) => {
     setVariants((prev) =>
       prev.map((v, i) => {
         if (i !== variantIndex) return v;
         if (isNew) {
+          const fileToRemove = v.newVideoFiles[videoIndex];
+          if (fileToRemove) {
+            const url = createObjectURL(fileToRemove);
+            revokeObjectURL(url);
+          }
           return {
             ...v,
-            newVideoFiles: v.newVideoFiles.filter(
-              (_, idx) => idx !== videoIndex
-            ),
+            newVideoFiles: v.newVideoFiles.filter((_, idx) => idx !== videoIndex),
           };
         }
         return {
@@ -486,81 +521,75 @@ const ProductForm = ({
         };
       })
     );
-    console.log("Updated variant videos:", { variantIndex, variants });
+    debouncedSave();
   };
 
   const handleAddSpecification = () => {
     setSpecifications((prev) => [...prev, { key: "", value: "" }]);
-    console.log("Added specification:", {
-      specifications: [...specifications, { key: "", value: "" }],
-    });
+    debouncedSave();
   };
 
   const handleSpecificationChange = (index, field, value) => {
     setSpecifications((prev) =>
       prev.map((spec, i) => (i === index ? { ...spec, [field]: value } : spec))
     );
-    console.log("Specification changed:", {
-      index,
-      field,
-      value,
-      specifications,
-    });
+    debouncedSave();
   };
 
   const handleRemoveSpecification = (index) => {
     setSpecifications((prev) => prev.filter((_, i) => i !== index));
-    console.log("Removed specification:", { index, specifications });
+    debouncedSave();
   };
 
   const handleAddFeature = () => {
     if (features.length >= 10) {
       toastError("Maximum 10 features allowed");
-      console.warn("Max features exceeded:", { features });
       return;
     }
     setFeatures((prev) => [...prev, ""]);
-    console.log("Added feature:", { features: [...features, ""] });
+    debouncedSave();
   };
 
   const handleFeatureChange = (index, value) => {
     setFeatures((prev) => prev.map((f, i) => (i === index ? value : f)));
-    console.log("Feature changed:", { index, value, features });
+    debouncedSave();
   };
 
   const handleRemoveFeature = (index) => {
     setFeatures((prev) => prev.filter((_, i) => i !== index));
-    console.log("Removed feature:", { index, features });
+    debouncedSave();
   };
 
- const handleAddVariant = () => {
-  if (variants.length >= 6) {
-    toastError("Maximum 6 variants allowed");
-    return;
-  }
-  setVariants((prev) => [
-    ...prev,
-    {
-      color: "",
-      price: "",
-      discountPrice: "",
-      stock: "",
-      sku: "",
-      storageOptions: [],
-      sizeOptions: [],
-      images: [],
-      videos: [],
-      newImageFiles: [],
-      newVideoFiles: [],
-    },
-  ]);
-  setVariantImagesToDelete((prev) => [...prev, []]);
-};
+  const handleAddVariant = () => {
+    if (variants.length >= 6) {
+      toastError("Maximum 6 variants allowed");
+      return;
+    }
+    setVariants((prev) => [
+      ...prev,
+      {
+        color: "",
+        price: "",
+        discountPrice: "",
+        stock: "",
+        sku: "",
+        storageOptions: [],
+        sizeOptions: [],
+        images: [],
+        videos: [],
+        newImageFiles: [],
+        newVideoFiles: [],
+      },
+    ]);
+    setVariantImagesToDelete((prev) => [...prev, []]);
+    debouncedSave();
+  };
 
   const handleVariantChange = (index, field, value) => {
     setVariants((prev) =>
       prev.map((v, i) => (i === index ? { ...v, [field]: value } : v))
     );
+    debouncedSave();
   };
 
   const handleAddStorageOption = (variantIndex) => {
@@ -583,14 +612,10 @@ const ProductForm = ({
           : v
       )
     );
+    debouncedSave();
   };
 
-  const handleStorageOptionChange = (
-    variantIndex,
-    optionIndex,
-    field,
-    value
-  ) => {
+  const handleStorageOptionChange = (variantIndex, optionIndex, field, value) => {
     setVariants((prev) =>
       prev.map((v, i) =>
         i === variantIndex
@@ -603,6 +628,7 @@ const ProductForm = ({
           : v
       )
     );
+    debouncedSave();
   };
 
   const handleRemoveStorageOption = (variantIndex, optionIndex) => {
@@ -618,6 +644,7 @@ const ProductForm = ({
           : v
       )
     );
+    debouncedSave();
   };
 
   const handleAddSizeOption = (variantIndex) => {
@@ -634,6 +661,7 @@ const ProductForm = ({
           : v
       )
     );
+    debouncedSave();
   };
 
   const handleSizeOptionChange = (variantIndex, optionIndex, field, value) => {
@@ -649,6 +677,7 @@ const ProductForm = ({
           : v
       )
     );
+    debouncedSave();
   };
 
   const handleRemoveSizeOption = (variantIndex, optionIndex) => {
@@ -664,11 +693,28 @@ const ProductForm = ({
           : v
       )
     );
+    debouncedSave();
   };
 
   const handleRemoveVariant = (index) => {
+    // Clean up object URLs for this variant
+    const variant = variants[index];
+    if (variant?.newImageFiles) {
+      variant.newImageFiles.forEach(file => {
+        const url = createObjectURL(file);
+        revokeObjectURL(url);
+      });
+    }
+    if (variant?.newVideoFiles) {
+      variant.newVideoFiles.forEach(file => {
+        const url = createObjectURL(file);
+        revokeObjectURL(url);
+      });
+    }
+
     setVariants((prev) => prev.filter((_, i) => i !== index));
     setVariantImagesToDelete((prev) => prev.filter((_, i) => i !== index));
+    debouncedSave();
   };
 
   const onSubmitHandler = async (data) => {
@@ -731,8 +777,8 @@ const ProductForm = ({
     const processedVariants = variants.map((v) => {
       const variantData = {
         color: v.color && v.color.trim() ? { name: v.color.trim() } : undefined,
-        images: v.images || [], // Preserve existing images
-        videos: v.videos || [], // Preserve existing videos
+        images: v.images || [],
+        videos: v.videos || [],
       };
 
       if (v.price !== undefined && v.stock !== undefined) {
@@ -809,7 +855,7 @@ const ProductForm = ({
       variants: filteredVariants,
       sku: data.sku?.trim() || undefined,
       removeBaseImages: data.removeBaseImages,
-      variantImagesToDelete, // Include images to delete
+      variantImagesToDelete,
     };
 
     const media = {
@@ -821,7 +867,17 @@ const ProductForm = ({
 
     try {
       const response = await onSubmit(productData, media);
+      
+      // Only clear data on successful submission
       sessionStorage.removeItem(formStorageKey);
+      
+      // Clean up object URLs
+      objectUrlsRef.current.forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+      objectUrlsRef.current.clear();
+      
+      // Reset form state only on success
       setExistingImages([]);
       setNewImageFiles([]);
       setExistingVideos([]);
@@ -831,6 +887,7 @@ const ProductForm = ({
       setVariants([]);
       setVariantImagesToDelete([]);
       reset();
+      
       onSuccess?.();
       toastSuccess(
         isEditMode
@@ -846,6 +903,9 @@ const ProductForm = ({
           error.message ||
           "Failed to submit product";
       toastError(errorMessage);
+      
+      // Don't reset form data on error - keep everything as is
+      // This preserves variant data and other form inputs
       throw error;
     }
   };
@@ -857,7 +917,6 @@ const ProductForm = ({
   return (
     <form
       onSubmit={handleSubmit(onSubmitHandler)}
-      onChange={handleFormChange}
       className="space-y-8 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
     >
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
@@ -872,8 +931,7 @@ const ProductForm = ({
             })}
             error={errors.title?.message}
             onChange={(e) => {
-              console.log("Title changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -883,8 +941,7 @@ const ProductForm = ({
             error={errors.sku?.message}
             placeholder={skuOptional ? "Leave blank to auto-generate" : ""}
             onChange={(e) => {
-              console.log("SKU changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -905,8 +962,7 @@ const ProductForm = ({
             })}
             error={errors.price?.message}
             onChange={(e) => {
-              console.log("Price changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -923,8 +979,7 @@ const ProductForm = ({
             })}
             error={errors.discountPrice?.message}
             onChange={(e) => {
-              console.log("Discount Price changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -939,8 +994,7 @@ const ProductForm = ({
             })}
             error={errors.shippingCost?.message}
             onChange={(e) => {
-              console.log("Shipping Cost changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -950,8 +1004,7 @@ const ProductForm = ({
             options={categories.map((c) => ({ value: c._id, label: c.name }))}
             error={errors.categoryId?.message}
             onChange={(e) => {
-              console.log("Category changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -962,8 +1015,7 @@ const ProductForm = ({
             })}
             error={errors.brand?.message}
             onChange={(e) => {
-              console.log("Brand changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -983,8 +1035,7 @@ const ProductForm = ({
             })}
             error={errors.stock?.message}
             onChange={(e) => {
-              console.log("Stock changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -1003,8 +1054,7 @@ const ProductForm = ({
                 : "Enter color name (optional)"
             }
             onChange={(e) => {
-              console.log("Color changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -1015,8 +1065,7 @@ const ProductForm = ({
               {...register("isFeatured")}
               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
               onChange={(e) => {
-                console.log("isFeatured changed:", e.target.checked);
-                handleFormChange();
+                debouncedSave();
               }}
             />
             <label
@@ -1034,8 +1083,7 @@ const ProductForm = ({
                 {...register("removeBaseImages")}
                 className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 onChange={(e) => {
-                  console.log("removeBaseImages changed:", e.target.checked);
-                  handleFormChange();
+                  debouncedSave();
                 }}
               />
               <label
@@ -1052,7 +1100,7 @@ const ProductForm = ({
             value={watch("description")}
             onChange={(value) => {
               setValue("description", value);
-              handleFormChange();
+              debouncedSave();
             }}
             label="Product Description"
             error={errors.description?.message}
@@ -1060,6 +1108,7 @@ const ProductForm = ({
           />
         </div>
       </div>
+
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <h2 className="text-lg font-semibold mb-4">Media</h2>
         {currentStage && (
@@ -1100,7 +1149,7 @@ const ProductForm = ({
           {newImageFiles.map((file, index) => (
             <div key={`new-img-${index}`} className="relative group">
               <img
-                src={URL.createObjectURL(file)}
+                src={createObjectURL(file)}
                 alt={`New image ${index + 1}`}
                 className="w-full h-32 object-cover rounded-md"
               />
@@ -1114,6 +1163,7 @@ const ProductForm = ({
             </div>
           ))}
         </div>
+
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Main Product Videos (Max 3, Optional)
@@ -1149,7 +1199,7 @@ const ProductForm = ({
           {newVideoFiles.map((file, index) => (
             <div key={`new-vid-${index}`} className="relative group">
               <video
-                src={URL.createObjectURL(file)}
+                src={createObjectURL(file)}
                 controls
                 className="w-full h-32 object-cover rounded-md"
               />
@@ -1164,6 +1214,7 @@ const ProductForm = ({
           ))}
         </div>
       </div>
+
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <h2 className="text-lg font-semibold mb-4">SEO Settings</h2>
         <div className="grid grid-cols-1 gap-6">
@@ -1174,8 +1225,7 @@ const ProductForm = ({
             })}
             error={errors.seo?.title?.message}
             onChange={(e) => {
-              console.log("SEO Title changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
@@ -1187,13 +1237,13 @@ const ProductForm = ({
             })}
             error={errors.seo?.description?.message}
             onChange={(e) => {
-              console.log("SEO Description changed:", e.target.value);
-              handleFormChange();
+              debouncedSave();
             }}
             className="w-full"
           />
         </div>
       </div>
+
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Specifications</h2>
@@ -1245,6 +1295,7 @@ const ProductForm = ({
           </div>
         )}
       </div>
+
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Features</h2>
@@ -1287,6 +1338,7 @@ const ProductForm = ({
           </div>
         )}
       </div>
+
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Variants</h2>
@@ -1379,6 +1431,7 @@ const ProductForm = ({
                     className="w-full"
                   />
                 </div>
+
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Variant Images (Max {vIndex < 2 ? 15 : 5})
@@ -1422,7 +1475,7 @@ const ProductForm = ({
                       className="relative group"
                     >
                       <img
-                        src={URL.createObjectURL(file)}
+                        src={createObjectURL(file)}
                         alt={`New variant ${vIndex + 1} image ${imgIndex + 1}`}
                         className="w-full h-32 object-cover rounded-md"
                       />
@@ -1438,6 +1491,7 @@ const ProductForm = ({
                     </div>
                   ))}
                 </div>
+
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Variant Videos (Max 3)
@@ -1481,7 +1535,7 @@ const ProductForm = ({
                       className="relative group"
                     >
                       <video
-                        src={URL.createObjectURL(file)}
+                        src={createObjectURL(file)}
                         controls
                         className="w-full h-32 object-cover rounded-md"
                       />
@@ -1497,6 +1551,7 @@ const ProductForm = ({
                     </div>
                   ))}
                 </div>
+
                 <div className="mb-6">
                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-sm font-medium">Storage Options</h4>
@@ -1610,6 +1665,7 @@ const ProductForm = ({
                     </div>
                   )}
                 </div>
+
                 <div className="mb-6">
                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-sm font-medium">Size Options</h4>
