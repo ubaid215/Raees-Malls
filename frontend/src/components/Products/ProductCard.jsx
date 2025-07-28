@@ -8,9 +8,8 @@ import {
   FaRegHeart,
   FaFire,
   FaCrown,
-  FaShippingFast,
   FaEye,
-  FaShareAlt,
+  FaShippingFast,
 } from "react-icons/fa";
 import { BsLightningChargeFill } from "react-icons/bs";
 import { MdLocalOffer, MdVerified } from "react-icons/md";
@@ -26,11 +25,10 @@ import PropTypes from "prop-types";
 
 const ProductCard = memo(({ productId, product: initialProduct }) => {
   const navigate = useNavigate();
-  const { addItemToCart, createVariantOptions } = useCart();
+  const { addItemToCart } = useCart();
   const { user } = useAuth();
   const { getProduct } = useProduct();
-  const { wishlist, addItemToWishlist, removeItemFromWishlist, loading } =
-    useContext(WishlistContext);
+  const { wishlist, addItemToWishlist, removeItemFromWishlist, loading } = useContext(WishlistContext);
   const [product, setProduct] = useState(initialProduct);
   const [loadingProduct, setLoadingProduct] = useState(!initialProduct);
   const [addToCartStatus, setAddToCartStatus] = useState({
@@ -48,9 +46,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       const fetchProduct = async () => {
         try {
           setLoadingProduct(true);
-          const fetchedProduct = await getProduct(productId, {
-            skipCache: false,
-          });
+          const fetchedProduct = await getProduct(productId, { skipCache: false });
           setProduct(fetchedProduct);
         } catch (error) {
           console.error("Failed to fetch product:", error);
@@ -69,16 +65,14 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     }
   }, [wishlist, product]);
 
-  // Initialize urgency timer for limited time offers
   useEffect(() => {
     if (product?.hasLimitedOffer) {
       const timer = new Date();
-      timer.setHours(timer.getHours() + 24); // 24 hours from now
+      timer.setHours(timer.getHours() + 24);
       setUrgencyTimer(timer);
     }
   }, [product]);
 
-  // Auto-rotate images on hover
   useEffect(() => {
     let interval;
     if (isHovered && product?.images?.length > 1) {
@@ -91,13 +85,11 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     return () => clearInterval(interval);
   }, [isHovered, product?.images?.length]);
 
-  // Helper to get all available images (base + variants)
   const getAllImages = () => {
     const images = [];
     if (product?.images?.length > 0) {
       images.push(...product.images);
     }
-
     if (product?.variants?.length > 0) {
       product.variants.forEach((variant) => {
         if (variant.images?.length > 0) {
@@ -105,7 +97,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         }
       });
     }
-
     return images.length > 0
       ? images
       : [{ url: "/images/placeholder-product.png", alt: "Placeholder image" }];
@@ -117,15 +108,17 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   };
 
   const getStockInfo = () => {
-    if (!product)
+    if (!product) {
       return {
         hasStock: false,
         displayStock: 0,
         hasVariants: false,
         availableOptions: 0,
+        defaultVariant: null,
         defaultVariantOptions: null,
         isLowStock: false,
       };
+    }
 
     if (product.stock > 0) {
       return {
@@ -133,6 +126,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         displayStock: product.stock,
         hasVariants: false,
         availableOptions: 1,
+        defaultVariant: null,
         defaultVariantOptions: {},
         isLowStock: product.stock <= 5,
       };
@@ -141,18 +135,16 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     if (product.variants?.length > 0) {
       let totalStock = 0;
       let availableOptions = 0;
+      let firstAvailableVariant = null;
       let firstAvailableOption = null;
 
-      product.variants.forEach((variant) => {
-        // Check simple color variant (no storage or size options)
-        if (
-          variant.stock > 0 &&
-          !variant.storageOptions?.length &&
-          !variant.sizeOptions?.length
-        ) {
+      for (const variant of product.variants) {
+        // Check simple color variant
+        if (variant.stock > 0 && !variant.storageOptions?.length && !variant.sizeOptions?.length) {
           totalStock += variant.stock;
           availableOptions++;
-          if (!firstAvailableOption) {
+          if (!firstAvailableVariant) {
+            firstAvailableVariant = variant;
             firstAvailableOption = {
               variantColor: variant.color?.name || null,
               storageCapacity: null,
@@ -160,30 +152,48 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             };
           }
         }
-        // Check storage and size options
-        const storageOptions = variant.storageOptions || [];
-        const sizeOptions = variant.sizeOptions || [];
-
-        [...storageOptions, ...sizeOptions].forEach((option) => {
-          if (option.stock > 0) {
-            totalStock += option.stock;
-            availableOptions++;
-            if (!firstAvailableOption) {
-              firstAvailableOption = {
-                variantColor: variant.color?.name || null,
-                storageCapacity: option.capacity || null,
-                size: option.size || null,
-              };
+        // Check storage options
+        if (variant.storageOptions?.length > 0) {
+          for (const option of variant.storageOptions) {
+            if (option.stock > 0) {
+              totalStock += option.stock;
+              availableOptions++;
+              if (!firstAvailableVariant) {
+                firstAvailableVariant = variant;
+                firstAvailableOption = {
+                  variantColor: variant.color?.name || null,
+                  storageCapacity: option.capacity || null,
+                  size: null,
+                };
+              }
             }
           }
-        });
-      });
+        }
+        // Check size options
+        if (variant.sizeOptions?.length > 0) {
+          for (const option of variant.sizeOptions) {
+            if (option.stock > 0) {
+              totalStock += option.stock;
+              availableOptions++;
+              if (!firstAvailableVariant) {
+                firstAvailableVariant = variant;
+                firstAvailableOption = {
+                  variantColor: variant.color?.name || null,
+                  storageCapacity: null,
+                  size: option.size || null,
+                };
+              }
+            }
+          }
+        }
+      }
 
       return {
         hasStock: totalStock > 0,
         displayStock: totalStock,
         hasVariants: true,
         availableOptions,
+        defaultVariant: firstAvailableVariant,
         defaultVariantOptions: firstAvailableOption,
         isLowStock: totalStock <= 10,
       };
@@ -194,162 +204,170 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       displayStock: 0,
       hasVariants: false,
       availableOptions: 0,
+      defaultVariant: null,
       defaultVariantOptions: null,
       isLowStock: false,
     };
   };
 
   const getPriceInfo = () => {
-  if (!product) return {
-    displayPrice: 0,
-    hasDiscount: false,
-    priceRange: null,
-    discountPercentage: 0,
-  };
+    if (!product) {
+      return {
+        displayPrice: 0,
+        originalPrice: 0,
+        discountPrice: null,
+        hasDiscount: false,
+        discountPercentage: 0,
+        priceRange: null,
+      };
+    }
 
-  // Handle simple product pricing (no variants)
-  if (!product.variants?.length) {
-    const hasDiscount = product.discountPrice && product.discountPrice < product.price;
-    const discountPercentage = hasDiscount
-      ? Math.round(((product.price - product.discountPrice) / product.price) * 100)
+    // Handle simple product pricing (no variants)
+    if (!product.variants?.length) {
+      const hasDiscount = product.discountPrice && product.discountPrice < product.price;
+      const discountPercentage = hasDiscount
+        ? Math.round(((product.price - product.discountPrice) / product.price) * 100)
+        : 0;
+
+      return {
+        displayPrice: product.discountPrice || product.price,
+        originalPrice: product.price,
+        discountPrice: product.discountPrice,
+        hasDiscount,
+        discountPercentage,
+        priceRange: null,
+      };
+    }
+
+    // Handle variant pricing
+    const stockInfo = getStockInfo();
+    const firstAvailableVariant = stockInfo.defaultVariant;
+
+    if (stockInfo.availableOptions === 1 && firstAvailableVariant) {
+      // Single variant or option in stock
+      if (firstAvailableVariant.stock > 0 && !firstAvailableVariant.storageOptions?.length && !firstAvailableVariant.sizeOptions?.length) {
+        const hasDiscount = firstAvailableVariant.discountPrice && firstAvailableVariant.discountPrice < firstAvailableVariant.price;
+        const discountPercentage = hasDiscount
+          ? Math.round(((firstAvailableVariant.price - firstAvailableVariant.discountPrice) / firstAvailableVariant.price) * 100)
+          : 0;
+
+        return {
+          displayPrice: firstAvailableVariant.discountPrice || firstAvailableVariant.price,
+          originalPrice: firstAvailableVariant.price,
+          discountPrice: firstAvailableVariant.discountPrice,
+          hasDiscount,
+          discountPercentage,
+          priceRange: null,
+        };
+      }
+
+      // Single storage option
+      if (firstAvailableVariant.storageOptions?.length === 1) {
+        const option = firstAvailableVariant.storageOptions[0];
+        const hasDiscount = option.discountPrice && option.discountPrice < option.price;
+        const discountPercentage = hasDiscount
+          ? Math.round(((option.price - option.discountPrice) / option.price) * 100)
+          : 0;
+
+        return {
+          displayPrice: option.discountPrice || option.price,
+          originalPrice: option.price,
+          discountPrice: option.discountPrice,
+          hasDiscount,
+          discountPercentage,
+          priceRange: null,
+        };
+      }
+
+      // Single size option
+      if (firstAvailableVariant.sizeOptions?.length === 1) {
+        const option = firstAvailableVariant.sizeOptions[0];
+        const hasDiscount = option.discountPrice && option.discountPrice < option.price;
+        const discountPercentage = hasDiscount
+          ? Math.round(((option.price - option.discountPrice) / option.price) * 100)
+          : 0;
+
+        return {
+          displayPrice: option.discountPrice || option.price,
+          originalPrice: option.price,
+          discountPrice: option.discountPrice,
+          hasDiscount,
+          discountPercentage,
+          priceRange: null,
+        };
+      }
+    }
+
+    // Multiple variants/options
+    let minPrice = Infinity;
+    let maxPrice = -Infinity;
+    let firstAvailablePrice = null;
+    let firstAvailableOriginalPrice = null;
+    let firstAvailableDiscountPrice = null;
+    let hasAnyDiscount = false;
+
+    for (const variant of product.variants) {
+      if (variant.stock > 0) {
+        const price = variant.discountPrice || variant.price;
+        minPrice = Math.min(minPrice, price);
+        maxPrice = Math.max(maxPrice, price);
+        if (!firstAvailablePrice) {
+          firstAvailablePrice = price;
+          firstAvailableOriginalPrice = variant.price;
+          firstAvailableDiscountPrice = variant.discountPrice;
+          hasAnyDiscount = !!variant.discountPrice;
+        }
+      }
+      if (variant.storageOptions?.length > 0) {
+        for (const option of variant.storageOptions) {
+          if (option.stock > 0) {
+            const price = option.discountPrice || option.price;
+            minPrice = Math.min(minPrice, price);
+            maxPrice = Math.max(maxPrice, price);
+            if (!firstAvailablePrice) {
+              firstAvailablePrice = price;
+              firstAvailableOriginalPrice = option.price;
+              firstAvailableDiscountPrice = option.discountPrice;
+              hasAnyDiscount = !!option.discountPrice;
+            }
+          }
+        }
+      }
+      if (variant.sizeOptions?.length > 0) {
+        for (const option of variant.sizeOptions) {
+          if (option.stock > 0) {
+            const price = option.discountPrice || option.price;
+            minPrice = Math.min(minPrice, price);
+            maxPrice = Math.max(maxPrice, price);
+            if (!firstAvailablePrice) {
+              firstAvailablePrice = price;
+              firstAvailableOriginalPrice = option.price;
+              firstAvailableDiscountPrice = option.discountPrice;
+              hasAnyDiscount = !!option.discountPrice;
+            }
+          }
+        }
+      }
+    }
+
+    const discountPercentage = hasAnyDiscount && firstAvailableOriginalPrice
+      ? Math.round(((firstAvailableOriginalPrice - firstAvailablePrice) / firstAvailableOriginalPrice) * 100)
       : 0;
 
     return {
-      displayPrice: product.price,
-      originalPrice: product.price,
-      discountPrice: product.discountPrice,
-      hasDiscount,
+      displayPrice: firstAvailablePrice || maxPrice,
+      originalPrice: firstAvailableOriginalPrice || maxPrice,
+      discountPrice: firstAvailableDiscountPrice,
+      hasDiscount: hasAnyDiscount,
       discountPercentage,
-      priceRange: null,
+      priceRange: minPrice !== maxPrice ? { min: minPrice, max: maxPrice } : null,
     };
-  }
-
-  // Handle variant pricing
-  const availableVariants = product.variants.filter(variant => {
-    // Check simple variant stock
-    if (variant.stock > 0) return true;
-    
-    // Check storage options stock
-    if (variant.storageOptions?.some(opt => opt.stock > 0)) return true;
-    
-    // Check size options stock
-    if (variant.sizeOptions?.some(opt => opt.stock > 0)) return true;
-    
-    return false;
-  });
-
-  // If only one variant option exists (either color, size or storage)
-  if (availableVariants.length === 1) {
-    const variant = availableVariants[0];
-    
-    // Case 1: Simple color variant with direct pricing
-    if (variant.stock > 0 && !variant.storageOptions?.length && !variant.sizeOptions?.length) {
-      const hasDiscount = variant.discountPrice && variant.discountPrice < variant.price;
-      const discountPercentage = hasDiscount
-        ? Math.round(((variant.price - variant.discountPrice) / variant.price) * 100)
-        : 0;
-
-      return {
-        displayPrice: variant.discountPrice || variant.price,
-        originalPrice: variant.price,
-        discountPrice: variant.discountPrice,
-        hasDiscount,
-        discountPercentage,
-        priceRange: null,
-      };
-    }
-    
-    // Case 2: Single variant with storage options (only one option in stock)
-    if (variant.storageOptions?.length === 1) {
-      const option = variant.storageOptions[0];
-      const hasDiscount = option.discountPrice && option.discountPrice < option.price;
-      const discountPercentage = hasDiscount
-        ? Math.round(((option.price - option.discountPrice) / option.price) * 100)
-        : 0;
-
-      return {
-        displayPrice: option.discountPrice || option.price,
-        originalPrice: option.price,
-        discountPrice: option.discountPrice,
-        hasDiscount,
-        discountPercentage,
-        priceRange: null,
-      };
-    }
-    
-    // Case 3: Single variant with size options (only one option in stock)
-    if (variant.sizeOptions?.length === 1) {
-      const option = variant.sizeOptions[0];
-      const hasDiscount = option.discountPrice && option.discountPrice < option.price;
-      const discountPercentage = hasDiscount
-        ? Math.round(((option.price - option.discountPrice) / option.price) * 100)
-        : 0;
-
-      return {
-        displayPrice: option.discountPrice || option.price,
-        originalPrice: option.price,
-        discountPrice: option.discountPrice,
-        hasDiscount,
-        discountPercentage,
-        priceRange: null,
-      };
-    }
-  }
-
-  // Default case: Multiple variants/options - show price range without discounts
-  let minPrice = Infinity;
-  let maxPrice = -Infinity;
-  let hasAnyDiscount = false;
-
-  product.variants.forEach(variant => {
-    // Check simple variant pricing
-    if (variant.price && variant.stock > 0) {
-      const price = variant.discountPrice || variant.price;
-      minPrice = Math.min(minPrice, price);
-      maxPrice = Math.max(maxPrice, price);
-      if (variant.discountPrice) hasAnyDiscount = true;
-    }
-
-    // Check storage options
-    variant.storageOptions?.forEach(option => {
-      if (option.stock > 0) {
-        const price = option.discountPrice || option.price;
-        minPrice = Math.min(minPrice, price);
-        maxPrice = Math.max(maxPrice, price);
-        if (option.discountPrice) hasAnyDiscount = true;
-      }
-    });
-
-    // Check size options
-    variant.sizeOptions?.forEach(option => {
-      if (option.stock > 0) {
-        const price = option.discountPrice || option.price;
-        minPrice = Math.min(minPrice, price);
-        maxPrice = Math.max(maxPrice, price);
-        if (option.discountPrice) hasAnyDiscount = true;
-      }
-    });
-  });
-
-  return {
-    displayPrice: maxPrice,
-    hasDiscount: false, // Don't show discount for multiple options
-    discountPercentage: 0,
-    priceRange: minPrice !== maxPrice ? { min: minPrice, max: maxPrice } : null,
-    // Include original prices if needed for reference
-    originalPrice: maxPrice,
-    discountPrice: null,
   };
-};
 
-  // Get real rating data from product
   const getRatingData = () => {
     if (!product) return { rating: 0, reviewCount: 0, hasReviews: false };
-
-    // Use real review data from product
     const rating = product.averageRating || product.rating || 0;
     const reviewCount = product.reviewCount || product.totalReviews || 0;
-
     return {
       rating: rating,
       reviewCount: reviewCount,
@@ -365,16 +383,13 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     for (let i = 0; i < fullStars; i++) {
       stars.push(<FaStar key={i} className="text-yellow-400" />);
     }
-
     if (hasHalfStar) {
       stars.push(<FaStarHalfAlt key="half" className="text-yellow-400" />);
     }
-
     const emptyStars = 5 - Math.ceil(rating);
     for (let i = 0; i < emptyStars; i++) {
       stars.push(<FaRegStar key={`empty-${i}`} className="text-gray-300" />);
     }
-
     return stars;
   };
 
@@ -411,11 +426,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const isHotDeal = priceInfo.discountPercentage > 40;
 
   const handleCardClick = (e) => {
-    if (
-      e.target.tagName === "BUTTON" ||
-      e.target.closest("button") ||
-      e.target.tagName === "A"
-    ) {
+    if (e.target.tagName === "BUTTON" || e.target.closest("button") || e.target.tagName === "A") {
       return;
     }
     navigate(`/product/${product._id}`);
@@ -423,19 +434,12 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
 
   const handleAddToCartClick = async (e) => {
     e.stopPropagation();
-
     if (!user) {
       toast.info("Please login to add items to cart", {
         position: "top-center",
         autoClose: 3000,
       });
       navigate("/login", { state: { from: window.location.pathname } });
-      return;
-    }
-
-    if (stockInfo.hasVariants) {
-      toast.info("Please select options on the product page");
-      navigate(`/product/${product._id}`);
       return;
     }
 
@@ -448,7 +452,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       if (result.success) {
         toast.success(result.message || `${product.title} added to cart!`);
         setAddToCartStatus({ loading: false, success: true, error: null });
-
         setTimeout(() => {
           setAddToCartStatus((prev) => ({ ...prev, success: false }));
         }, 2000);
@@ -463,7 +466,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
         success: false,
         error: err.message,
       });
-
       setTimeout(() => {
         setAddToCartStatus((prev) => ({ ...prev, error: null }));
       }, 3000);
@@ -500,9 +502,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     }).format(price);
   };
 
- const renderPricing = () => {
-  // Single price display (no variants or single variant option)
-  if (!priceInfo.priceRange) {
+  const renderPricing = () => {
     return (
       <div className="mt-2 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
@@ -529,23 +529,20 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             Save {formatPrice(priceInfo.originalPrice - priceInfo.displayPrice)}
           </p>
         )}
+        {stockInfo.hasVariants && stockInfo.defaultVariantOptions && (
+          <p className="text-xs text-gray-600">
+            {[
+              stockInfo.defaultVariantOptions.variantColor && `Color: ${stockInfo.defaultVariantOptions.variantColor}`,
+              stockInfo.defaultVariantOptions.storageCapacity && `Storage: ${stockInfo.defaultVariantOptions.storageCapacity}`,
+              stockInfo.defaultVariantOptions.size && `Size: ${stockInfo.defaultVariantOptions.size}`,
+            ]
+              .filter(Boolean)
+              .join(", ")}
+          </p>
+        )}
       </div>
     );
-  }
-
-  // Price range display (multiple variants/options)
-  return (
-    <div className="mt-2 space-y-1">
-      <div className="flex items-center gap-2">
-        <p className="text-base font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
-          {formatPrice(priceInfo.priceRange.min)} -{" "}
-          {formatPrice(priceInfo.priceRange.max)}
-        </p>
-      </div>
-      <p className="text-xs text-gray-500">Multiple options</p>
-    </div>
-  );
-};
+  };
 
   const handleMediaError = (e) => {
     e.target.src = "/images/placeholder-product.png";
@@ -556,7 +553,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     if (addToCartStatus.loading) return "Adding...";
     if (addToCartStatus.success) return "Added!";
     if (addToCartStatus.error) return "Try Again";
-    if (stockInfo.hasVariants) return "Select Options";
     return "Add to Cart";
   };
 
@@ -583,11 +579,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
           loading="lazy"
           onError={handleMediaError}
         />
-
-        {/* Gradient overlay for better text visibility */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-
-        {/* Top badges */}
         <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
           <div className="flex flex-wrap gap-1">
             {product.isFeatured && (
@@ -603,7 +595,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
               </span>
             )}
           </div>
-
           <span
             className={`px-1.5 py-0.5 rounded-full text-xs font-bold shadow ${
               isOutOfStock
@@ -622,8 +613,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
                   : `${stockInfo.displayStock} Available`}
           </span>
         </div>
-
-        {/* Action buttons */}
         <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <button
             onClick={handleWishlistClick}
@@ -641,7 +630,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
               <FaRegHeart className="text-gray-600 text-sm hover:text-red-600 transition-colors" />
             )}
           </button>
-
           <button
             onClick={handleQuickView}
             className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
@@ -650,16 +638,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             <FaEye className="text-gray-600 text-sm hover:text-blue-600 transition-colors" />
           </button>
         </div>
-
-        {/* Free shipping badge */}
-        {priceInfo.displayPrice > 5000 && (
-          <div className="absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500 text-white text-xs font-bold shadow">
-            <FaShippingFast className="text-xs" />
-            Free Shipping
-          </div>
-        )}
-
-        {/* Image indicators */}
         {getAllImages().length > 1 && (
           <div className="absolute bottom-2 right-2 flex gap-1">
             {getAllImages()
@@ -675,21 +653,17 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
           </div>
         )}
       </div>
-
       <div className="p-3 flex flex-col gap-2 flex-grow">
         <div className="space-y-1">
           <h2 className="text-sm font-bold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight transition-colors">
             {product.title}
           </h2>
-
           {product.categoryId?.name && (
             <div className="flex items-center gap-1 text-xs text-gray-500">
               <MdVerified className="text-green-500 text-xs" />
               <span className="text-gray-600">{product.categoryId.name}</span>
             </div>
           )}
-
-          {/* Rating and reviews - only show if reviews exist */}
           {ratingInfo.hasReviews && (
             <div className="flex items-center gap-1 text-xs">
               <div className="flex items-center gap-0.5">
@@ -700,8 +674,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
               </span>
             </div>
           )}
-
-          {/* Alternative: Show "No reviews yet" for new products */}
           {!ratingInfo.hasReviews && (
             <div className="flex items-center gap-1 text-xs text-gray-500">
               <div className="flex items-center gap-0.5">{renderStars(0)}</div>
@@ -709,18 +681,13 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             </div>
           )}
         </div>
-
         {renderPricing()}
-
-        {/* Urgency timer for limited offers */}
         {stockInfo.isLowStock && (
           <div className="bg-red-50 border border-red-200 rounded p-1.5 flex items-center gap-1">
             <IoTimeOutline className="text-red-500 text-xs" />
             <span className="text-xs text-red-700">Limited stock!</span>
           </div>
         )}
-
-        {/* Trust badges */}
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <div className="flex items-center gap-0.5">
             <MdVerified className="text-green-500 text-xs" />
@@ -731,7 +698,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             <span>Fast Ship</span>
           </div>
         </div>
-
         <Button
           onClick={handleAddToCartClick}
           className={`mt-2 w-full font-bold transition-all duration-300 ${
@@ -743,9 +709,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
                   ? "bg-yellow-600 hover:bg-yellow-700"
                   : isOutOfStock
                     ? "bg-gray-400 cursor-not-allowed"
-                    : stockInfo.hasVariants
-                      ? "bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
-                      : "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
+                    : "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
           } text-white px-3 py-2 rounded-lg flex items-center justify-center gap-1 text-sm shadow`}
           aria-label={`Add ${product.title} to cart`}
           disabled={isOutOfStock || addToCartStatus.loading}
@@ -765,7 +729,6 @@ ProductCard.propTypes = {
     title: PropTypes.string,
     price: PropTypes.number,
     discountPrice: PropTypes.number,
-    displayPrice: PropTypes.number,
     stock: PropTypes.number,
     images: PropTypes.arrayOf(
       PropTypes.shape({
@@ -800,7 +763,6 @@ ProductCard.propTypes = {
             capacity: PropTypes.string,
             price: PropTypes.number,
             discountPrice: PropTypes.number,
-            displayPrice: PropTypes.number,
             stock: PropTypes.number,
           })
         ),
@@ -809,7 +771,6 @@ ProductCard.propTypes = {
             size: PropTypes.string,
             price: PropTypes.number,
             discountPrice: PropTypes.number,
-            displayPrice: PropTypes.number,
             stock: PropTypes.number,
           })
         ),

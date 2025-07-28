@@ -15,63 +15,50 @@ const CartProvider = ({ children }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // Refs for operation tracking and mount status
-  const isMountedRef = useRef(true);
-  const isFetchingRef = useRef(false);
-  const isUpdatingRef = useRef(false);
-  const pendingOperationsRef = useRef(new Set());
-  const lastCartUpdateRef = useRef(0);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+  // Refs to prevent duplicate operations
+  const isFetching = useRef(false);
+  const isUpdating = useRef(false);
+  const pendingOperations = useRef(new Set());
 
   const clearCartCache = useCallback(() => {
-    if (user?._id) {
+    if (user) {
       const cacheKey = `cart_user_${user._id}`;
       localStorage.removeItem(cacheKey);
       localStorage.removeItem(`${cacheKey}_timestamp`);
+      console.log('Cart cache cleared for user:', user._id);
     }
   }, [user]);
 
-  const fetchCartInternal = useCallback(async (forceRefresh = false) => {
-    if (!isMountedRef.current || !user?._id) {
-      if (!user?._id && isMountedRef.current) {
-        setCart(null);
-      }
+  const fetchCartInternal = useCallback(async () => {
+    if (!user) {
+      setCart(null);
       return { success: false, message: 'User not authenticated' };
     }
 
-    if (isFetchingRef.current && !forceRefresh) {
+    if (isFetching.current) {
+      console.log('fetchCart: Already fetching, skipping');
       return { success: false, message: 'Already fetching' };
     }
 
-    // Cache handling
+    // Check cache first
     const cacheKey = `cart_user_${user._id}`;
+    const cached = localStorage.getItem(cacheKey);
     const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
     const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes
 
-    if (!forceRefresh) {
-      const cached = localStorage.getItem(cacheKey);
-      if (cached && cacheValid) {
-        if (isMountedRef.current) {
-          setCart(JSON.parse(cached));
-        }
-        return { success: true, cart: JSON.parse(cached) };
-      }
+    if (cached && cacheValid) {
+      console.log('fetchCart: Using cached cart');
+      setCart(JSON.parse(cached));
+      return { success: true, cart: JSON.parse(cached) };
     }
 
-    isFetchingRef.current = true;
-    if (isMountedRef.current) {
-      setLoading(true);
-      setError(null);
-    }
-
+    isFetching.current = true;
+    setLoading(true);
+    setError(null);
+    
     try {
       const result = await cartService.getCart();
+      console.log('fetchCart: Result:', result);
       
       if (result.success) {
         const cartData = result.cart || { 
@@ -80,12 +67,13 @@ const CartProvider = ({ children }) => {
           totalShippingCost: 0,
           itemCount: 0 
         };
-
+        
         const updatedCartData = {
           ...cartData,
           items: cartData.items.map(item => ({
             ...item,
             shippingCost: item.productId?.shippingCost || item.shippingCost || 0,
+            // Include variant info for display
             variantDisplay: {
               color: item.variantColor || item.variantInfo?.color,
               storage: item.storageCapacity || item.variantInfo?.storage,
@@ -93,203 +81,282 @@ const CartProvider = ({ children }) => {
             }
           })),
         };
-
-        if (isMountedRef.current) {
-          setCart(updatedCartData);
-          lastCartUpdateRef.current = Date.now();
-        }
-
+        
+        setCart(updatedCartData);
+        console.log('fetchCart: Updated cart state:', updatedCartData);
+        
         // Cache response
         localStorage.setItem(cacheKey, JSON.stringify(updatedCartData));
         localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
-
+        
         if (updatedCartData.items.some(item => item.isUnavailable || item.isVariantUnavailable)) {
           toast.warn('Some items in your cart are unavailable');
         }
-
+        
         return { success: true, cart: updatedCartData };
-      }
-
-      if (isMountedRef.current) {
+      } else {
         setError({
           message: result.message,
           status: result.status
         });
         setCart(null);
+        return { success: false, message: result.message };
       }
-      return { success: false, message: result.message };
     } catch (err) {
-      if (isMountedRef.current) {
-        setError({
-          message: err.message || 'Failed to fetch cart',
-          status: err.response?.status
-        });
-        setCart(null);
-      }
+      console.error('fetchCart: Error:', {
+        message: err.message,
+        status: err.response?.status,
+        details: err.response?.data
+      });
+      
+      setError({
+        message: err.message || 'Failed to fetch cart',
+        status: err.response?.status
+      });
+      setCart(null);
       throw err;
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
-      isFetchingRef.current = false;
+      setLoading(false);
+      isFetching.current = false;
     }
   }, [user]);
 
-  // Stable debounced fetch function
-  const debouncedFetchCart = useMemo(() => 
-    debounce(async (forceRefresh = false) => {
-      return fetchCartInternal(forceRefresh);
-    }, 500),
-  [fetchCartInternal]);
+  // Debounced fetch cart function that returns a Promise
+  const debouncedFetchCart = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await fetchCartInternal();
+          resolve(result);
+        } catch (err) {
+          console.error('Debounced fetchCart error:', err);
+          reject(err);
+        }
+      }, 500);
+      
+      debouncedFn();
+    });
+  }, [fetchCartInternal]);
 
+  // Generic debounced cart operation handler
   const performCartOperation = useCallback(async (operationName, operation, ...args) => {
-    if (!isMountedRef.current) return { success: false, message: 'Component unmounted' };
     if (!user) {
       navigate('/login', { state: { from: window.location.pathname } });
       return { success: false, message: 'Please login to perform this action' };
     }
 
     const operationKey = `${operationName}-${JSON.stringify(args)}`;
-    if (pendingOperationsRef.current.has(operationKey)) {
+    
+    if (pendingOperations.current.has(operationKey)) {
+      console.log(`${operationName}: Operation already pending, skipping`);
       return { success: false, message: 'Operation already in progress' };
     }
 
-    pendingOperationsRef.current.add(operationKey);
-    if (isMountedRef.current) {
-      setLoading(true);
-    }
-
+    pendingOperations.current.add(operationKey);
+    setLoading(true);
+    
     try {
       const result = await operation(...args);
       
       if (result.success) {
-        clearCartCache();
+        clearCartCache(); // Invalidate cache
         
-        // Debounce the fetch but ensure it happens after the operation
+        // Debounce the fetch to prevent rapid successive calls
         setTimeout(() => {
-          if (isMountedRef.current) {
-            debouncedFetchCart(true).catch(console.error);
-          }
+          debouncedFetchCart().catch(err => {
+            console.error(`${operationName}: Failed to refresh cart`, err);
+          });
         }, 100);
-
-        if (isMountedRef.current) {
-          toast.success(result.message);
-        }
+        
+        toast.success(result.message);
         return { success: true, cart: result.cart };
       }
       
       throw new Error(result.message);
     } catch (error) {
-      if (isMountedRef.current) {
-        toast.error(error.message || `Failed to ${operationName.toLowerCase()}`);
-      }
+      console.error(`${operationName} error:`, error);
+      toast.error(error.message || `Failed to ${operationName.toLowerCase()}`);
       return { success: false, message: error.message };
     } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
-      pendingOperationsRef.current.delete(operationKey);
+      setLoading(false);
+      pendingOperations.current.delete(operationKey);
     }
   }, [user, navigate, debouncedFetchCart, clearCartCache]);
 
-  // Memoized cart operations with debouncing
-  const cartOperations = useMemo(() => {
-    const createOperation = (name, serviceFn) => {
-      return (...args) => {
-        return new Promise((resolve, reject) => {
-          const debouncedFn = debounce(async () => {
-            try {
-              const result = await performCartOperation(name, serviceFn, ...args);
-              resolve(result);
-            } catch (error) {
-              reject(error);
-            }
-          }, 300);
-          
-          debouncedFn();
-        });
-      };
-    };
-
-    return {
-      addItemToCart: createOperation('addToCart', cartService.addToCart),
-      updateQuantity: createOperation('updateQuantity', cartService.updateQuantity),
-      removeFromCart: createOperation('removeFromCart', cartService.removeFromCart),
-      clearCart: createOperation('clearCart', cartService.clearCart),
-    };
+  // Updated cart operations with new variant options structure
+  const addItemToCart = useCallback((productId, variantOptions = {}, quantity = 1) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'addToCart',
+            cartService.addToCart,
+            productId,
+            variantOptions,
+            quantity
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
   }, [performCartOperation]);
 
-  const placeOrderFromCart = useCallback(async (shippingAddress) => {
-    if (!isMountedRef.current) return { success: false, message: 'Component unmounted' };
-    if (!user) {
-      navigate('/login', { state: { from: window.location.pathname } });
-      return { success: false, message: 'Please login to place order' };
-    }
-
-    if (isUpdatingRef.current) {
-      return { success: false, message: 'Order placement already in progress' };
-    }
-
-    isUpdatingRef.current = true;
-    if (isMountedRef.current) {
-      setLoading(true);
-    }
-
-    try {
-      const result = await cartService.placeOrderFromCart(shippingAddress);
-      
-      if (result.success) {
-        clearCartCache();
-        
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            debouncedFetchCart(true).catch(console.error);
-          }
-        }, 100);
-        
-        if (isMountedRef.current) {
-          toast.success('Order placed successfully');
+  const updateQuantity = useCallback((productId, quantity, variantOptions = {}) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'updateQuantity',
+            cartService.updateQuantity,
+            productId,
+            quantity,
+            variantOptions
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
         }
-        return { success: true, order: result.order };
-      }
+      }, 500);
       
-      throw new Error(result.message);
-    } catch (error) {
-      if (isMountedRef.current) {
-        toast.error(error.message || 'Failed to place order');
-      }
-      throw error;
-    } finally {
-      if (isMountedRef.current) {
-        setLoading(false);
-      }
-      isUpdatingRef.current = false;
-    }
+      debouncedFn();
+    });
+  }, [performCartOperation]);
+
+  const removeFromCart = useCallback((productId, variantOptions = {}) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'removeFromCart',
+            cartService.removeFromCart,
+            productId,
+            variantOptions
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
+  }, [performCartOperation]);
+
+  const clearCart = useCallback(() => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        try {
+          const result = await performCartOperation(
+            'clearCart',
+            cartService.clearCart
+          );
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      }, 300);
+      
+      debouncedFn();
+    });
+  }, [performCartOperation]);
+
+  const placeOrderFromCart = useCallback((shippingAddress) => {
+    return new Promise((resolve, reject) => {
+      const debouncedFn = debounce(async () => {
+        if (!user) {
+          navigate('/login', { state: { from: window.location.pathname } });
+          resolve({ success: false, message: 'Please login to place order' });
+          return;
+        }
+
+        if (isUpdating.current) {
+          resolve({ success: false, message: 'Order placement already in progress' });
+          return;
+        }
+
+        isUpdating.current = true;
+        setLoading(true);
+        
+        try {
+          const result = await cartService.placeOrderFromCart(shippingAddress);
+          
+          if (result.success) {
+            clearCartCache(); // Invalidate cache
+            
+            // Refresh cart after order placement
+            setTimeout(() => {
+              debouncedFetchCart().catch(err => {
+                console.error('Failed to refresh cart after order placement', err);
+              });
+            }, 100);
+            
+            toast.success('Order placed successfully');
+            resolve({ success: true, order: result.order });
+          } else {
+            throw new Error(result.message);
+          }
+        } catch (error) {
+          console.error('Place order error:', error);
+          toast.error(error.message || 'Failed to place order');
+          reject(error);
+        } finally {
+          setLoading(false);
+          isUpdating.current = false;
+        }
+      }, 1000);
+      
+      debouncedFn();
+    });
   }, [user, navigate, debouncedFetchCart, clearCartCache]);
 
-  // Initialize cart on user change
+  // Helper functions for variant options
+  const createVariantOptions = useCallback((variantColor = null, storageCapacity = null, size = null) => {
+    return cartService.createVariantOptions(variantColor, storageCapacity, size);
+  }, []);
+
+  // Backward compatibility functions
+  const addItemToCartLegacy = useCallback((productId, variantId = null, quantity = 1) => {
+    console.warn('addItemToCartLegacy is deprecated. Use addItemToCart with variantOptions instead.');
+    const variantOptions = variantId ? { variantId } : {};
+    return addItemToCart(productId, variantOptions, quantity);
+  }, [addItemToCart]);
+
+  const updateQuantityLegacy = useCallback((productId, quantity, variantId = null) => {
+    console.warn('updateQuantityLegacy is deprecated. Use updateQuantity with variantOptions instead.');
+    const variantOptions = variantId ? { variantId } : {};
+    return updateQuantity(productId, quantity, variantOptions);
+  }, [updateQuantity]);
+
+  const removeFromCartLegacy = useCallback((productId, variantId = null) => {
+    console.warn('removeFromCartLegacy is deprecated. Use removeFromCart with variantOptions instead.');
+    const variantOptions = variantId ? { variantId } : {};
+    return removeFromCart(productId, variantOptions);
+  }, [removeFromCart]);
+
+  // Effect to fetch cart when user changes
   useEffect(() => {
-    if (!isMountedRef.current) return;
-
-    const fetchCart = async () => {
-      try {
-        await debouncedFetchCart();
-      } catch (err) {
-        if (isMountedRef.current) {
-          toast.error('Failed to load cart: ' + (err.message || 'Unknown error'));
-        }
-      }
-    };
-
-    if (user) {
-      // Only fetch if we don't have recent cart data
-      if (!lastCartUpdateRef.current || Date.now() - lastCartUpdateRef.current > 10000) {
-        fetchCart();
-      }
-    } else {
+    if (user && !isFetching.current) {
+      debouncedFetchCart().catch(err => {
+        console.error('Initial fetchCart error:', err);
+        toast.error('Failed to load cart: ' + (err.message || 'Unknown error'));
+      });
+    } else if (!user) {
+      // Clear cart when user logs out
       setCart(null);
       setError(null);
     }
+
+    // Cleanup function - no need to cancel since we're using Promise-wrapped debounced functions
+    return () => {
+      // Reset operation flags when component unmounts or user changes
+      isFetching.current = false;
+      isUpdating.current = false;
+      pendingOperations.current.clear();
+    };
   }, [user, debouncedFetchCart]);
 
   const contextValue = useMemo(() => ({
@@ -300,13 +367,23 @@ const CartProvider = ({ children }) => {
     totalShippingCost: cart?.totalShippingCost || 0,
     itemCount: cart?.itemCount || 0,
     
-    // Cart operations
-    ...cartOperations,
+    // Modern variant-based functions
+    addItemToCart,
+    updateQuantity,
+    removeFromCart,
+    clearCart,
     placeOrderFromCart,
-    createVariantOptions: cartService.createVariantOptions,
+    createVariantOptions,
     
-    // Helper functions
+    // Legacy functions for backward compatibility
+    addItemToCartLegacy,
+    updateQuantityLegacy,
+    removeFromCartLegacy,
+    
+    // Utility functions
     fetchCart: debouncedFetchCart,
+    
+    // Cart helper functions
     getItemUniqueKey: (item) => `${item.productId}_${item.variantColor || ''}_${item.storageCapacity || ''}_${item.size || ''}`,
     findCartItem: (productId, variantOptions = {}) => {
       const items = cart?.items || [];
@@ -317,8 +394,24 @@ const CartProvider = ({ children }) => {
         item.size === variantOptions.size
       );
     },
+    
+    // Free shipping check
     isFreeShipping: (cart?.totalPrice >= 2500 || cart?.itemCount >= 2500),
-  }), [cart, loading, error, cartOperations, placeOrderFromCart, debouncedFetchCart]);
+  }), [
+    cart,
+    loading,
+    error,
+    addItemToCart,
+    updateQuantity,
+    removeFromCart,
+    clearCart,
+    placeOrderFromCart,
+    createVariantOptions,
+    addItemToCartLegacy,
+    updateQuantityLegacy,
+    removeFromCartLegacy,
+    debouncedFetchCart
+  ]);
 
   return (
     <CartContext.Provider value={contextValue}>
