@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useContext, useRef } from 'react';
+import React, { useContext, useEffect, useMemo, useCallback, useRef, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { ArrowRight } from 'lucide-react';
 import { debounce } from 'lodash';
@@ -8,41 +8,74 @@ import LoadingSpinner from '../core/LoadingSpinner';
 import { ProductContext } from '../../context/ProductContext';
 import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../shared/config';
-import SocketService from '../../services/socketService';
 import { toast } from 'react-toastify';
 
 function FeaturedProducts() {
   const { products, loading: productsLoading, error: productsError, fetchFeaturedProducts } = useContext(ProductContext);
-  const [isInitialized, setIsInitialized] = useState(false);
   const [localError, setLocalError] = useState(null);
-  const [isSocketConnected, setIsSocketConnected] = useState(false);
-  
   const mountCount = useRef(0);
   const fetchInProgressRef = useRef(false);
   const lastFetchParamsRef = useRef('');
+  const hasFetchedRef = useRef(false);
   const componentKey = 'featured-products';
 
-  // Log component mounts for debugging
   useEffect(() => {
     mountCount.current += 1;
     if (process.env.NODE_ENV === 'development') {
-      console.log(`FeaturedProducts[${componentKey}] mounted ${mountCount.current} times`);
+      // console.log(`FeaturedProducts[${componentKey}] mounted ${mountCount.current} times`);
     }
     return () => {
       if (process.env.NODE_ENV === 'development') {
-        console.log(`FeaturedProducts[${componentKey}] unmounted`);
+        // console.log(`FeaturedProducts[${componentKey}] unmounted`);
       }
     };
   }, []);
 
-  // Memoize processed products with stable reference
+  const hasAvailableStock = (product) => {
+    if (product.stock > 0) return true;
+    if (product.variants?.length > 0) {
+      return product.variants.some(variant => {
+        if (variant.stock > 0) return true;
+        if (variant.storageOptions?.length > 0) {
+          return variant.storageOptions.some(option => option.stock > 0);
+        }
+        if (variant.sizeOptions?.length > 0) {
+          return variant.sizeOptions.some(option => option.stock > 0);
+        }
+        return false;
+      });
+    }
+    return false;
+  };
+
   const memoizedProducts = useMemo(() => {
     if (!products || !Array.isArray(products)) {
+      if (process.env.NODE_ENV === 'development') {
+        // console.log(`FeaturedProducts[${componentKey}] - No products or invalid products array`, { products });
+      }
       return [];
     }
 
     const featuredProducts = products
-      .filter(product => product?.isFeatured === true && product?.stock > 0)
+      .filter(product => {
+        const isFeatured = product?.isFeatured === true;
+        const hasStock = hasAvailableStock(product);
+        if (!isFeatured && process.env.NODE_ENV === 'development') {
+          // console.log(`FeaturedProducts[${componentKey}] - Product filtered out (not featured):`, product);
+        }
+        if (!hasStock && process.env.NODE_ENV === 'development') {
+          // console.log(`FeaturedProducts[${componentKey}] - Product filtered out (no stock):`, {
+          //   ...product,
+          //   variantStock: product.variants?.map(v => ({
+          //     color: v.color?.name,
+          //     stock: v.stock,
+          //     storageOptions: v.storageOptions?.map(o => ({ capacity: o.capacity, stock: o.stock })),
+          //     sizeOptions: v.sizeOptions?.map(o => ({ size: o.size, stock: o.stock })),
+          //   })),
+          // });
+        }
+        return isFeatured && hasStock;
+      })
       .map(product => ({
         ...product,
         title: product.title || 'Untitled Product',
@@ -56,35 +89,33 @@ function FeaturedProducts() {
           _id: product.categoryId?._id || product.categoryId,
           name: product.categoryId?.name || 'Uncategorized',
         },
+        createdAt: product.createdAt || new Date().toISOString(),
       }))
-      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-      .slice(0, 6); // Limit to 6 featured products
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 6);
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`FeaturedProducts[${componentKey}] - Processed ${featuredProducts.length} featured products`);
+      // console.log(`FeaturedProducts[${componentKey}] - Processed ${featuredProducts.length} featured products`, featuredProducts);
     }
 
     return featuredProducts;
   }, [products]);
 
-  // Optimized fetch handler with deduplication
   const handleFetchFeaturedProducts = useCallback(
     debounce(async (forceRefresh = false) => {
-      const params = { page: 1, limit: 6, sort: '-createdAt' };
-      const paramsKey = JSON.stringify(params);
-
-      // Prevent duplicate API calls
       if (fetchInProgressRef.current && !forceRefresh) {
         if (process.env.NODE_ENV === 'development') {
-          console.log(`FeaturedProducts[${componentKey}] - Fetch already in progress, skipping`);
+          // console.log(`FeaturedProducts[${componentKey}] - Fetch already in progress, skipping`);
         }
         return;
       }
 
-      // Prevent identical consecutive calls
-      if (lastFetchParamsRef.current === paramsKey && !forceRefresh) {
+      const params = { page: 1, limit: 6, sort: '-createdAt', featured: true, 'stock[gt]': 0 };
+      const paramsKey = JSON.stringify(params);
+
+      if (lastFetchParamsRef.current === paramsKey && !forceRefresh && hasFetchedRef.current) {
         if (process.env.NODE_ENV === 'development') {
-          console.log(`FeaturedProducts[${componentKey}] - Identical params, skipping fetch`);
+          // console.log(`FeaturedProducts[${componentKey}] - Identical params and already fetched, skipping`);
         }
         return;
       }
@@ -94,21 +125,12 @@ function FeaturedProducts() {
 
       try {
         setLocalError(null);
-        
+        const response = await fetchFeaturedProducts(params, { skipCache: forceRefresh });
         if (process.env.NODE_ENV === 'development') {
-          console.log(`FeaturedProducts[${componentKey}] - Fetching featured products with params:`, params);
+          // console.log(`FeaturedProducts[${componentKey}] - Fetched products:`, response);
         }
-
-        const result = await fetchFeaturedProducts(
-          params,
-          { skipCache: forceRefresh }
-        );
-
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`FeaturedProducts[${componentKey}] - API Response:`, result);
-        }
+        hasFetchedRef.current = true;
       } catch (err) {
-        console.error(`FeaturedProducts[${componentKey}] - Fetch error:`, err);
         setLocalError(err.message || 'Failed to load featured products');
         toast.error(err.message || 'Failed to load featured products');
       } finally {
@@ -118,39 +140,28 @@ function FeaturedProducts() {
     [fetchFeaturedProducts]
   );
 
-  // Single initialization effect
   useEffect(() => {
     let mounted = true;
 
     const initializeComponent = async () => {
-      // Skip if already initialized
-      if (isInitialized) {
+      if (fetchInProgressRef.current || hasFetchedRef.current) {
+        if (process.env.NODE_ENV === 'development') {
+          // console.log(`FeaturedProducts[${componentKey}] - Skipping fetch: in progress or already fetched`);
+        }
         return;
       }
 
-      // Skip if we're in the middle of loading or fetching
-      if (productsLoading || fetchInProgressRef.current) {
-        return;
-      }
-
-      // Check if we already have featured products
-      const hasFeaturedProducts = products && products.some(p => p?.isFeatured === true);
-      
       if (process.env.NODE_ENV === 'development') {
-        console.log(`FeaturedProducts[${componentKey}] - Initializing component`, {
-          hasFeaturedProducts,
-          productsLength: products?.length || 0,
-          memoizedLength: memoizedProducts.length
-        });
+        // console.log(`FeaturedProducts[${componentKey}] - Initializing component`, {
+        //   productsLength: products?.length || 0,
+        //   memoizedLength: memoizedProducts.length,
+        // });
       }
 
-      // Only fetch if we don't have featured products or if we have very few
-      if (!hasFeaturedProducts || memoizedProducts.length === 0) {
-        await handleFetchFeaturedProducts();
-      }
+      await handleFetchFeaturedProducts(true);
 
       if (mounted) {
-        setIsInitialized(true);
+        // No state update needed
       }
     };
 
@@ -158,116 +169,25 @@ function FeaturedProducts() {
 
     return () => {
       mounted = false;
+      handleFetchFeaturedProducts.cancel();
     };
-  }, [isInitialized, productsLoading, products, memoizedProducts.length, handleFetchFeaturedProducts]);
+  }, [handleFetchFeaturedProducts]);
 
-  // Optimized socket handling
-  useEffect(() => {
-    if (!isInitialized) return;
-
-    let mounted = true;
-
-    const connectSocket = () => {
-      if (isSocketConnected) return;
-
-      try {
-        SocketService.connect();
-        if (mounted) {
-          setIsSocketConnected(true);
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`FeaturedProducts[${componentKey}] - SocketService connected`);
-          }
-        }
-      } catch (err) {
-        console.error(`FeaturedProducts[${componentKey}] - SocketService connection error:`, err);
-        setLocalError('Failed to initialize real-time updates');
-        toast.error('Failed to initialize real-time updates');
-      }
-    };
-
-    // Debounced handlers to prevent excessive API calls
-    const debouncedProductCreated = debounce((data) => {
-      if (!mounted) return;
-      
-      if (data.product?.isFeatured && data.product?.stock > 0) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`FeaturedProducts[${componentKey}] - New featured product created:`, data.product.title);
-        }
-        handleFetchFeaturedProducts(true);
-        toast.success(`New featured product added: ${data.product.title}`);
-      }
-    }, 1000);
-
-    const debouncedProductUpdated = debounce((data) => {
-      if (!mounted) return;
-      
-      // Check if this affects featured products (either was featured or is now featured)
-      const wasOrIsFeatured = data.product?.isFeatured || data.previousData?.isFeatured;
-      
-      if (wasOrIsFeatured) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`FeaturedProducts[${componentKey}] - Featured product updated:`, data.product?.title);
-        }
-        handleFetchFeaturedProducts(true);
-        
-        if (data.product?.isFeatured) {
-          toast.info(`Featured product updated: ${data.product.title}`);
-        }
-      }
-    }, 1000);
-
-    const debouncedProductDeleted = debounce((data) => {
-      if (!mounted) return;
-      
-      // Always refresh on delete as we don't know if it was featured
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`FeaturedProducts[${componentKey}] - Product deleted, refreshing featured products`);
-      }
-      handleFetchFeaturedProducts(true);
-      toast.warn('Product removed');
-    }, 1000);
-
-    connectSocket();
-
-    SocketService.on('productCreated', debouncedProductCreated);
-    SocketService.on('productUpdated', debouncedProductUpdated);
-    SocketService.on('productDeleted', debouncedProductDeleted);
-
-    return () => {
-      mounted = false;
-      debouncedProductCreated.cancel();
-      debouncedProductUpdated.cancel();
-      debouncedProductDeleted.cancel();
-      
-      SocketService.off('productCreated');
-      SocketService.off('productUpdated');
-      SocketService.off('productDeleted');
-      
-      if (isSocketConnected) {
-        SocketService.disconnect();
-        setIsSocketConnected(false);
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`FeaturedProducts[${componentKey}] - SocketService disconnected`);
-        }
-      }
-    };
-  }, [isInitialized, handleFetchFeaturedProducts, isSocketConnected]);
-
-  // Manual retry function
   const handleRetry = useCallback(() => {
     setLocalError(null);
-    setIsInitialized(false);
     lastFetchParamsRef.current = '';
+    hasFetchedRef.current = false;
     handleFetchFeaturedProducts(true);
   }, [handleFetchFeaturedProducts]);
 
-  // Manual refresh function
   const handleRefresh = useCallback(() => {
     setLocalError(null);
+    lastFetchParamsRef.current = '';
+    hasFetchedRef.current = false;
     handleFetchFeaturedProducts(true);
   }, [handleFetchFeaturedProducts]);
 
-  const isLoading = !isInitialized || (productsLoading && memoizedProducts.length === 0);
+  const isLoading = productsLoading && memoizedProducts.length === 0;
   const hasError = localError || productsError;
 
   if (isLoading) {
@@ -301,10 +221,8 @@ function FeaturedProducts() {
         {process.env.NODE_ENV === 'development' && (
           <div className="mt-4 text-xs text-gray-400">
             <p>Total products: {products?.length || 0}</p>
-            <p>Featured products: {memoizedProducts.length}</p>
-            <p>Is initialized: {isInitialized.toString()}</p>
-            <p>Fetch in progress: {fetchInProgressRef.current.toString()}</p>
-            <p>Socket connected: {isSocketConnected.toString()}</p>
+            <p>Products with isFeatured=true: {products?.filter((p) => p?.isFeatured === true).length || 0}</p>
+            <p>Products with stock &gt; 0 or variant stock: {products?.filter(p => hasAvailableStock(p)).length || 0}</p>
           </div>
         )}
       </section>
@@ -350,14 +268,13 @@ function FeaturedProducts() {
             {process.env.NODE_ENV === 'development' && (
               <div className="mt-4 text-xs text-gray-400">
                 <p>Total products: {products?.length || 0}</p>
-                <p>Products with isFeatured=true: {products?.filter(p => p?.isFeatured === true).length || 0}</p>
-                <p>Products with stock 0: {products?.filter(p => p?.stock > 0).length || 0}</p>
+                <p>Products with isFeatured=true: {products?.filter((p) => p?.isFeatured === true).length || 0}</p>
+                <p>Products with stock &gt; 0 or variant stock: {products?.filter(p => hasAvailableStock(p)).length || 0}</p>
               </div>
             )}
           </div>
         )}
         
-        {/* Show error as toast notification if we have products but there's an error */}
         {hasError && memoizedProducts.length > 0 && process.env.NODE_ENV === 'development' && (
           <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
             <p className="text-sm text-yellow-800">Warning: {hasError}</p>

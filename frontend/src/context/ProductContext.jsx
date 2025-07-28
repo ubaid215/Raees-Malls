@@ -53,21 +53,23 @@ export const ProductProvider = ({ children }) => {
     }
   }, []);
 
-const clearRelatedCaches = useCallback((productId) => {
-  if (productId) {
-    clearCache(`product_${productId}`);
-  }
-  
-  // Clear only relevant caches based on current filters
-  Object.keys(localStorage).forEach(key => {
-    if (key.startsWith('products_') || key.startsWith('featured_products_')) {
-      // Don't clear all caches, just those matching current category if exists
-      if (!pagination.categoryId || key.includes(`_${pagination.categoryId}_`)) {
-        clearCache(key);
-      }
+  const clearRelatedCaches = useCallback((productId) => {
+    const clearedKeys = [];
+    if (productId) {
+      clearCache(`product_${productId}`);
+      clearedKeys.push(`product_${productId}`);
     }
-  });
-}, [clearCache, pagination.categoryId]);
+    // Clear all product-related caches to ensure fresh data
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('products_') || key.startsWith('featured_products_')) {
+        clearCache(key);
+        clearedKeys.push(key);
+      }
+    });
+    if (process.env.NODE_ENV === 'development') {
+      console.log('ProductContext: Cleared cache keys:', clearedKeys);
+    }
+  }, [clearCache]);
 
   useEffect(() => {
     const cleanupExpiredCache = () => {
@@ -87,60 +89,59 @@ const clearRelatedCaches = useCallback((productId) => {
     return () => clearInterval(intervalId);
   }, [getCache, clearCache]);
 
-useEffect(() => {
-  SocketService.connect();
+  useEffect(() => {
+    SocketService.connect();
 
-  const handleProductCreated = (data) => {
-    const product = data.product || {};
-    const normalizedProduct = normalizeProduct(product);
-    setProducts(prev => {
-      // Check if product already exists (prevent duplicates)
-      const exists = prev.some(p => p._id === normalizedProduct._id);
-      if (exists) return prev;
-      
-      // Add new product if it matches current filters
-      const shouldAdd = !normalizedProduct.isFeatured && 
-        (pagination.categoryId ? normalizedProduct.categoryId === pagination.categoryId : true);
-      
-      return shouldAdd ? [...prev, normalizedProduct] : prev;
-    });
-    clearRelatedCaches();
-  };
-
-  const handleProductUpdated = (data) => {
-    const product = data.product || {};
-    const normalizedProduct = normalizeProduct(product);
-    setProducts(prev => {
-      // Update existing product or add if it matches current filters
-      const exists = prev.some(p => p._id === normalizedProduct._id);
-      const shouldAdd = !normalizedProduct.isFeatured && 
-        (pagination.categoryId ? normalizedProduct.categoryId === pagination.categoryId : true);
-      
-      if (exists) {
-        return prev.map(p => 
-          p._id === normalizedProduct._id ? normalizedProduct : p
-        );
+    const handleProductCreated = (data) => {
+      const product = data.product || {};
+      const normalizedProduct = normalizeProduct(product);
+      setProducts(prev => {
+        const exists = prev.some(p => p._id === normalizedProduct._id);
+        if (exists) return prev;
+        return [...prev, normalizedProduct];
+      });
+      clearRelatedCaches();
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductContext: Product created:', normalizedProduct);
       }
-      return shouldAdd ? [...prev, normalizedProduct] : prev;
-    });
-    clearRelatedCaches(normalizedProduct._id);
-  };
+    };
 
-  const handleProductDeleted = (data) => {
-    setProducts(prev => prev.filter(p => p._id !== data.productId));
-    clearRelatedCaches(data.productId);
-  };
+    const handleProductUpdated = (data) => {
+      const product = data.product || {};
+      const normalizedProduct = normalizeProduct(product);
+      setProducts(prev => {
+        const exists = prev.some(p => p._id === normalizedProduct._id);
+        if (exists) {
+          return prev.map(p => 
+            p._id === normalizedProduct._id ? normalizedProduct : p
+          );
+        }
+        return [...prev, normalizedProduct];
+      });
+      clearRelatedCaches(normalizedProduct._id);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductContext: Product updated:', normalizedProduct);
+      }
+    };
 
-  SocketService.on('productCreated', handleProductCreated);
-  SocketService.on('productUpdated', handleProductUpdated);
-  SocketService.on('productDeleted', handleProductDeleted);
+    const handleProductDeleted = (data) => {
+      setProducts(prev => prev.filter(p => p._id !== data.productId));
+      clearRelatedCaches(data.productId);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('ProductContext: Product deleted:', data.productId);
+      }
+    };
 
-  return () => {
-    SocketService.off('productCreated', handleProductCreated);
-    SocketService.off('productUpdated', handleProductUpdated);
-    SocketService.off('productDeleted', handleProductDeleted);
-  };
-}, [clearRelatedCaches, pagination.categoryId]);
+    SocketService.on('productCreated', handleProductCreated);
+    SocketService.on('productUpdated', handleProductUpdated);
+    SocketService.on('productDeleted', handleProductDeleted);
+
+    return () => {
+      SocketService.off('productCreated', handleProductCreated);
+      SocketService.off('productUpdated', handleProductUpdated);
+      SocketService.off('productDeleted', handleProductDeleted);
+    };
+  }, [clearRelatedCaches]);
 
   const withRetry = useCallback(async (fn, retries = 3, delay = 1000) => {
     for (let attempt = 1; attempt <= retries; attempt++) {
