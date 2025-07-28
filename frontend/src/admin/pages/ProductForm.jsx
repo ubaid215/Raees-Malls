@@ -582,6 +582,10 @@ const ProductForm = ({
       },
     ]);
     setVariantImagesToDelete((prev) => [...prev, []]);
+    // Clear base price, discountPrice, and stock fields
+    setValue("price", "");
+    setValue("discountPrice", "");
+    setValue("stock", "");
     debouncedSave();
   };
 
@@ -836,14 +840,20 @@ const ProductForm = ({
         (v.sizeOptions && v.sizeOptions.length > 0)
     );
 
+    // Check if there are valid variants with pricing/stock information
+    const hasValidVariants = filteredVariants.some(
+      (v) =>
+        (v.price !== undefined && v.stock !== undefined) ||
+        (v.storageOptions && v.storageOptions.length > 0) ||
+        (v.sizeOptions && v.sizeOptions.length > 0)
+    );
+
     const productData = {
       ...data,
-      price: data.price ? parseFloat(data.price) : undefined,
-      discountPrice: data.discountPrice
-        ? parseFloat(data.discountPrice)
-        : undefined,
+      price: hasValidVariants ? undefined : (data.price ? parseFloat(data.price) : undefined),
+      discountPrice: hasValidVariants ? undefined : (data.discountPrice ? parseFloat(data.discountPrice) : undefined),
       shippingCost: parseFloat(data.shippingCost) || 0,
-      stock: data.stock ? parseInt(data.stock) : undefined,
+      stock: hasValidVariants ? undefined : (data.stock ? parseInt(data.stock) : undefined),
       color:
         data.color && data.color.trim()
           ? { name: data.color.trim() }
@@ -964,6 +974,7 @@ const ProductForm = ({
             onChange={(e) => {
               debouncedSave();
             }}
+            placeholder={variants.length > 0 ? "Ignored when variants are used" : ""}
             className="w-full"
           />
           <Input
@@ -981,6 +992,7 @@ const ProductForm = ({
             onChange={(e) => {
               debouncedSave();
             }}
+            placeholder={variants.length > 0 ? "Ignored when variants are used" : ""}
             className="w-full"
           />
           <Input
@@ -1037,6 +1049,7 @@ const ProductForm = ({
             onChange={(e) => {
               debouncedSave();
             }}
+            placeholder={variants.length > 0 ? "Ignored when variants are used" : ""}
             className="w-full"
           />
           <Input

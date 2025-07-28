@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { CiMenuBurger, CiSearch, CiShoppingCart, CiUser, CiHeart, CiCircleRemove } from 'react-icons/ci';
 import { RiArrowDownLine } from 'react-icons/ri';
+import { debounce } from 'lodash';
 import { CategoryContext } from '../../../context/CategoryContext';
 import { ProductContext } from '../../../context/ProductContext';
 import { WishlistContext } from '../../../context/WishlistContext';
@@ -9,7 +10,7 @@ import { useCart } from '../../../context/CartContext';
 import SocketService from '../../../services/socketService';
 import { toast } from 'react-toastify';
 import Logo from '../../../assets/images/Raees Malls.png';
-import { useAuth } from '../../../context/AuthContext'; // Import useAuth
+import { useAuth } from '../../../context/AuthContext';
 
 // Navigation links
 const navLinks = [
@@ -30,30 +31,50 @@ function Navbar() {
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState({});
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [categoriesInitialized, setCategoriesInitialized] = useState(false);
+  
   const navigate = useNavigate();
-  const { isAuthenticated, user, fetchUser } = useAuth(); // Use auth context
+  const { isAuthenticated, user, fetchUser } = useAuth();
 
-  // Cart context
+  // Context references
   const { cartItems } = useCart();
   const { categories, loading, error, fetchCategories } = useContext(CategoryContext);
   const { products, fetchProducts } = useContext(ProductContext);
   const { wishlistCount } = useContext(WishlistContext);
 
+  // Refs for optimization
+  const fetchInProgressRef = useRef(false);
+  const lastSearchQueryRef = useRef('');
+  const searchTimeoutRef = useRef(null);
+  const componentKey = 'navbar';
+
   // Calculate cart count from cartItems array
-  const cartCount = Array.isArray(cartItems)
-    ? cartItems.reduce((count, item) => count + (item.quantity || 0), 0)
-    : 0;
+  const cartCount = useMemo(() => {
+    return Array.isArray(cartItems)
+      ? cartItems.reduce((count, item) => count + (item.quantity || 0), 0)
+      : 0;
+  }, [cartItems]);
 
-  // Debug logging
+  // Debug logging (only in development)
   useEffect(() => {
-    console.log('Navbar: cartItems:', cartItems);
-    console.log('Navbar: cartCount:', cartCount);
-    console.log('Navbar: isAuthenticated:', isAuthenticated);
-  }, [cartItems, cartCount, isAuthenticated]);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Navbar[${componentKey}]:`, {
+        cartItems: cartItems?.length || 0,
+        cartCount,
+        isAuthenticated,
+        categoriesLength: categories?.length || 0,
+        isSocketConnected
+      });
+    }
+  }, [cartItems, cartCount, isAuthenticated, categories, isSocketConnected]);
 
-  // Create hierarchical category structure
-  const categoriesWithSubcategories = React.useMemo(() => {
-    console.log('Building categoriesWithSubcategories:', categories);
+  // Memoized hierarchical category structure
+  const categoriesWithSubcategories = useMemo(() => {
+    if (!categories || !Array.isArray(categories)) {
+      return [];
+    }
+
     const categoryMap = {};
     categories.forEach((category) => {
       categoryMap[category._id] = { ...category, subCategories: [] };
@@ -74,165 +95,323 @@ function Navbar() {
       cat.subCategories.sort((a, b) => a.name.localeCompare(b.name));
     });
 
-    console.log('categoriesWithSubcategories:', rootCategories);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Navbar[${componentKey}] - Built category hierarchy:`, rootCategories.length);
+    }
+
     return rootCategories;
   }, [categories]);
 
-  // Fetch categories on component mount
+  // Optimized categories fetch
+  const handleFetchCategories = useCallback(async (forceRefresh = false) => {
+    if (fetchInProgressRef.current && !forceRefresh) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Navbar[${componentKey}] - Categories fetch already in progress, skipping`);
+      }
+      return;
+    }
+
+    fetchInProgressRef.current = true;
+
+    try {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Navbar[${componentKey}] - Fetching categories`);
+      }
+
+      await fetchCategories({ 
+        isPublic: true,
+        skipCache: forceRefresh 
+      });
+      
+      setCategoriesInitialized(true);
+    } catch (err) {
+      console.error(`Navbar[${componentKey}] - Failed to fetch categories:`, err.message);
+    } finally {
+      fetchInProgressRef.current = false;
+    }
+  }, [fetchCategories]);
+
+  // Single initialization effect
   useEffect(() => {
-    const loadCategories = async () => {
-      try {
-        await fetchCategories({ isPublic: true });
-      } catch (err) {
-        console.error('Failed to fetch categories on mount:', err.message);
+    let mounted = true;
+
+    const initializeNavbar = async () => {
+      // Initialize categories if not already done
+      if (!categoriesInitialized && categories.length === 0 && !loading && !fetchInProgressRef.current) {
+        await handleFetchCategories();
+      }
+
+      // Fetch user data on mount if tokens exist and user is not loaded
+      if (!user && !isAuthenticated && mounted) {
+        try {
+          await fetchUser();
+        } catch (err) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`Navbar[${componentKey}] - Initial user fetch failed:`, err.message);
+          }
+        }
       }
     };
-    loadCategories();
 
-    // Fetch user data on mount if tokens exist
-    if (!user && !isAuthenticated) {
-      fetchUser().catch(err => console.error('Initial user fetch failed:', err));
-    }
-  }, [fetchCategories, fetchUser, user, isAuthenticated]);
-
-  // Socket.IO integration for category events
-  useEffect(() => {
-    const handleCategoryCreated = ({ category }) => {
-      console.log('Navbar: Received categoryCreated:', category);
-      toast.success(`New category added: ${category.name}`);
-    };
-
-    const handleCategoryUpdated = ({ category }) => {
-      console.log('Navbar: Received categoryUpdated:', category);
-      toast.info(`Category updated: ${category.name}`);
-    };
-
-    const handleCategoryDeleted = () => {
-      console.log('Navbar: Received categoryDeleted');
-      toast.warn('Category removed');
-    };
-
-    SocketService.on('categoryCreated', handleCategoryCreated);
-    SocketService.on('categoryUpdated', handleCategoryUpdated);
-    SocketService.on('categoryDeleted', handleCategoryDeleted);
+    initializeNavbar();
 
     return () => {
-      SocketService.off('categoryCreated', handleCategoryCreated);
-      SocketService.off('categoryUpdated', handleCategoryUpdated);
-      SocketService.off('categoryDeleted', handleCategoryDeleted);
+      mounted = false;
     };
-  }, []);
+  }, [categoriesInitialized, categories.length, loading, user, isAuthenticated, handleFetchCategories, fetchUser]);
 
-  // Close dropdown on click outside
+  // Optimized search with debouncing
+  const debouncedSearch = useCallback(
+    debounce(async (query) => {
+      if (!query || query.trim().length < 2) {
+        setSearchResults([]);
+        setShowSearchResults(false);
+        setIsSearching(false);
+        return;
+      }
+
+      // Prevent duplicate searches
+      if (lastSearchQueryRef.current === query) {
+        setIsSearching(false);
+        return;
+      }
+
+      lastSearchQueryRef.current = query;
+      setIsSearching(true);
+
+      try {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Navbar[${componentKey}] - Searching for:`, query);
+        }
+
+        const result = await fetchProducts({
+          page: 1,
+          limit: 5,
+          search: query,
+          sort: '-createdAt'
+        }, { 
+          isPublic: true,
+          skipCache: false 
+        });
+
+        const searchResults = result?.products || [];
+        setSearchResults(searchResults);
+        setShowSearchResults(true);
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Navbar[${componentKey}] - Search results:`, searchResults.length);
+        }
+      } catch (err) {
+        console.error(`Navbar[${componentKey}] - Search error:`, err);
+        setSearchResults([]);
+        setShowSearchResults(false);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300),
+    [fetchProducts]
+  );
+
+  // Handle search input changes
   useEffect(() => {
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    // Clear results immediately if query is too short
+    if (searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      setIsSearching(false);
+      lastSearchQueryRef.current = '';
+      return;
+    }
+
+    // Set loading state immediately for better UX
+    setIsSearching(true);
+    
+    // Debounce the actual search
+    debouncedSearch(searchQuery.trim());
+
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, debouncedSearch]);
+
+  // Optimized socket handling
+  useEffect(() => {
+    let mounted = true;
+
+    const connectSocket = () => {
+      if (isSocketConnected) return;
+
+      try {
+        SocketService.connect();
+        if (mounted) {
+          setIsSocketConnected(true);
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`Navbar[${componentKey}] - SocketService connected`);
+          }
+        }
+      } catch (err) {
+        console.error(`Navbar[${componentKey}] - SocketService connection error:`, err);
+        toast.error('Failed to initialize real-time updates');
+      }
+    };
+
+    // Debounced category event handlers
+    const debouncedCategoryCreated = debounce(({ category }) => {
+      if (!mounted) return;
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Navbar[${componentKey}] - Category created:`, category?.name);
+      }
+      toast.success(`New category added: ${category?.name}`);
+      
+      // Only refresh categories if we don't have this category
+      const existingCategory = categories.find(cat => cat._id === category?._id);
+      if (!existingCategory) {
+        handleFetchCategories(true);
+      }
+    }, 1000);
+
+    const debouncedCategoryUpdated = debounce(({ category }) => {
+      if (!mounted) return;
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Navbar[${componentKey}] - Category updated:`, category?.name);
+      }
+      toast.info(`Category updated: ${category?.name}`);
+      handleFetchCategories(true);
+    }, 1000);
+
+    const debouncedCategoryDeleted = debounce(() => {
+      if (!mounted) return;
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`Navbar[${componentKey}] - Category deleted`);
+      }
+      toast.warn('Category removed');
+      handleFetchCategories(true);
+    }, 1000);
+
+    connectSocket();
+
+    SocketService.on('categoryCreated', debouncedCategoryCreated);
+    SocketService.on('categoryUpdated', debouncedCategoryUpdated);
+    SocketService.on('categoryDeleted', debouncedCategoryDeleted);
+
+    return () => {
+      mounted = false;
+      debouncedCategoryCreated.cancel();
+      debouncedCategoryUpdated.cancel();
+      debouncedCategoryDeleted.cancel();
+      
+      SocketService.off('categoryCreated');
+      SocketService.off('categoryUpdated');
+      SocketService.off('categoryDeleted');
+      
+      if (isSocketConnected) {
+        SocketService.disconnect();
+        setIsSocketConnected(false);
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Navbar[${componentKey}] - SocketService disconnected`);
+        }
+      }
+    };
+  }, [categories, handleFetchCategories, isSocketConnected]);
+
+  // Optimized click outside handler
+  useEffect(() => {
+    if (!showDropdown) return;
+
     const handleClickOutside = (event) => {
       const dropdown = document.getElementById('category-dropdown');
       const mobileDropdown = document.getElementById('mobile-category-dropdown');
-      if (dropdown && !dropdown.contains(event.target) && mobileDropdown && !mobileDropdown.contains(event.target)) {
+      
+      if (dropdown && !dropdown.contains(event.target) && 
+          mobileDropdown && !mobileDropdown.contains(event.target)) {
         setShowDropdown(false);
       }
     };
-    if (showDropdown) {
+
+    const timeoutId = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
-    }
+    }, 100);
+
     return () => {
+      clearTimeout(timeoutId);
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDropdown]);
 
-  // Handle search input changes with debounce
-  useEffect(() => {
-    const searchProducts = async () => {
-      if (searchQuery.trim().length < 2) {
-        setSearchResults([]);
-        setShowSearchResults(false);
-        return;
-      }
-
-      setIsSearching(true);
-      try {
-        const result = await fetchProducts(
-          1, // page
-          5, // limit
-          null, // categoryId
-          false, // isFeatured
-          { 
-            isPublic: true,
-            search: searchQuery // Add search parameter
-          }
-        );
-        setSearchResults(result.products || []);
-        setShowSearchResults(true);
-      } catch (err) {
-        console.error('Search error:', err);
-        setSearchResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    };
-
-    const timer = setTimeout(searchProducts, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, fetchProducts]);
-
-  const handleSearch = (e) => {
+  // Event handlers
+  const handleSearch = useCallback((e) => {
     e.preventDefault();
     if (searchQuery.trim()) {
-      navigate(`/search?query=${encodeURIComponent(searchQuery)}`);
+      navigate(`/search?query=${encodeURIComponent(searchQuery.trim())}`);
       setSearchQuery('');
       setShowSearchResults(false);
       setShowMobileSearch(false);
+      lastSearchQueryRef.current = '';
     }
-  };
+  }, [searchQuery, navigate]);
 
-  const handleSearchResultClick = (product) => {
+  const handleSearchResultClick = useCallback((product) => {
     navigate(`/products/${product._id}`);
     setSearchQuery('');
     setShowSearchResults(false);
     setShowMobileSearch(false);
-  };
+    lastSearchQueryRef.current = '';
+  }, [navigate]);
 
-  const handleCategorySelect = (category) => {
-    console.log('Navbar: Selected category:', category);
+  const handleCategorySelect = useCallback((category) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Navbar[${componentKey}] - Selected category:`, category?.name);
+    }
     setSelectedCategory(category.name);
     setShowDropdown(false);
     setShowMobileMenu(false);
     navigate(`/products?category=${category.slug}`);
-  };
+  }, [navigate]);
 
-  const toggleSubcategory = (categoryId) => {
-    console.log('Navbar: Toggling subcategory:', categoryId);
+  const toggleSubcategory = useCallback((categoryId) => {
     setExpandedCategories((prev) => ({
       ...prev,
       [categoryId]: !prev[categoryId],
     }));
-  };
+  }, []);
 
-  const closeMobileMenu = () => {
+  const closeMobileMenu = useCallback(() => {
     setShowMobileMenu(false);
-  };
+  }, []);
 
   // Direct navigation handlers
-  const handleCartClick = (e) => {
-    console.log('Navbar: Cart link clicked');
+  const handleCartClick = useCallback((e) => {
     navigate('/cart');
     e.stopPropagation();
-  };
+  }, [navigate]);
 
-  const handleAccountClick = (e) => {
-    console.log('Navbar: Account link clicked');
+  const handleAccountClick = useCallback((e) => {
     navigate('/account');
     e.stopPropagation();
-  };
+  }, [navigate]);
 
-  const handleWishlistClick = (e) => {
-    console.log('Navbar: Wishlist link clicked');
+  const handleWishlistClick = useCallback((e) => {
     navigate('/wishlist');
     e.stopPropagation();
-  };
+  }, [navigate]);
+
+  const handleRetryCategories = useCallback(() => {
+    setCategoriesInitialized(false);
+    handleFetchCategories(true);
+  }, [handleFetchCategories]);
 
   // Render category with subcategories for desktop dropdown
-  const renderDesktopCategory = (category, level = 0) => {
+  const renderDesktopCategory = useCallback((category, level = 0) => {
     const hasSubcategories = category.subCategories?.length > 0;
     const isExpanded = expandedCategories[category._id];
 
@@ -269,10 +448,10 @@ function Navbar() {
         )}
       </div>
     );
-  };
+  }, [expandedCategories, toggleSubcategory, handleCategorySelect]);
 
   // Render category with subcategories for mobile dropdown
-  const renderMobileCategory = (category, level = 0) => {
+  const renderMobileCategory = useCallback((category, level = 0) => {
     const hasSubcategories = category.subCategories?.length > 0;
     const isExpanded = expandedCategories[category._id];
 
@@ -318,7 +497,7 @@ function Navbar() {
         )}
       </React.Fragment>
     );
-  };
+  }, [expandedCategories, toggleSubcategory, handleCategorySelect]);
 
   return (
     <header className="sticky top-0 z-50 bg-white shadow-md">
@@ -327,10 +506,11 @@ function Navbar() {
         <div className="bg-red-50 text-red-700 text-center py-1 px-4 text-sm">
           {error}
           <button
-            onClick={() => fetchCategories({ isPublic: true })}
+            onClick={handleRetryCategories}
             className="ml-2 underline hover:text-red-900"
+            disabled={fetchInProgressRef.current}
           >
-            Retry
+            {fetchInProgressRef.current ? 'Loading...' : 'Retry'}
           </button>
         </div>
       )}
@@ -400,6 +580,7 @@ function Navbar() {
               type="submit"
               className="px-4 py-2 bg-red-600 text-white rounded-r-md"
               aria-label="Submit search"
+              disabled={isSearching}
             >
               <CiSearch size={20} strokeWidth={1} />
             </button>
@@ -476,9 +657,10 @@ function Navbar() {
                 onClick={() => setShowDropdown(!showDropdown)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 text-gray-700 rounded-md border"
                 aria-label="Select category"
+                disabled={loading || fetchInProgressRef.current}
               >
                 <span className="truncate">
-                  {loading ? 'Loading...' : selectedCategory}
+                  {loading || fetchInProgressRef.current ? 'Loading...' : selectedCategory}
                 </span>
                 <RiArrowDownLine
                   size={18}
@@ -487,7 +669,7 @@ function Navbar() {
               </button>
               {showDropdown && (
                 <div className="mt-1 w-full bg-white rounded-md shadow-lg z-60 max-h-96 overflow-y-auto">
-                  {loading ? (
+                  {loading || fetchInProgressRef.current ? (
                     <div className="px-4 py-2 text-gray-800">Loading categories...</div>
                   ) : categoriesWithSubcategories.length > 0 ? (
                     categoriesWithSubcategories.map((category) =>
@@ -533,10 +715,10 @@ function Navbar() {
               onClick={() => setShowDropdown(!showDropdown)}
               className="px-4 py-3 flex items-center gap-2 bg-gray-50 text-gray-700 rounded-l-md border-r border hover:bg-gray-100 transition-colors hover:shadow-md min-w-[180px] justify-between"
               aria-label="Select category"
-              disabled={loading}
+              disabled={loading || fetchInProgressRef.current}
             >
               <span className="truncate">
-                {loading ? 'Loading...' : selectedCategory}
+                {loading || fetchInProgressRef.current ? 'Loading...' : selectedCategory}
               </span>
               <RiArrowDownLine
                 size={18}
@@ -546,7 +728,7 @@ function Navbar() {
 
             {showDropdown && (
               <div className="absolute left-0 mt-1 w-64 bg-white rounded-md shadow-lg z-50 max-h-96 overflow-y-auto">
-                {loading ? (
+                {loading || fetchInProgressRef.current ? (
                   <div className="px-4 py-2 text-gray-800">Loading categories...</div>
                 ) : categoriesWithSubcategories.length > 0 ? (
                   categoriesWithSubcategories.map((category) =>
@@ -572,6 +754,7 @@ function Navbar() {
               type="submit"
               className="px-6 py-3 bg-red-600 text-white rounded-r-md hover:bg-red-700 transition-colors"
               aria-label="Submit search"
+              disabled={isSearching}
             >
               <CiSearch size={20} strokeWidth={1} />
             </button>

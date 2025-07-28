@@ -14,39 +14,37 @@ import { toast } from 'react-toastify';
 function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
   const [localProducts, setLocalProducts] = useState([]);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  
   const navigate = useNavigate();
   const location = useLocation();
   const locationRef = useRef(location.pathname);
   const mountCount = useRef(0);
+  const fetchInProgressRef = useRef(false);
+  const lastFetchParamsRef = useRef('');
+
+  // Generate unique key for this component instance
+  const componentKey = useMemo(() => 
+    `${isFeatured ? 'featured' : 'regular'}-${categoryId || 'all'}`, 
+    [isFeatured, categoryId]
+  );
 
   // Log component mounts for debugging
   useEffect(() => {
     mountCount.current += 1;
     if (process.env.NODE_ENV === 'development') {
-      console.log(`ProductRowSlider mounted ${mountCount.current} times`);
+      console.log(`ProductRowSlider[${componentKey}] mounted ${mountCount.current} times`);
     }
     return () => {
       if (process.env.NODE_ENV === 'development') {
-        console.log('ProductRowSlider unmounted');
+        console.log(`ProductRowSlider[${componentKey}] unmounted`);
       }
     };
-  }, []);
+  }, [componentKey]);
 
-  // Debug logging for products
-  useEffect(() => {
-    if (products?.length > 0 && process.env.NODE_ENV === 'development') {
-      console.log('ProductRowSlider - Products loaded:', {
-        isFeatured,
-        productsLength: products.length,
-        categoryId,
-        hasInitialized,
-      });
-    }
-  }, [products, isFeatured, categoryId, hasInitialized]);
-
-  // Memoized products
+  // Memoized products with stable reference
   const memoizedProducts = useMemo(() => {
     if (!products || !Array.isArray(products)) {
       return [];
@@ -54,14 +52,11 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
 
     const filteredProducts = products.filter(product => {
       const featuredMatch = isFeatured ? product.isFeatured : !product.isFeatured;
-      const categoryMatch = categoryId ? product.categoryId?._id === categoryId || product.categoryId === categoryId : true;
+      const categoryMatch = categoryId ? 
+        (product.categoryId?._id === categoryId || product.categoryId === categoryId) : true;
       const stockMatch = product.stock > 0;
       return featuredMatch && categoryMatch && stockMatch;
     });
-
-    if (filteredProducts.length > 0 && process.env.NODE_ENV === 'development') {
-      console.log(`ProductRowSlider - Filtered ${filteredProducts.length} products (${isFeatured ? 'featured' : 'regular'})`);
-    }
 
     const processedProducts = filteredProducts.map(product => ({
       ...product,
@@ -83,144 +78,230 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
       .slice(0, 16);
   }, [products, isFeatured, categoryId]);
 
-  // Update local products only when necessary
-  useEffect(() => {
-    if (memoizedProducts.length > 0 && !hasInitialized) {
-      setLocalProducts(memoizedProducts);
-      setHasInitialized(true);
-      if (process.env.NODE_ENV === 'development') {
-        console.log('ProductRowSlider - Products initialized:', memoizedProducts.length);
-      }
-    } else if (memoizedProducts.length > 0 && JSON.stringify(localProducts) !== JSON.stringify(memoizedProducts)) {
-      setLocalProducts(memoizedProducts);
-      if (process.env.NODE_ENV === 'development') {
-        console.log('ProductRowSlider - Local products updated:', memoizedProducts.length);
-      }
-    }
-  }, [memoizedProducts, hasInitialized, localProducts]);
-
-  // Debounced fetch products
+  // Optimized fetch products with deduplication
   const handleFetchProducts = useCallback(
-    debounce(async () => {
-      try {
-        const params = {
-          page: 1,
-          limit: 50,
-          sort: '-createdAt',
-          ...(categoryId ? { categoryId } : {}),
-        };
+    debounce(async (forceRefresh = false) => {
+      const params = {
+        page: 1,
+        limit: 50,
+        sort: '-createdAt',
+        ...(categoryId ? { categoryId } : {}),
+      };
 
-        const result = await fetchProducts(params, { isPublic: true, skipCache: true });
+      const paramsKey = JSON.stringify(params);
+      
+      // Prevent duplicate API calls
+      if (fetchInProgressRef.current && !forceRefresh) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`ProductRowSlider[${componentKey}] - Fetch already in progress, skipping`);
+        }
+        return;
+      }
+
+      // Prevent identical consecutive calls
+      if (lastFetchParamsRef.current === paramsKey && !forceRefresh) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`ProductRowSlider[${componentKey}] - Identical params, skipping fetch`);
+        }
+        return;
+      }
+
+      fetchInProgressRef.current = true;
+      lastFetchParamsRef.current = paramsKey;
+
+      try {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`ProductRowSlider[${componentKey}] - Fetching products with params:`, params);
+        }
+
+        const result = await fetchProducts(params, { 
+          isPublic: true, 
+          skipCache: forceRefresh 
+        });
 
         if (process.env.NODE_ENV === 'development') {
-          console.log('ProductRowSlider - API Response:', result);
+          console.log(`ProductRowSlider[${componentKey}] - API Response:`, result);
         }
       } catch (err) {
-        console.error('ProductRowSlider - Fetch error:', err);
+        console.error(`ProductRowSlider[${componentKey}] - Fetch error:`, err);
         toast.error(err.message || 'Failed to load products');
+      } finally {
+        fetchInProgressRef.current = false;
       }
     }, 500),
-    [fetchProducts, categoryId]
+    [fetchProducts, categoryId, componentKey]
   );
 
-  // Initial fetch
+  // Single initialization effect
   useEffect(() => {
-    let hasFetched = false;
+    let mounted = true;
 
-    const initializeProducts = async () => {
-      if (hasFetched || hasInitialized || loading) return;
-      hasFetched = true;
+    const initializeComponent = async () => {
+      // Skip if already initialized or if products are already available
+      if (hasInitialized || memoizedProducts.length > 0) {
+        return;
+      }
+
+      // Skip if we're in the middle of loading
+      if (loading || fetchInProgressRef.current) {
+        return;
+      }
 
       if (process.env.NODE_ENV === 'development') {
-        console.log('ProductRowSlider - Initial fetch triggered');
+        console.log(`ProductRowSlider[${componentKey}] - Initializing component`);
       }
-      await handleFetchProducts();
+
+      // Only fetch if we don't have relevant products
+      const hasRelevantProducts = products && products.length > 0;
+      if (!hasRelevantProducts) {
+        await handleFetchProducts();
+      }
+
+      if (mounted) {
+        setHasInitialized(true);
+      }
     };
 
-    initializeProducts();
+    initializeComponent();
 
     return () => {
-      hasFetched = false;
+      mounted = false;
     };
-  }, [handleFetchProducts, hasInitialized, loading]);
+  }, [hasInitialized, memoizedProducts.length, loading, products, handleFetchProducts, componentKey]);
 
-  // Handle location changes
+  // Update local products when memoized products change
   useEffect(() => {
-    if (locationRef.current !== location.pathname) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('ProductRowSlider - Location changed, resetting');
+    if (memoizedProducts.length > 0) {
+      const productsChanged = JSON.stringify(localProducts) !== JSON.stringify(memoizedProducts);
+      
+      if (productsChanged) {
+        setLocalProducts(memoizedProducts);
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`ProductRowSlider[${componentKey}] - Local products updated:`, memoizedProducts.length);
+        }
       }
-      locationRef.current = location.pathname;
-      setHasInitialized(false);
-      setLocalProducts([]);
     }
-  }, [location.pathname]);
+  }, [memoizedProducts, localProducts, componentKey]);
 
-  // Socket handling
+  // Handle location changes (only reset if it's a significant change)
   useEffect(() => {
-    let isConnected = false;
+    const currentPath = location.pathname;
+    const previousPath = locationRef.current;
+
+    if (previousPath !== currentPath) {
+      // Only reset if we're navigating to/from product pages or category changes
+      const shouldReset = (
+        currentPath.includes('/products') !== previousPath.includes('/products') ||
+        currentPath.includes('/category') !== previousPath.includes('/category')
+      );
+
+      if (shouldReset) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`ProductRowSlider[${componentKey}] - Significant location change, resetting`);
+        }
+        locationRef.current = currentPath;
+        setHasInitialized(false);
+        setLocalProducts([]);
+        lastFetchParamsRef.current = '';
+      } else {
+        locationRef.current = currentPath;
+      }
+    }
+  }, [location.pathname, componentKey]);
+
+  // Optimized socket handling
+  useEffect(() => {
+    let mounted = true;
 
     const connectSocket = () => {
+      if (isSocketConnected) return;
+
       try {
-        if (!isConnected) {
-          SocketService.connect();
-          isConnected = true;
+        SocketService.connect();
+        if (mounted) {
+          setIsSocketConnected(true);
           if (process.env.NODE_ENV === 'development') {
-            console.log('ProductRowSlider - SocketService connected');
+            console.log(`ProductRowSlider[${componentKey}] - SocketService connected`);
           }
         }
       } catch (err) {
-        console.error('ProductRowSlider - SocketService connection error:', err);
+        console.error(`ProductRowSlider[${componentKey}] - SocketService connection error:`, err);
         toast.error('Failed to initialize real-time updates');
       }
     };
 
-    const handleProductUpdate = (eventType, data) => {
+    // Debounced product update handler to prevent excessive API calls
+    const debouncedProductUpdate = debounce((eventType, data) => {
+      if (!mounted) return;
+
       if (process.env.NODE_ENV === 'development') {
-        console.log(`ProductRowSlider - Product ${eventType}:`, data?.title || data?._id);
+        console.log(`ProductRowSlider[${componentKey}] - Product ${eventType}:`, data?.title || data?._id);
       }
-      const productMatches =
-        (isFeatured && data.product?.isFeatured) ||
-        (!isFeatured && !data.product?.isFeatured) ||
-        (categoryId && (data.product?.categoryId === categoryId || data.product?.categoryId?._id === categoryId));
+
+      const productData = data.product || data;
+      const productMatches = (
+        (isFeatured && productData?.isFeatured) ||
+        (!isFeatured && !productData?.isFeatured)
+      ) && (
+        !categoryId || 
+        productData?.categoryId === categoryId || 
+        productData?.categoryId?._id === categoryId
+      );
+
       if (productMatches) {
-        handleFetchProducts();
+        handleFetchProducts(true); // Force refresh for real-time updates
       }
-    };
+    }, 1000); // 1 second debounce for socket events
 
     connectSocket();
 
-    SocketService.on('productCreated', data => handleProductUpdate('created', data));
-    SocketService.on('productUpdated', data => handleProductUpdate('updated', data));
-    SocketService.on('productDeleted', data => handleProductUpdate('deleted', data));
+    const handleProductUpdate = (eventType) => (data) => 
+      debouncedProductUpdate(eventType, data);
+
+    SocketService.on('productCreated', handleProductUpdate('created'));
+    SocketService.on('productUpdated', handleProductUpdate('updated'));
+    SocketService.on('productDeleted', handleProductUpdate('deleted'));
 
     return () => {
+      mounted = false;
+      debouncedProductUpdate.cancel();
       SocketService.off('productCreated');
       SocketService.off('productUpdated');
       SocketService.off('productDeleted');
-      if (isConnected) {
+      
+      if (isSocketConnected) {
         SocketService.disconnect();
-        isConnected = false;
+        setIsSocketConnected(false);
         if (process.env.NODE_ENV === 'development') {
-          console.log('ProductRowSlider - SocketService disconnected');
+          console.log(`ProductRowSlider[${componentKey}] - SocketService disconnected`);
         }
       }
     };
-  }, [handleFetchProducts, isFeatured, categoryId]);
+  }, [handleFetchProducts, isFeatured, categoryId, componentKey, isSocketConnected]);
 
-  // Handle window resize
+  // Handle window resize with debouncing
   useEffect(() => {
-    const handleResize = () => {
+    const debouncedResize = debounce(() => {
       setIsMobile(window.innerWidth < 768);
-    };
+    }, 250);
 
-    setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener('resize', debouncedResize);
+    return () => {
+      window.removeEventListener('resize', debouncedResize);
+      debouncedResize.cancel();
+    };
   }, []);
 
+  // Manual retry function
+  const handleRetry = useCallback(() => {
+    setHasInitialized(false);
+    setLocalProducts([]);
+    lastFetchParamsRef.current = '';
+    handleFetchProducts(true);
+  }, [handleFetchProducts]);
+
   // Show loading state
-  if (loading && localProducts.length === 0) {
+  if (loading && localProducts.length === 0 && !hasInitialized) {
     return (
       <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
@@ -234,7 +315,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   }
 
   // Show error or empty state
-  if (error || localProducts.length === 0) {
+  if ((error && localProducts.length === 0) || (hasInitialized && localProducts.length === 0)) {
     return (
       <section className="relative w-full px-4 py-8 rounded-lg shadow-sm">
         <div className="flex justify-between items-center mb-6 px-4">
@@ -256,17 +337,21 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
             {error ? `Failed to load products: ${error}` : `No ${isFeatured ? 'featured' : 'regular'} products found.`}
           </p>
           <Button
-            onClick={handleFetchProducts}
+            onClick={handleRetry}
             variant="outline"
-            disabled={loading}
+            disabled={loading || fetchInProgressRef.current}
           >
-            {loading ? 'Loading...' : error ? 'Retry Now' : 'Load Products'}
+            {loading || fetchInProgressRef.current ? 'Loading...' : error ? 'Retry Now' : 'Load Products'}
           </Button>
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-4 text-xs text-gray-400">
               <p>Total products: {products?.length || 0}</p>
+              <p>Filtered products: {localProducts.length}</p>
               <p>Looking for: {isFeatured ? 'Featured' : 'Regular'} products</p>
               <p>Category: {categoryId || 'All'}</p>
+              <p>Component key: {componentKey}</p>
+              <p>Has initialized: {hasInitialized.toString()}</p>
+              <p>Fetch in progress: {fetchInProgressRef.current.toString()}</p>
             </div>
           )}
         </div>

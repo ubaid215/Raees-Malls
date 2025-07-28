@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useContext, useRef } 
 import { useForm } from 'react-hook-form';
 import { toast } from 'react-toastify';
 import { FiPlus, FiTrash2, FiEdit2, FiX, FiImage, FiChevronDown } from 'react-icons/fi';
+import { debounce } from 'lodash';
 import Button from '../../components/core/Button';
 import Input from '../../components/core/Input';
 import ImagePreview from '../../components/core/ImagePreview';
@@ -12,7 +13,6 @@ const CategorySelector = ({ selected, onChange, categories, placeholder, maxSele
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -23,20 +23,13 @@ const CategorySelector = ({ selected, onChange, categories, placeholder, maxSele
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Force re-render when selected prop changes
-  useEffect(() => {
-    console.log('CategorySelector: Selected prop changed:', selected);
-  }, [selected]);
-
   const handleSelect = (category) => {
-    console.log('CategorySelector: Selecting category:', category);
     const newSelection = selected.some((item) => item._id === category._id)
       ? selected.filter((item) => item._id !== category._id)
       : maxSelections === 1
       ? [{ _id: category._id, name: category.name, image: category.image }]
       : [...selected, { _id: category._id, name: category.name, image: category.image }].slice(0, maxSelections);
     
-    console.log('CategorySelector: New selection:', newSelection);
     onChange(newSelection);
     if (maxSelections === 1) setIsOpen(false);
   };
@@ -100,6 +93,11 @@ const CategoryManager = () => {
   const [imagePreview, setImagePreview] = useState('');
   const [isImageRemoved, setIsImageRemoved] = useState(false);
   const [selectedParentCategories, setSelectedParentCategories] = useState([]);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const lastFetchRef = useRef(0);
+  const fetchQueueRef = useRef([]);
+  const isFetchingRef = useRef(false);
+  const MIN_FETCH_INTERVAL = 1000; // 1 second minimum between fetches
 
   const {
     register,
@@ -117,10 +115,33 @@ const CategoryManager = () => {
     },
   });
 
-  // Detect mobile device for conditional rendering
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const debouncedFetchCategories = useCallback(
+    debounce(async (params) => {
+      const now = Date.now();
+      if (now - lastFetchRef.current < MIN_FETCH_INTERVAL || isFetchingRef.current) {
+        return new Promise((resolve, reject) => {
+          fetchQueueRef.current.push({ resolve, reject, params });
+        });
+      }
 
-  // Handle window resize
+      isFetchingRef.current = true;
+      lastFetchRef.current = now;
+
+      try {
+        await fetchCategories(params);
+        fetchQueueRef.current.forEach(({ resolve }) => resolve());
+        fetchQueueRef.current = [];
+      } catch (err) {
+        fetchQueueRef.current.forEach(({ reject }) => reject(err));
+        fetchQueueRef.current = [];
+        throw err;
+      } finally {
+        isFetchingRef.current = false;
+      }
+    }, 300),
+    [fetchCategories]
+  );
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -129,71 +150,36 @@ const CategoryManager = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Fetch categories on mount
   useEffect(() => {
-    console.log('CategoryManager: Fetching initial categories');
-    fetchCategories({ forcePublic: false }).catch((err) => {
-      console.error('Fetch categories failed:', err);
-      toast.error(err.message || 'Failed to fetch categories');
-    });
-  }, [fetchCategories]);
-
-  // Socket.IO listener for real-time updates
-  useEffect(() => {
-    console.log('CategoryManager: Setting up Socket.IO listeners');
-    const handleCategoryCreated = ({ category }) => {
-      console.log('CategoryManager: Received categoryCreated:', category);
-      toast.success(`New category added: ${category.name}`);
-    };
-
-    const handleCategoryUpdated = ({ category }) => {
-      console.log('CategoryManager: Received categoryUpdated:', category);
-      toast.info(`Category updated: ${category.name}`);
-    };
-
-    const handleCategoryDeleted = ({ categoryIds }) => {
-      console.log('CategoryManager: Received categoryDeleted:', categoryIds);
-      toast.warn('Category deleted');
-    };
-
-    SocketService.on('categoryCreated', handleCategoryCreated);
-    SocketService.on('categoryUpdated', handleCategoryUpdated);
-    SocketService.on('categoryDeleted', handleCategoryDeleted);
-
+    if (categories.length === 0) {
+      debouncedFetchCategories({ forcePublic: false }).catch((err) => {
+        toast.error(err.message || 'Failed to fetch categories');
+      });
+    }
     return () => {
-      console.log('CategoryManager: Cleaning up Socket.IO listeners');
-      SocketService.off('categoryCreated', handleCategoryCreated);
-      SocketService.off('categoryUpdated', handleCategoryUpdated);
-      SocketService.off('categoryDeleted', handleCategoryDeleted);
+      debouncedFetchCategories.cancel();
+      fetchQueueRef.current = [];
     };
-  }, []);
+  }, [debouncedFetchCategories, categories.length]);
 
-  // Log categories changes for debugging
-  useEffect(() => {
-    console.log('CategoryManager: Categories updated:', categories.map(c => ({ _id: c._id, name: c.name })));
-  }, [categories]);
-
-  // Update selected parent categories when form parentId changes
   useEffect(() => {
     const parentId = watch('parentId');
-    console.log('CategoryManager: ParentId changed:', parentId);
-    
     if (parentId) {
       const parentCategory = categories.find(c => c._id === parentId);
       if (parentCategory) {
-        const newSelection = [{ _id: parentCategory._id, name: parentCategory.name, image: parentCategory.image }];
-        console.log('CategoryManager: Setting selected parent categories:', newSelection);
-        setSelectedParentCategories(newSelection);
+        setSelectedParentCategories([{
+          _id: parentCategory._id,
+          name: parentCategory.name,
+          image: parentCategory.image
+        }]);
       }
     } else {
-      console.log('CategoryManager: Clearing selected parent categories');
       setSelectedParentCategories([]);
     }
   }, [watch('parentId'), categories]);
 
   const handleParentCategoryChange = useCallback(
     (selectedParents) => {
-      console.log('CategoryManager: Parent category changed via selector:', selectedParents);
       const parentId = selectedParents[0]?._id || null;
       setValue('parentId', parentId, { shouldDirty: true });
       setSelectedParentCategories(selectedParents);
@@ -203,7 +189,6 @@ const CategoryManager = () => {
 
   const handleNativeSelectChange = (e) => {
     const parentId = e.target.value || null;
-    console.log('CategoryManager: Native select changed:', parentId);
     setValue('parentId', parentId, { shouldDirty: true });
   };
 
@@ -246,66 +231,46 @@ const CategoryManager = () => {
     }
   }, [nameValue, setValue, editCategory]);
 
-const onSubmit = async (data) => {
-  setIsSubmitting(true);
-  try {
-    const categoryData = {
-      name: data.name,
-      slug: data.slug,
-      description: data.description || undefined,
-      parentId: data.parentId || undefined,
-    };
+  const onSubmit = async (data) => {
+    setIsSubmitting(true);
+    try {
+      const categoryData = {
+        name: data.name,
+        slug: data.slug,
+        description: data.description || undefined,
+        parentId: data.parentId || undefined,
+      };
 
-    // Handle image logic
-    if (editCategory) {
-      // For updates
-      if (isImageRemoved) {
-        // User explicitly removed the image
-        categoryData.removeImage = true;
-        console.log('CategoryManager: Image removal flag set');
+      if (editCategory) {
+        if (isImageRemoved) {
+          categoryData.removeImage = true;
+        } else if (imageFile) {
+          categoryData.image = imageFile;
+        }
       } else if (imageFile) {
-        // User uploaded a new image
         categoryData.image = imageFile;
-        console.log('CategoryManager: New image file set');
       }
-      // If neither removed nor new image, don't include image fields
-    } else {
-      // For new categories
-      if (imageFile) {
-        categoryData.image = imageFile;
-        console.log('CategoryManager: New category with image');
+
+      if (editCategory) {
+        await updateExistingCategory(editCategory._id, categoryData);
+      } else {
+        await createNewCategory(categoryData);
       }
+
+      resetForm();
+    } catch (err) {
+      const errorMessage =
+        err.response?.data?.errors?.map((e) => e.msg).join(', ') ||
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to save category';
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    console.log('CategoryManager: Category data being sent:', {
-      ...categoryData,
-      image: categoryData.image ? 'File object' : undefined
-    });
-
-    if (editCategory) {
-      console.log('CategoryManager: Updating category:', editCategory._id, categoryData);
-      await updateExistingCategory(editCategory._id, categoryData);
-    } else {
-      console.log('CategoryManager: Creating category:', categoryData);
-      await createNewCategory(categoryData);
-    }
-
-    resetForm();
-  } catch (err) {
-    console.error('CategoryManager: Submit error:', err);
-    const errorMessage =
-      err.response?.data?.errors?.map((e) => e.msg).join(', ') ||
-      err.response?.data?.message ||
-      err.message ||
-      'Failed to save category';
-    toast.error(errorMessage);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  };
 
   const resetForm = () => {
-    console.log('CategoryManager: Resetting form');
     reset({
       name: '',
       slug: '',
@@ -321,7 +286,6 @@ const onSubmit = async (data) => {
 
   const handleEditCategory = useCallback(
     (category) => {
-      console.log('CategoryManager: Editing category:', category._id, category);
       setEditCategory(category);
       setValue('name', category.name);
       setValue('slug', category.slug);
@@ -331,7 +295,6 @@ const onSubmit = async (data) => {
       setImagePreview(category.image || '');
       setIsImageRemoved(false);
       
-      // Set selected parent categories for the selector
       if (category.parentId) {
         setSelectedParentCategories([{
           _id: category.parentId._id,
@@ -346,12 +309,10 @@ const onSubmit = async (data) => {
   );
 
   const handleDeleteCategory = async (id) => {
-    console.log('CategoryManager: Deleting category:', id);
     if (window.confirm('Are you sure you want to delete this category?')) {
       try {
         await deleteExistingCategory(id);
       } catch (err) {
-        console.error('CategoryManager: Delete error:', err);
         toast.error(err.message || 'Failed to delete category');
       }
     }
@@ -393,7 +354,7 @@ const onSubmit = async (data) => {
       <div className="p-4 bg-red-50 text-red-600 rounded-lg">
         <p>Error: {error}</p>
         <Button
-          onClick={() => fetchCategories({ forcePublic: false })}
+          onClick={() => debouncedFetchCategories({ forcePublic: false })}
           variant="outline"
           className="mt-2"
         >

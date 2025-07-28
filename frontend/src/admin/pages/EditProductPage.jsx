@@ -100,7 +100,6 @@ const EditProductPage = () => {
 
     try {
       const processedVariants = formData.variants?.map(variant => {
-        // Safely handle color value
         let colorValue = '';
         if (typeof variant.color === 'string') {
           colorValue = variant.color.trim();
@@ -159,7 +158,14 @@ const EditProductPage = () => {
         return processed;
       }) || [];
 
-      // Safely handle base product color
+      // Check if there are valid variants with pricing/stock information
+      const hasValidVariants = processedVariants.some(
+        variant =>
+          (variant.price !== undefined && variant.stock !== undefined) ||
+          (variant.storageOptions && variant.storageOptions.length > 0) ||
+          (variant.sizeOptions && variant.sizeOptions.length > 0)
+      );
+
       let baseColorValue = '';
       if (typeof formData.color === 'string') {
         baseColorValue = formData.color.trim();
@@ -169,10 +175,10 @@ const EditProductPage = () => {
 
       const submissionData = {
         ...formData,
-        price: formData.price ? parseFloat(formData.price) : undefined,
-        discountPrice: formData.discountPrice ? parseFloat(formData.discountPrice) : undefined,
+        price: hasValidVariants ? undefined : (formData.price ? parseFloat(formData.price) : undefined),
+        discountPrice: hasValidVariants ? undefined : (formData.discountPrice ? parseFloat(formData.discountPrice) : undefined),
         shippingCost: parseFloat(formData.shippingCost) || 0,
-        stock: formData.stock ? parseInt(formData.stock) : undefined,
+        stock: hasValidVariants ? undefined : (formData.stock ? parseInt(formData.stock) : undefined),
         color: baseColorValue ? { name: baseColorValue } : undefined,
         images: formData.images || [],
         videos: formData.videos || [],

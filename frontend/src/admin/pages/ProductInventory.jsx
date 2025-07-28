@@ -6,6 +6,7 @@ import React, {
   useEffect,
   useState,
   useCallback,
+  useRef,
 } from "react";
 import { Helmet } from "react-helmet";
 import { Link, useNavigate } from "react-router-dom";
@@ -34,26 +35,17 @@ const ProductModal = lazy(() => import("../../pages/ProductModal"));
 
 // Enhanced helper functions
 export const isInStock = (product) => {
-  // Check base stock (if exists)
   if (product.stock !== undefined && product.stock > 0) return true;
 
-  // Check variants (including color variants with direct stock)
   if (product.variants?.length > 0) {
     return product.variants.some((variant) => {
-      // Check variant-level stock (for color variants)
       if (variant.stock > 0) return true;
-
-      // Check storage options
       if (variant.storageOptions?.some((opt) => opt.stock > 0)) return true;
-
-      // Check size options
       if (variant.sizeOptions?.some((opt) => opt.stock > 0)) return true;
-
       return false;
     });
   }
 
-  // Check colors array (legacy structure)
   if (product.colors?.length > 0) {
     return product.colors.some((color) =>
       color.storage?.some((storage) => storage.stock > 0)
@@ -67,7 +59,6 @@ const getPriceRange = (product) => {
   let minPrice = Infinity;
   let maxPrice = -Infinity;
 
-  // Check base price (if exists)
   if (
     product.price !== undefined &&
     product.price !== null &&
@@ -77,10 +68,8 @@ const getPriceRange = (product) => {
     maxPrice = Math.max(maxPrice, product.discountPrice || product.price);
   }
 
-  // Check all variants (including color variants)
   if (product.variants?.length > 0) {
     product.variants.forEach((variant) => {
-      // Check variant-level pricing (for color variants)
       if (
         variant.price !== undefined &&
         variant.price !== null &&
@@ -91,7 +80,6 @@ const getPriceRange = (product) => {
         maxPrice = Math.max(maxPrice, variantPrice);
       }
 
-      // Check storage options
       variant.storageOptions?.forEach((option) => {
         if (
           option.price !== undefined &&
@@ -104,7 +92,6 @@ const getPriceRange = (product) => {
         }
       });
 
-      // Check size options
       variant.sizeOptions?.forEach((option) => {
         if (
           option.price !== undefined &&
@@ -119,7 +106,6 @@ const getPriceRange = (product) => {
     });
   }
 
-  // Check colors array (legacy structure)
   if (product.colors?.length > 0) {
     product.colors.forEach((color) => {
       color.storage?.forEach((storage) => {
@@ -136,7 +122,6 @@ const getPriceRange = (product) => {
     });
   }
 
-  // Fallback if no prices found
   if (minPrice === Infinity) minPrice = 0;
   if (maxPrice === -Infinity) maxPrice = 0;
 
@@ -146,7 +131,6 @@ const getPriceRange = (product) => {
 const calculateTotalStock = (product) => {
   let total = product.stock || 0;
 
-  // Check variants
   if (product.variants?.length > 0) {
     product.variants.forEach((variant) => {
       total += variant.stock || 0;
@@ -163,7 +147,6 @@ const calculateTotalStock = (product) => {
     });
   }
 
-  // Check colors array (legacy structure)
   if (product.colors?.length > 0) {
     product.colors.forEach((color) => {
       color.storage?.forEach((storage) => {
@@ -176,12 +159,10 @@ const calculateTotalStock = (product) => {
 };
 
 const getFirstVariantImage = (product) => {
-  // First check if product has direct images
   if (product.images?.length > 0) {
     return product.images[0];
   }
 
-  // Then check variants
   if (product.variants?.length > 0) {
     for (const variant of product.variants) {
       if (variant.images?.length > 0) {
@@ -195,7 +176,6 @@ const getFirstVariantImage = (product) => {
 
 const getVariantDetails = (product) => {
   if (!product.variants || product.variants.length === 0) {
-    // Check if it has colors array (legacy structure)
     if (product.colors?.length > 0) {
       const totalStorage = product.colors.reduce(
         (total, color) => total + (color.storage?.length || 0),
@@ -207,20 +187,16 @@ const getVariantDetails = (product) => {
   }
 
   const variant = product.variants[0];
-
-  // Check if it's a simple color variant (has price/stock directly)
   const isColorVariant =
     variant.color &&
     (variant.price !== undefined || variant.stock !== undefined) &&
     !variant.storageOptions?.length &&
     !variant.sizeOptions?.length;
 
-  // Check if it has storage options
   const hasStorageOptions = product.variants.some(
     (v) => v.storageOptions?.length > 0
   );
 
-  // Check if it has size options
   const hasSizeOptions = product.variants.some(
     (v) => v.sizeOptions?.length > 0
   );
@@ -244,7 +220,6 @@ const getVariantDetails = (product) => {
       ),
     };
   } else {
-    // Mixed variant types or other cases
     return { type: "Mixed", count: product.variants.length };
   }
 };
@@ -262,28 +237,20 @@ const getVariantIcon = (type) => {
   }
 };
 
-// Helper to check if product should be displayed
 const shouldDisplayProduct = (product) => {
-  // Always display if it has base stock/price
   if (product.stock > 0 || product.price > 0) return true;
 
-  // Check variants
   if (product.variants?.length > 0) {
     return product.variants.some((variant) => {
-      // Has variant-level data
       if (variant.stock > 0 || variant.price > 0) return true;
-
-      // Has storage/size options
       if (variant.storageOptions?.some((opt) => opt.stock > 0 || opt.price > 0))
         return true;
       if (variant.sizeOptions?.some((opt) => opt.stock > 0 || opt.price > 0))
         return true;
-
       return false;
     });
   }
 
-  // Check colors (legacy)
   if (product.colors?.length > 0) {
     return product.colors.some((color) =>
       color.storage?.some((storage) => storage.stock > 0 || storage.price > 0)
@@ -304,16 +271,13 @@ const ProductInventory = memo(() => {
   const [categoryMap, setCategoryMap] = useState({});
   const [deletingId, setDeletingId] = useState(null);
   const [expandedProducts, setExpandedProducts] = useState({});
+  const lastFetchRef = useRef(0);
+  const fetchQueueRef = useRef([]);
+  const isFetchingRef = useRef(false);
+  const categoryCacheRef = useRef(null);
+  const MIN_FETCH_INTERVAL = 1000; // 1 second minimum between fetches
 
   const PRODUCTS_PER_PAGE = 50;
-
-  useEffect(() => {
-    console.log("Products from API:", products);
-    console.log(
-      "Products that should display:",
-      products?.filter(shouldDisplayProduct)
-    );
-  }, [products]);
 
   useEffect(() => {
     if (!admin) {
@@ -322,6 +286,11 @@ const ProductInventory = memo(() => {
   }, [admin, navigate]);
 
   const loadCategories = useCallback(async () => {
+    if (categoryCacheRef.current) {
+      setCategoryMap(categoryCacheRef.current);
+      return;
+    }
+
     try {
       const categories = await getCategories();
       if (Array.isArray(categories)) {
@@ -329,6 +298,7 @@ const ProductInventory = memo(() => {
           acc[cat._id] = cat.name;
           return acc;
         }, {});
+        categoryCacheRef.current = map;
         setCategoryMap(map);
       } else {
         toast.warn("Failed to load category names");
@@ -338,20 +308,46 @@ const ProductInventory = memo(() => {
     }
   }, []);
 
+  const debouncedFetchProducts = useCallback(
+    debounce(async (params, options) => {
+      const now = Date.now();
+      if (now - lastFetchRef.current < MIN_FETCH_INTERVAL || isFetchingRef.current) {
+        return new Promise((resolve, reject) => {
+          fetchQueueRef.current.push({ resolve, reject, params, options });
+        });
+      }
+
+      isFetchingRef.current = true;
+      lastFetchRef.current = now;
+
+      try {
+        await fetchProducts(params, options);
+        fetchQueueRef.current.forEach(({ resolve }) => resolve());
+        fetchQueueRef.current = [];
+      } catch (err) {
+        fetchQueueRef.current.forEach(({ reject }) => reject(err));
+        fetchQueueRef.current = [];
+        throw err;
+      } finally {
+        isFetchingRef.current = false;
+      }
+    }, 300),
+    [fetchProducts]
+  );
+
   const loadProducts = useCallback(async () => {
     try {
-      await fetchProducts(
+      await debouncedFetchProducts(
         {
           page: currentPage,
-          limit: 100, // Temporarily increase to verify
-          search: "", // Clear search term
+          limit: PRODUCTS_PER_PAGE,
+          search: searchTerm,
           includeOutOfStock: true,
           includeVariants: true,
         },
         {
           isPublic: false,
           skipCache: true,
-          // Ensure variants are populated
           populate:
             "variants,variants.color,variants.storageOptions,variants.sizeOptions",
         }
@@ -359,7 +355,7 @@ const ProductInventory = memo(() => {
     } catch (err) {
       toast.error(err.message || "Failed to load products");
     }
-  }, [currentPage, searchTerm, fetchProducts]);
+  }, [currentPage, searchTerm, debouncedFetchProducts]);
 
   const handleDelete = useCallback(
     async (productId) => {
@@ -386,7 +382,6 @@ const ProductInventory = memo(() => {
     [loadProducts]
   );
 
-  // Filter products that should be displayed
   const displayableProducts = products?.filter(shouldDisplayProduct) || [];
 
   const handlePreview = useCallback((product) => {
@@ -457,6 +452,12 @@ const ProductInventory = memo(() => {
       loadCategories();
       loadProducts();
     }
+
+    return () => {
+      debouncedFetchProducts.cancel();
+      debouncedSetSearchTerm.cancel();
+      fetchQueueRef.current = [];
+    };
   }, [admin, loadCategories, loadProducts]);
 
   if (!admin) {
@@ -486,7 +487,6 @@ const ProductInventory = memo(() => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl font-bold text-[#E63946]">Product Inventory</h1>
         <div className="flex flex-col w-full sm:flex-row gap-3 md:w-auto">
-          {/* Search Input - Full width on mobile, auto width on larger screens */}
           <div className="relative w-full sm:flex-1 sm:min-w-[200px]">
             <input
               type="text"
@@ -496,8 +496,6 @@ const ProductInventory = memo(() => {
             />
             <FiSearch className="absolute right-3 top-3 text-gray-400" />
           </div>
-
-          {/* Button Group - Side by side on all screens */}
           <div className="flex flex-row gap-3 w-full sm:w-auto">
             <button
               onClick={loadProducts}
@@ -507,7 +505,6 @@ const ProductInventory = memo(() => {
               <FiRefreshCw className="h-5 w-5" />
               <span className="hidden sm:inline">Refresh</span>
             </button>
-
             <Link
               to="/admin/add-products"
               className="flex items-center justify-center whitespace-nowrap px-4 py-2 bg-[#E63946] text-white rounded-md hover:bg-white hover:text-[#E63946] hover:border hover:border-[#E63946] transition-colors duration-200 flex-1 sm:flex-none text-center"
@@ -550,8 +547,8 @@ const ProductInventory = memo(() => {
       ) : (
         <>
           <div className="hidden md:block overflow-x-auto">
-            <table className="min-w-full bg-white border border-gray-200  table-fixed">
-              <thead className="bg-gray-50 ">
+            <table className="min-w-full bg-white border border-gray-200 table-fixed">
+              <thead className="bg-gray-50">
                 <tr>
                   <th className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Product
@@ -574,7 +571,7 @@ const ProductInventory = memo(() => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {products.map((product) => {
+                {displayableProducts.map((product) => {
                   const stockStatus = isInStock(product);
                   const totalStock = calculateTotalStock(product);
                   const { type: variantType, count: variantCount } =
@@ -700,7 +697,6 @@ const ProductInventory = memo(() => {
                         </td>
                         <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div className="flex justify-end gap-2 lg:gap-5">
-                            {/* Show variant toggle on mobile/tablet if variants exist */}
                             {variantCount > 0 && (
                               <button
                                 onClick={() => toggleExpandProduct(product._id)}
@@ -737,8 +733,6 @@ const ProductInventory = memo(() => {
                           </div>
                         </td>
                       </tr>
-
-                      {/* Expanded variant details */}
                       {isExpanded && product.variants?.length > 0 && (
                         <tr className="bg-gray-50">
                           <td colSpan="6" className="px-3 lg:px-6 py-4">
@@ -748,7 +742,6 @@ const ProductInventory = memo(() => {
                               </h4>
                               <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-4">
                                 {product.variants.map((variant, idx) => {
-                                  // Get the effective price for this variant
                                   const variantPrice =
                                     variant.discountPrice || variant.price;
                                   const variantStock =
@@ -800,9 +793,7 @@ const ProductInventory = memo(() => {
                                           <p className="text-xs lg:text-sm">
                                             Stock: {variantStock}
                                           </p>
-                                          {/* Display storage/size options if they exist */}
-                                          {variant.storageOptions?.length >
-                                            0 && (
+                                          {variant.storageOptions?.length > 0 && (
                                             <div className="mt-1">
                                               <p className="text-xs font-medium text-gray-500">
                                                 Storage Options:
@@ -831,7 +822,6 @@ const ProductInventory = memo(() => {
                                               </ul>
                                             </div>
                                           )}
-                                          {/* Similar for size options */}
                                         </div>
                                       </div>
                                     </div>
@@ -849,9 +839,8 @@ const ProductInventory = memo(() => {
             </table>
           </div>
 
-          {/* Mobile Card View */}
           <div className="md:hidden grid grid-cols-1 gap-4">
-            {products.map((product) => {
+            {displayableProducts.map((product) => {
               const stockStatus = isInStock(product);
               const totalStock = calculateTotalStock(product);
               const { type: variantType, count: variantCount } =
@@ -995,7 +984,6 @@ const ProductInventory = memo(() => {
                     </div>
                   </div>
 
-                  {/* Expanded variant details */}
                   {isExpanded && product.variants?.length > 0 && (
                     <div className="mt-3 pt-3 border-t">
                       <h4 className="font-medium text-gray-700 mb-2">

@@ -26,10 +26,35 @@ const AuthProvider = ({ children }) => {
   const isRefreshing = useRef(false);
   const isFetching = useRef(false);
   const isUpdating = useRef(false);
+  const isLoggingIn = useRef(false);
+  const isRegistering = useRef(false);
+  const isLoggingOut = useRef(false);
 
-  // Debounced functions that return Promises
+  // Promise cache to prevent duplicate requests
+  const promiseCache = useRef({
+    fetchUser: null,
+    refreshToken: null,
+    login: null,
+    register: null,
+    logout: null,
+    updateUser: null
+  });
+
+  // Clear promise cache helper
+  const clearPromiseCache = (key) => {
+    if (promiseCache.current[key]) {
+      promiseCache.current[key] = null;
+    }
+  };
+
+  // Debounced functions that return Promises with caching
   const debouncedFetchUser = useCallback(() => {
-    return new Promise((resolve, reject) => {
+    // Return existing promise if already in progress
+    if (promiseCache.current.fetchUser) {
+      return promiseCache.current.fetchUser;
+    }
+
+    const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         if (isFetching.current) {
           resolve();
@@ -44,15 +69,24 @@ const AuthProvider = ({ children }) => {
           reject(error);
         } finally {
           isFetching.current = false;
+          clearPromiseCache('fetchUser');
         }
       }, 300);
       
       debouncedFn();
     });
+
+    promiseCache.current.fetchUser = promise;
+    return promise;
   }, []);
 
   const debouncedRefreshToken = useCallback(() => {
-    return new Promise((resolve, reject) => {
+    // Return existing promise if already in progress
+    if (promiseCache.current.refreshToken) {
+      return promiseCache.current.refreshToken;
+    }
+
+    const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         if (isRefreshing.current) {
           resolve();
@@ -67,11 +101,15 @@ const AuthProvider = ({ children }) => {
           reject(error);
         } finally {
           isRefreshing.current = false;
+          clearPromiseCache('refreshToken');
         }
       }, 1000);
       
       debouncedFn();
     });
+
+    promiseCache.current.refreshToken = promise;
+    return promise;
   }, []);
 
   useEffect(() => {
@@ -117,13 +155,13 @@ const AuthProvider = ({ children }) => {
 
     initializeAuth();
 
-    // Periodic token refresh (every 10 minutes) - debounced
+    // Periodic token refresh (every 10 minutes) - debounced and cached
     const refreshInterval = setInterval(() => {
-      // Only refresh if we have a user and tokens
+      // Only refresh if we have a user and tokens and not already refreshing
       const currentToken = localStorage.getItem('userToken');
       const currentRefreshToken = localStorage.getItem('userRefreshToken');
       
-      if (currentToken && currentRefreshToken && !isRefreshing.current) {
+      if (currentToken && currentRefreshToken && !isRefreshing.current && !promiseCache.current.refreshToken) {
         debouncedRefreshToken().catch(err => {
           console.error('Periodic token refresh failed:', err);
           // Don't auto-logout on periodic refresh failures
@@ -138,6 +176,13 @@ const AuthProvider = ({ children }) => {
       isRefreshing.current = false;
       isFetching.current = false;
       isUpdating.current = false;
+      isLoggingIn.current = false;
+      isRegistering.current = false;
+      isLoggingOut.current = false;
+      // Clear promise cache
+      Object.keys(promiseCache.current).forEach(key => {
+        promiseCache.current[key] = null;
+      });
     };
   }, [debouncedFetchUser, debouncedRefreshToken]);
 
@@ -212,6 +257,14 @@ const AuthProvider = ({ children }) => {
     isRefreshing.current = false;
     isFetching.current = false;
     isUpdating.current = false;
+    isLoggingIn.current = false;
+    isRegistering.current = false;
+    isLoggingOut.current = false;
+
+    // Clear promise cache
+    Object.keys(promiseCache.current).forEach(key => {
+      promiseCache.current[key] = null;
+    });
   };
 
   const fetchUserInternal = async () => {
@@ -258,10 +311,21 @@ const AuthProvider = ({ children }) => {
     return debouncedFetchUser();
   }, [debouncedFetchUser]);
 
-  // Debounced user functions that return Promises
+  // Debounced and cached login function
   const loginUser = useCallback((credentials) => {
-    return new Promise((resolve, reject) => {
+    // Prevent multiple simultaneous login attempts
+    if (isLoggingIn.current || promiseCache.current.login) {
+      return promiseCache.current.login || Promise.resolve();
+    }
+
+    const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
+        if (isLoggingIn.current) {
+          resolve();
+          return;
+        }
+        isLoggingIn.current = true;
+        
         setAuthState((prev) => ({ ...prev, loading: true, error: null }));
         try {
           const userData = await login(credentials.email, credentials.password);
@@ -278,17 +342,34 @@ const AuthProvider = ({ children }) => {
         } catch (err) {
           handleAuthError(err);
           reject(err);
+        } finally {
+          isLoggingIn.current = false;
+          clearPromiseCache('login');
         }
       }, 500);
       
       debouncedFn();
     });
+
+    promiseCache.current.login = promise;
+    return promise;
   }, []);
 
-  // Debounced Google login
+  // Debounced and cached Google login
   const googleLoginUser = useCallback(() => {
-    return new Promise((resolve, reject) => {
+    // Prevent multiple simultaneous Google login attempts
+    if (isLoggingIn.current || promiseCache.current.login) {
+      return promiseCache.current.login || Promise.resolve();
+    }
+
+    const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
+        if (isLoggingIn.current) {
+          resolve();
+          return;
+        }
+        isLoggingIn.current = true;
+        
         setAuthState((prev) => ({ ...prev, loading: true, error: null }));
         try {
           const result = await googleLogin(); // Redirects to Google OAuth
@@ -296,17 +377,34 @@ const AuthProvider = ({ children }) => {
         } catch (err) {
           handleAuthError(err);
           reject(err);
+        } finally {
+          isLoggingIn.current = false;
+          clearPromiseCache('login');
         }
       }, 500);
       
       debouncedFn();
     });
+
+    promiseCache.current.login = promise;
+    return promise;
   }, []);
 
-  // Debounced register function
+  // Debounced and cached register function
   const registerUser = useCallback((userData) => {
-    return new Promise((resolve, reject) => {
+    // Prevent multiple simultaneous registration attempts
+    if (isRegistering.current || promiseCache.current.register) {
+      return promiseCache.current.register || Promise.resolve();
+    }
+
+    const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
+        if (isRegistering.current) {
+          resolve();
+          return;
+        }
+        isRegistering.current = true;
+        
         setAuthState((prev) => ({ ...prev, loading: true, error: null }));
         try {
           const newUser = await register(userData.name, userData.email, userData.password);
@@ -323,17 +421,34 @@ const AuthProvider = ({ children }) => {
         } catch (err) {
           handleAuthError(err);
           reject(err);
+        } finally {
+          isRegistering.current = false;
+          clearPromiseCache('register');
         }
       }, 500);
       
       debouncedFn();
     });
+
+    promiseCache.current.register = promise;
+    return promise;
   }, []);
 
-  // Debounced logout function
+  // Debounced and cached logout function
   const logoutUser = useCallback(() => {
-    return new Promise((resolve, reject) => {
+    // Prevent multiple simultaneous logout attempts
+    if (isLoggingOut.current || promiseCache.current.logout) {
+      return promiseCache.current.logout || Promise.resolve();
+    }
+
+    const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
+        if (isLoggingOut.current) {
+          resolve();
+          return;
+        }
+        isLoggingOut.current = true;
+        
         setAuthState((prev) => ({ ...prev, loading: true, error: null }));
         try {
           await logout();
@@ -348,11 +463,17 @@ const AuthProvider = ({ children }) => {
             loading: false 
           }));
           resolve(); // Still resolve since we cleared local state
+        } finally {
+          isLoggingOut.current = false;
+          clearPromiseCache('logout');
         }
       }, 300);
       
       debouncedFn();
     });
+
+    promiseCache.current.logout = promise;
+    return promise;
   }, []);
 
   const refreshUserTokenInternal = async () => {
@@ -391,9 +512,14 @@ const AuthProvider = ({ children }) => {
     return debouncedRefreshToken();
   }, [debouncedRefreshToken]);
 
-  // Debounced update user profile
+  // Debounced and cached update user profile
   const updateUserProfile = useCallback((userData) => {
-    return new Promise((resolve, reject) => {
+    // Prevent multiple simultaneous update attempts
+    if (isUpdating.current || promiseCache.current.updateUser) {
+      return promiseCache.current.updateUser || Promise.resolve();
+    }
+
+    const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         if (isUpdating.current) {
           resolve();
@@ -419,11 +545,15 @@ const AuthProvider = ({ children }) => {
           reject(err);
         } finally {
           isUpdating.current = false;
+          clearPromiseCache('updateUser');
         }
       }, 500);
       
       debouncedFn();
     });
+
+    promiseCache.current.updateUser = promise;
+    return promise;
   }, []);
 
   const contextValue = useMemo(
