@@ -486,90 +486,96 @@ const createProductValidator = [
     .optional()
     .customSanitizer((value) => {
       try {
+        console.log("🛠️ Sanitizing variants:", value);
         return parseJsonField(value);
       } catch (error) {
-        console.error('JSON parsing error for variants:', error.message);
+        console.error('❌ JSON parsing error for variants:', error.message);
         return value;
       }
     })
     .custom((variants, { req }) => {
       try {
-        // Handle case where variants is not provided or is null/undefined
+        console.log("📝 Raw variants received:", variants);
+        console.log("📦 Full req.body at validation:", JSON.stringify(req.body, null, 2));
+
         if (!variants) {
           variants = [];
         }
 
-        // Ensure variants is an array
         if (!Array.isArray(variants)) {
           throw new Error('Variants must be an array');
         }
 
-        // Validate maximum 6 variants
         if (variants.length > 6) {
           throw new Error('Maximum 6 variants allowed');
         }
 
-        // Parse variants with error handling
         const parsedVariants = variants.map((variant, index) => {
           try {
             const parsed = deepParseVariantFields(variant);
             return parsed;
           } catch (error) {
+            console.error(`❌ Error parsing variant at index ${index}:`, error.message);
             throw new Error(`Invalid variant at index ${index}: ${error.message}`);
           }
         });
 
         req.body.variants = parsedVariants;
 
-        // Check for base pricing
         const hasBasePricing = req.body.price !== undefined && 
-                              req.body.price !== null && 
-                              req.body.price !== '' &&
-                              req.body.price > 0 &&
-                              req.body.stock !== undefined && 
-                              req.body.stock !== null && 
-                              req.body.stock !== '';
+                               req.body.price !== null && 
+                               req.body.price !== '' &&
+                               req.body.price > 0 &&
+                               req.body.stock !== undefined && 
+                               req.body.stock !== null && 
+                               req.body.stock !== '';
 
         const hasVariants = parsedVariants && parsedVariants.length > 0;
 
-        // Product must have either base pricing or variants
+        console.log("✅ hasBasePricing:", hasBasePricing);
+        console.log("✅ hasVariants:", hasVariants);
+
         if (!hasBasePricing && !hasVariants) {
           throw new Error('Product must have either base price/stock or variants');
         }
 
-        // If has both base pricing and variants, that's invalid
         if (hasBasePricing && hasVariants) {
           throw new Error('Product cannot have both base pricing and variants. Choose one approach.');
         }
 
-        // Validate each variant if variants exist
         if (hasVariants) {
           for (let i = 0; i < parsedVariants.length; i++) {
             const variant = parsedVariants[i];
             try {
               validateVariant(variant, i);
             } catch (error) {
+              console.error(`❌ Variant validation failed at index ${i}:`, error.message);
               throw new Error(`Variant validation error at index ${i}: ${error.message}`);
             }
           }
         }
 
+        console.log("✅ Variants validated successfully.");
         return true;
       } catch (error) {
-        console.error('Variants validation error:', error.message);
+        console.error('❌ Variants validation error:', error.message);
         throw error;
       }
     }),
 
-  // Final validation handler
+  // Final validation result handler
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.error('❌ Final validation errors:', errors.array());
+      console.log("❗Final Rejected req.body:", JSON.stringify(req.body, null, 2));
       return next(new ApiError(400, 'Validation failed', errors.array()));
     }
+    console.log("✅ Validation passed. Proceeding to controller.");
     next();
   }
 ];
+
 
 // Update product validator
 const updateProductValidator = [
