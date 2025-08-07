@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
+import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from 'react';
 import { debounce } from 'lodash';
 import { useAdminAuth } from './AdminAuthContext';
 import { useAuth } from './AuthContext';
@@ -213,19 +213,42 @@ export const OrderProvider = ({ children }) => {
   useEffect(() => {
     if (!userRole) return;
 
-    console.log('OrderProvider: Setting up for role:', userRole);
+    // Prevent multiple initializations
+    const currentUserId = isAdmin ? admin?._id : user?._id;
+    if (!currentUserId) return;
 
-    // Force refresh on initial load
-    const fetchData = isAdmin ? 
-      () => debouncedFetchAllOrders(1, 10, '', '', true) : 
-      () => debouncedFetchUserOrders(1, 10, '', true);
-    
-    fetchData();
+    console.log('OrderProvider: Setting up for role:', userRole, 'UserID:', currentUserId);
+
+    // Add a small delay to prevent race conditions with auth initialization
+    const setupTimer = setTimeout(() => {
+      // Only fetch if we don't have recent data
+      const lastFetchTime = isAdmin ? lastAdminFetch.current : lastUserFetch.current;
+      const now = Date.now();
+      const shouldFetch = !lastFetchTime || (now - lastFetchTime) > 30000; // 30 seconds
+
+      if (shouldFetch) {
+        console.log('OrderProvider: Fetching initial data');
+        const fetchData = isAdmin ? 
+          () => debouncedFetchAllOrders(1, 10, '', '', true) : 
+          () => debouncedFetchUserOrders(1, 10, '', true);
+        
+        fetchData();
+        
+        // Update last fetch time
+        if (isAdmin) {
+          lastAdminFetch.current = now;
+        } else {
+          lastUserFetch.current = now;
+        }
+      } else {
+        console.log('OrderProvider: Skipping fetch - recent data available');
+      }
+    }, 100); // Small delay to let auth settle
 
     let pollingInterval = null;
 
     if (isAdmin) {
-      socketService.connect(admin?._id, 'admin');
+      socketService.connect(currentUserId, 'admin');
 
       const handleSocketError = (error) => {
         console.error('Socket error:', error);
@@ -236,12 +259,11 @@ export const OrderProvider = ({ children }) => {
               console.log('Polling: Fetching orders due to socket disconnect');
               debouncedFetchAllOrders(1, 10, '', '', true);
             }
-          }, 15000); // Reduced polling interval
+          }, 15000);
         }
       };
 
       socketService.on('connect_error', handleSocketError);
-
       socketService.on('orderCreated', (newOrder) => {
         console.log('Socket: New order created:', newOrder);
         clearAllOrdersCache();
@@ -273,7 +295,7 @@ export const OrderProvider = ({ children }) => {
         }
       });
     } else if (isRegularUser) {
-      socketService.connect(user?._id, 'user');
+      socketService.connect(currentUserId, 'user');
       
       socketService.on('orderCreated', (newOrder) => {
         console.log('Socket: User order created:', newOrder);
@@ -290,6 +312,7 @@ export const OrderProvider = ({ children }) => {
 
     return () => {
       console.log('OrderProvider: Cleaning up...');
+      clearTimeout(setupTimer);
       socketService.off('orderCreated');
       socketService.off('orderStatusUpdated');
       socketService.off('connect');
@@ -301,7 +324,11 @@ export const OrderProvider = ({ children }) => {
       debouncedFetchUserOrders.cancel();
       debouncedFetchAllOrders.cancel();
     };
-  }, [isAdmin, isRegularUser, userRole, admin?._id, user?._id]);
+  }, [userRole, admin?._id, user?._id]); 
+
+// Add these refs at the top of your component
+const lastAdminFetch = useRef(0);
+const lastUserFetch = useRef(0);
 
   const handleOrderError = async (err, isUser, retryFn) => {
     console.error('Order error:', {

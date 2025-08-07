@@ -401,25 +401,23 @@ const CartProvider = ({ children }) => {
   );
 
   // Effect to fetch cart when user changes
-  useEffect(() => {
-    if (user && !isFetching.current) {
-      debouncedFetchCart().catch((err) => {
-        console.error("Initial fetchCart error:", err);
-        toast.error("Failed to load cart: " + (err.message || "Unknown error"));
-      });
-    } else if (!user) {
-      // Clear cart when user logs out
-      setCart(null);
-      setError(null);
-    }
+ useEffect(() => {
+  if (user && !isFetching.current) {
+    debouncedFetchCart().catch((err) => {
+      console.error("Initial fetchCart error:", err);
+      toast.error("Failed to load cart: " + (err.message || "Unknown error"));
+    });
+  } else if (!user) {
+    setCart(null);
+    setError(null);
+  }
 
-    // Cleanup function
-    return () => {
-      isFetching.current = false;
-      isUpdating.current = false;
-      pendingOperations.current.clear();
-    };
-  }, [user, debouncedFetchCart]);
+  return () => {
+    isFetching.current = false;
+    isUpdating.current = false;
+    pendingOperations.current.clear();
+  };
+}, [user]); // ← Only depend on user
 
   const contextValue = useMemo(
     () => ({

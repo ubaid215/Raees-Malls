@@ -181,11 +181,9 @@ const AuthProvider = ({ children }) => {
           console.log('Token likely expired, attempting refresh');
           try {
             await debouncedRefreshToken();
-            // After successful refresh, the token should be valid, so fetch user
             await debouncedFetchUser();
           } catch (refreshError) {
             console.log('Token refresh failed during init, trying direct fetch:', refreshError.message);
-            // If refresh fails, still try to fetch user (token might still be valid)
             try {
               await debouncedFetchUser();
             } catch (fetchError) {
@@ -193,18 +191,15 @@ const AuthProvider = ({ children }) => {
               if (fetchError.response?.status === 401 || fetchError.response?.status === 403) {
                 resetAuthState();
               } else {
-                // For network errors, just stop loading but keep tokens
                 setAuthState((prev) => ({ ...prev, loading: false }));
               }
             }
           }
         } else {
-          // Token should be valid, try fetching user directly
           try {
             await debouncedFetchUser();
           } catch (error) {
             console.log('Initial fetch failed, attempting token refresh:', error.message);
-            // Only try refresh if it's an auth error, not network error
             if (error.response?.status === 401 || error.response?.status === 403) {
               try {
                 await debouncedRefreshToken();
@@ -213,7 +208,6 @@ const AuthProvider = ({ children }) => {
                 resetAuthState();
               }
             } else {
-              // For network errors, just stop loading but keep tokens
               setAuthState((prev) => ({ ...prev, loading: false }));
             }
           }
@@ -228,27 +222,23 @@ const AuthProvider = ({ children }) => {
 
     initializeAuth();
 
-    // More conservative periodic token refresh (every 15 minutes instead of 10)
+    // Periodic token refresh
     const refreshInterval = setInterval(() => {
-      // Only refresh if we have valid tokens, user is authenticated, and not already refreshing
       if (hasValidTokens() && authState.user && !isRefreshing.current && !promiseCache.current.refreshToken) {
-        // Only refresh if token is likely to expire soon
         if (isTokenLikelyExpired()) {
           console.log('Periodic token refresh triggered');
           debouncedRefreshToken().catch(err => {
             console.error('Periodic token refresh failed:', err);
-            // Don't auto-logout on periodic refresh failures unless it's a definitive auth error
             if (err.response?.status === 401 || err.response?.status === 403) {
               resetAuthState();
             }
           });
         }
       }
-    }, 15 * 60 * 1000); // 15 minutes
+    }, 15 * 60 * 1000);
 
     return () => {
       clearInterval(refreshInterval);
-      // Reset operation flags on cleanup
       isInitializing.current = false;
       isRefreshing.current = false;
       isFetching.current = false;
@@ -257,12 +247,11 @@ const AuthProvider = ({ children }) => {
       isRegistering.current = false;
       isLoggingOut.current = false;
       lastRefreshAttempt.current = 0;
-      // Clear promise cache
       Object.keys(promiseCache.current).forEach(key => {
         promiseCache.current[key] = null;
       });
     };
-  }, [debouncedFetchUser, debouncedRefreshToken, hasValidTokens, isTokenLikelyExpired]);
+  }, []); // ← REMOVE ALL DEPENDENCIES - run only once on mount
 
   const setupSocketConnection = (user) => {
     const userId = user._id || user.id;

@@ -361,12 +361,12 @@ function Navbar() {
   }, [searchQuery, navigate]);
 
   const handleSearchResultClick = useCallback((product) => {
-    navigate(`/products/${product._id}`);
-    setSearchQuery('');
-    setShowSearchResults(false);
-    setShowMobileSearch(false);
-    lastSearchQueryRef.current = '';
-  }, [navigate]);
+  navigate(`/product/${product._id}`);  
+  setSearchQuery('');
+  setShowSearchResults(false);
+  setShowMobileSearch(false);
+  lastSearchQueryRef.current = '';
+}, [navigate]);
 
   const handleCategorySelect = useCallback((category) => {
     if (process.env.NODE_ENV === 'development') {
@@ -605,7 +605,7 @@ function Navbar() {
                       />
                       <div>
                         <p className="font-medium text-gray-800 truncate">{product.title}</p>
-                        <p className="text-sm text-red-600">${product.price}</p>
+                        <p className="text-sm text-red-600">PKR {product.price.toLocaleString()}</p>
                       </div>
                     </div>
                   </div>
@@ -779,7 +779,7 @@ function Navbar() {
                           />
                           <div>
                             <p className="font-medium text-gray-800 truncate">{product.title}</p>
-                            <p className="text-sm text-red-600">${product.price}</p>
+                            <p className="text-sm text-red-600">PKR {product.price.toLocaleString()}</p>
                           </div>
                         </div>
                       </div>
