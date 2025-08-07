@@ -1,21 +1,22 @@
 const { body, param, validationResult } = require('express-validator');
 const ApiError = require('../utils/apiError');
 
-// Helper function to validate storage capacity with more flexible formats
+// Helper function to validate storage capacity with very flexible formats
 const validateStorageCapacity = (value) => {
   if (!value) return true;
   
   // Allow formats like:
-  // - "4GB 64GB"
-  // - "4GB+64GB"
-  // - "4GB/64GB"
-  // - "4GB RAM + 64GB Storage"
-  // - "64GB"
-  const pattern = /^([0-9]+\s*[A-Za-z]+\s*[\+\/]\s*[0-9]+\s*[A-Za-z]+|[0-9]+\s*[A-Za-z]+(\s*[\+\/]\s*[0-9]+\s*[A-Za-z]+)*)$/i;
+  // - "4GB 128GB"
+  // - "4GB+128GB"
+  // - "4GB/128GB"
+  // - "4GB RAM + 128GB Storage"
+  // - "128GB"
+  // - "4GB RAM 128GB ROM"
+  const pattern = /^([0-9]+\s*[A-Za-z]+\s*[\+\/\s]+\s*[0-9]+\s*[A-Za-z]+|[0-9]+\s*[A-Za-z]+(\s*[\+\/\s]+\s*[0-9]+\s*[A-Za-z]+)*)$/i;
   return pattern.test(value);
 };
 
-// Helper function to validate size with more flexible formats
+// Helper function to validate size with very flexible formats
 const validateSize = (value) => {
   if (!value) return true;
   
@@ -24,6 +25,7 @@ const validateSize = (value) => {
   // - "32", "42"
   // - "10.5", "11.5"
   // - "10-12", "XS-S"
+  // - "10 12", "XS S"
   const pattern = /^[A-Za-z0-9\-\.\s]+$/i;
   return pattern.test(value);
 };
@@ -43,7 +45,7 @@ const addToCartValidator = [
     .optional()
     .isString().withMessage('Storage capacity must be a string')
     .trim()
-    .custom(validateStorageCapacity).withMessage('Storage capacity must be in valid format (e.g., 64GB, 4GB+64GB, 4GB/64GB)'),
+    .custom(validateStorageCapacity).withMessage('Storage capacity must be in valid format (e.g., 4GB 128GB, 4GB+128GB, 4GB/128GB)'),
   
   body('size')
     .optional()
@@ -85,44 +87,17 @@ const addToCartValidator = [
   (req, res, next) => {
     const errors = validationResult(req);
     
-    // Log request details for debugging
-    console.log('\n=== CART VALIDATION DEBUG INFO ===');
-    console.log('📍 Endpoint:', req.method, req.originalUrl);
-    console.log('📦 Request Body:', JSON.stringify(req.body, null, 2));
-    console.log('⏰ Timestamp:', new Date().toISOString());
-    
     if (!errors.isEmpty()) {
-      const errorArray = errors.array();
-      
-      console.log('❌ VALIDATION FAILED');
-      console.log('🔢 Total Errors:', errorArray.length);
-      
-      // Log each validation error with details
-      errorArray.forEach((error, index) => {
-        console.log(`\n--- Error #${index + 1} ---`);
-        console.log('Field:', error.path || error.param);
-        console.log('Value:', JSON.stringify(error.value));
-        console.log('Message:', error.msg);
-        console.log('Location:', error.location);
-      });
-      
-      // Create formatted error response
-      const formattedErrors = errorArray.map(error => ({
+      const formattedErrors = errors.array().map(error => ({
         field: error.path || error.param,
         message: error.msg,
         value: error.value,
         location: error.location
       }));
       
-      console.log('\n📋 Formatted Errors for Response:');
-      console.log(JSON.stringify(formattedErrors, null, 2));
-      console.log('=================================\n');
-      
       return next(new ApiError(400, 'Validation failed', formattedErrors));
     }
     
-    console.log('✅ VALIDATION PASSED');
-    console.log('=================================\n');
     next();
   }
 ];
