@@ -61,7 +61,7 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
           unavailable
         </div>
       )}
-      
+
       {/* Image and Title Row */}
       <div className="flex items-center gap-3">
         <div className="w-16 h-16 flex-shrink-0">
@@ -87,15 +87,9 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
           {/* Display variant information if available */}
           {(item.variantColor || item.storageCapacity || item.size) && (
             <div className="text-xs text-gray-500 mt-1 space-y-1">
-              {item.variantColor && (
-                <p>Color: {item.variantColor}</p>
-              )}
-              {item.storageCapacity && (
-                <p>Storage: {item.storageCapacity}</p>
-              )}
-              {item.size && (
-                <p>Size: {item.size}</p>
-              )}
+              {item.variantColor && <p>Color: {item.variantColor}</p>}
+              {item.storageCapacity && <p>Storage: {item.storageCapacity}</p>}
+              {item.size && <p>Size: {item.size}</p>}
             </div>
           )}
         </div>
@@ -109,7 +103,8 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
         <p className="text-green-600">{item.stock || 0} in Stock</p>
         {item.shippingCost > 0 && (
           <p className="text-blue-600">
-            Shipping: {new Intl.NumberFormat("en-PK", {
+            Shipping:{" "}
+            {new Intl.NumberFormat("en-PK", {
               style: "currency",
               currency: "PKR",
               minimumFractionDigits: 0,
@@ -123,7 +118,8 @@ function CartProductCard({ item, onUpdateQuantity, onRemove }) {
         <div>
           <p className="text-sm font-medium text-gray-900">{formattedPrice}</p>
           <p className="text-xs text-gray-500">
-            Total: {new Intl.NumberFormat("en-PK", {
+            Total:{" "}
+            {new Intl.NumberFormat("en-PK", {
               style: "currency",
               currency: "PKR",
               minimumFractionDigits: 0,
@@ -195,7 +191,7 @@ function Cart() {
   const [redirectCount, setRedirectCount] = useState(0);
 
   useEffect(() => {
-    console.log("Cart: isLoading:", isLoading, "error:", error);
+    // console.log("Cart: isLoading:", isLoading, "error:", error);
   }, [cartItems, isLoading, error]);
 
   useEffect(() => {
@@ -254,10 +250,18 @@ function Cart() {
     }
   };
 
-  const handleUpdateQuantity = async (productId, newQuantity, variantOptions = {}) => {
+  const handleUpdateQuantity = async (
+    productId,
+    newQuantity,
+    variantOptions = {}
+  ) => {
     if (newQuantity < 1) return;
     try {
-      const result = await updateQuantity(productId, newQuantity, variantOptions);
+      const result = await updateQuantity(
+        productId,
+        newQuantity,
+        variantOptions
+      );
       if (!result.success) {
         toast.error(result.message || "Failed to update quantity");
       }
@@ -479,20 +483,25 @@ function Cart() {
                               SKU: {item.sku || "N/A"}
                             </p>
                             <p className="text-sm text-gray-600 truncate">
-                              Category: {item.productId?.category?.name || "No category"}
+                              Category:{" "}
+                              {item.productId?.category?.name || "No category"}
                             </p>
                             {/* Display variant information */}
-                            {(item.variantColor || item.storageCapacity || item.size) && (
+                            {(item.variantColor ||
+                              item.storageCapacity ||
+                              item.size) && (
                               <div className="text-sm text-gray-500 mt-1">
                                 {item.variantColor && (
-                                  <span className="mr-2">Color: {item.variantColor}</span>
+                                  <span className="mr-2">
+                                    Color: {item.variantColor}
+                                  </span>
                                 )}
                                 {item.storageCapacity && (
-                                  <span className="mr-2">Storage: {item.storageCapacity}</span>
+                                  <span className="mr-2">
+                                    Storage: {item.storageCapacity}
+                                  </span>
                                 )}
-                                {item.size && (
-                                  <span>Size: {item.size}</span>
-                                )}
+                                {item.size && <span>Size: {item.size}</span>}
                               </div>
                             )}
                             {(item.isUnavailable ||
@@ -618,12 +627,14 @@ function Cart() {
                       Total:
                     </span>
                     <span className="text-base font-semibold text-gray-900">
-                      {isFreeShipping ? formattedTotalPrice : formattedGrandTotal}
+                      {isFreeShipping
+                        ? formattedTotalPrice
+                        : formattedGrandTotal}
                     </span>
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex gap-2 mt-2">
                 <Button
                   onClick={handleClearCart}

@@ -18,7 +18,7 @@ export const addToCart = async (productId, variantOptions = {}, quantity = 1) =>
       body.size = variantOptions.size;
     }
     
-    console.log('addToCart request body:', body);
+    // console.log('addToCart request body:', body);
     const response = await api.post('/cart', body);
     return {
       success: response.data.success,
@@ -40,8 +40,8 @@ export const addToCart = async (productId, variantOptions = {}, quantity = 1) =>
 export const getCart = async () => {
   try {
     const response = await api.get('/cart');
-    console.log('cartService.getCart: Full Response:', response);
-    console.log('cartService.getCart: Response Data:', response.data);
+    // console.log('cartService.getCart: Full Response:', response);
+    // console.log('cartService.getCart: Response Data:', response.data);
     
     if (!response.data.data.cart) {
       console.warn('cartService.getCart: response.data.data.cart is null');
@@ -96,8 +96,8 @@ export const updateQuantity = async (productId, quantity, variantOptions = {}) =
       body.size = variantOptions.size;
     }
     
-    console.log('updateQuantity request body:', body);
-    const response = await api.put('/cart', body); // Using PUT for update
+    // console.log('updateQuantity request body:', body);
+    const response = await api.put('/cart', body);
     return {
       success: response.data.success,
       cart: response.data.data.cart,
@@ -132,8 +132,8 @@ export const removeFromCart = async (productId, variantOptions = {}) => {
       body.size = variantOptions.size;
     }
     
-    console.log('removeFromCart request body:', body);
-    const response = await api.delete('/cart', { data: body }); // DELETE with body
+    // console.log('removeFromCart request body:', body);
+    const response = await api.delete('/cart/item', { data: body });
     return {
       success: response.data.success,
       cart: response.data.data.cart,
@@ -153,7 +153,7 @@ export const removeFromCart = async (productId, variantOptions = {}) => {
 
 export const clearCart = async () => {
   try {
-    const response = await api.delete('/cart/clear'); // Assuming separate endpoint for clear
+    const response = await api.delete('/cart/clear');
     return {
       success: response.data.success,
       cart: response.data.data.cart || { 
@@ -179,7 +179,7 @@ export const placeOrderFromCart = async (shippingAddress) => {
       shippingAddress
     };
     
-    console.log('placeOrderFromCart request body:', body);
+    // console.log('placeOrderFromCart request body:', body);
     const response = await api.post('/cart/order', body);
     return {
       success: response.data.success,

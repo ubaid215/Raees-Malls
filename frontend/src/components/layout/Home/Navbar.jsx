@@ -59,13 +59,13 @@ function Navbar() {
   // Debug logging (only in development)
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`Navbar[${componentKey}]:`, {
-        cartItems: cartItems?.length || 0,
-        cartCount,
-        isAuthenticated,
-        categoriesLength: categories?.length || 0,
-        isSocketConnected
-      });
+      // console.log(`Navbar[${componentKey}]:`, {
+      //   cartItems: cartItems?.length || 0,
+      //   cartCount,
+      //   isAuthenticated,
+      //   categoriesLength: categories?.length || 0,
+      //   isSocketConnected
+      // });
     }
   }, [cartItems, cartCount, isAuthenticated, categories, isSocketConnected]);
 
@@ -96,7 +96,7 @@ function Navbar() {
     });
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`Navbar[${componentKey}] - Built category hierarchy:`, rootCategories.length);
+      // console.log(`Navbar[${componentKey}] - Built category hierarchy:`, rootCategories.length);
     }
 
     return rootCategories;
@@ -106,7 +106,7 @@ function Navbar() {
   const handleFetchCategories = useCallback(async (forceRefresh = false) => {
     if (fetchInProgressRef.current && !forceRefresh) {
       if (process.env.NODE_ENV === 'development') {
-        console.log(`Navbar[${componentKey}] - Categories fetch already in progress, skipping`);
+        // console.log(`Navbar[${componentKey}] - Categories fetch already in progress, skipping`);
       }
       return;
     }
@@ -115,7 +115,7 @@ function Navbar() {
 
     try {
       if (process.env.NODE_ENV === 'development') {
-        console.log(`Navbar[${componentKey}] - Fetching categories`);
+        // console.log(`Navbar[${componentKey}] - Fetching categories`);
       }
 
       await fetchCategories({ 
@@ -147,7 +147,7 @@ function Navbar() {
           await fetchUser();
         } catch (err) {
           if (process.env.NODE_ENV === 'development') {
-            console.log(`Navbar[${componentKey}] - Initial user fetch failed:`, err.message);
+            // console.log(`Navbar[${componentKey}] - Initial user fetch failed:`, err.message);
           }
         }
       }
@@ -181,7 +181,7 @@ function Navbar() {
 
       try {
         if (process.env.NODE_ENV === 'development') {
-          console.log(`Navbar[${componentKey}] - Searching for:`, query);
+          // console.log(`Navbar[${componentKey}] - Searching for:`, query);
         }
 
         const result = await fetchProducts({
@@ -199,7 +199,7 @@ function Navbar() {
         setShowSearchResults(true);
 
         if (process.env.NODE_ENV === 'development') {
-          console.log(`Navbar[${componentKey}] - Search results:`, searchResults.length);
+          // console.log(`Navbar[${componentKey}] - Search results:`, searchResults.length);
         }
       } catch (err) {
         console.error(`Navbar[${componentKey}] - Search error:`, err);
@@ -253,7 +253,7 @@ function Navbar() {
         if (mounted) {
           setIsSocketConnected(true);
           if (process.env.NODE_ENV === 'development') {
-            console.log(`Navbar[${componentKey}] - SocketService connected`);
+            // console.log(`Navbar[${componentKey}] - SocketService connected`);
           }
         }
       } catch (err) {
@@ -267,7 +267,7 @@ function Navbar() {
       if (!mounted) return;
       
       if (process.env.NODE_ENV === 'development') {
-        console.log(`Navbar[${componentKey}] - Category created:`, category?.name);
+        // console.log(`Navbar[${componentKey}] - Category created:`, category?.name);
       }
       toast.success(`New category added: ${category?.name}`);
       
@@ -282,7 +282,7 @@ function Navbar() {
       if (!mounted) return;
       
       if (process.env.NODE_ENV === 'development') {
-        console.log(`Navbar[${componentKey}] - Category updated:`, category?.name);
+        // console.log(`Navbar[${componentKey}] - Category updated:`, category?.name);
       }
       toast.info(`Category updated: ${category?.name}`);
       handleFetchCategories(true);
@@ -292,7 +292,7 @@ function Navbar() {
       if (!mounted) return;
       
       if (process.env.NODE_ENV === 'development') {
-        console.log(`Navbar[${componentKey}] - Category deleted`);
+        // console.log(`Navbar[${componentKey}] - Category deleted`);
       }
       toast.warn('Category removed');
       handleFetchCategories(true);
@@ -318,7 +318,7 @@ function Navbar() {
         SocketService.disconnect();
         setIsSocketConnected(false);
         if (process.env.NODE_ENV === 'development') {
-          console.log(`Navbar[${componentKey}] - SocketService disconnected`);
+          // console.log(`Navbar[${componentKey}] - SocketService disconnected`);
         }
       }
     };
@@ -370,7 +370,7 @@ function Navbar() {
 
   const handleCategorySelect = useCallback((category) => {
     if (process.env.NODE_ENV === 'development') {
-      console.log(`Navbar[${componentKey}] - Selected category:`, category?.name);
+      // console.log(`Navbar[${componentKey}] - Selected category:`, category?.name);
     }
     setSelectedCategory(category.name);
     setShowDropdown(false);

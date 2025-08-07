@@ -244,7 +244,7 @@ exports.getCart = async (req, res, next) => {
     const totalPrice = validItems.reduce((sum, item) => sum + item.finalPrice * item.quantity, 0);
     const totalItems = validItems.reduce((sum, item) => sum + item.quantity, 0);
     
-    // Calculate shipping cost per unique product
+    // Calculate shipping cost per unique product (removed free shipping condition)
     const uniqueProducts = new Set(
       validItems
         .filter(item => item.productId)
@@ -260,7 +260,7 @@ exports.getCart = async (req, res, next) => {
       ...cart.toObject(),
       items: populatedItems,
       totalPrice,
-      totalShippingCost: totalPrice >= 2500 || totalItems >= 2500 ? 0 : totalShippingCost,
+      totalShippingCost, // Removed free shipping condition
       itemCount: totalItems,
     };
 
@@ -434,7 +434,8 @@ exports.placeOrderFromCart = async (req, res, next) => {
     }
 
     const totalItems = orderItems.reduce((sum, item) => sum + item.quantity, 0);
-    totalShippingCost = totalPrice >= 2500 || totalItems >= 2500 ? 0 : totalShippingCost;
+    // Removed free shipping condition
+    // totalShippingCost remains as calculated
 
     const order = new Order({
       orderId: `ORD-${uuidv4().split('-')[0]}`,
