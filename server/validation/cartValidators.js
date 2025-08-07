@@ -1,6 +1,33 @@
 const { body, param, validationResult } = require('express-validator');
 const ApiError = require('../utils/apiError');
 
+// Helper function to validate storage capacity with more flexible formats
+const validateStorageCapacity = (value) => {
+  if (!value) return true;
+  
+  // Allow formats like:
+  // - "4GB 64GB"
+  // - "4GB+64GB"
+  // - "4GB/64GB"
+  // - "4GB RAM + 64GB Storage"
+  // - "64GB"
+  const pattern = /^([0-9]+\s*[A-Za-z]+\s*[\+\/]\s*[0-9]+\s*[A-Za-z]+|[0-9]+\s*[A-Za-z]+(\s*[\+\/]\s*[0-9]+\s*[A-Za-z]+)*)$/i;
+  return pattern.test(value);
+};
+
+// Helper function to validate size with more flexible formats
+const validateSize = (value) => {
+  if (!value) return true;
+  
+  // Allow formats like:
+  // - "S", "M", "L", "XL"
+  // - "32", "42"
+  // - "10.5", "11.5"
+  // - "10-12", "XS-S"
+  const pattern = /^[A-Za-z0-9\-\.\s]+$/i;
+  return pattern.test(value);
+};
+
 // Validator for adding/updating cart items
 const addToCartValidator = [
   body('productId')
@@ -16,13 +43,13 @@ const addToCartValidator = [
     .optional()
     .isString().withMessage('Storage capacity must be a string')
     .trim()
-    .matches(/^[0-9]+[KMGT]B(\+[0-9]+[KMGT]B)*$/i).withMessage('Storage capacity must be in valid format (e.g., 64GB, 256GB, 1TB, 8GB+128GB)'),
+    .custom(validateStorageCapacity).withMessage('Storage capacity must be in valid format (e.g., 64GB, 4GB+64GB, 4GB/64GB)'),
   
   body('size')
     .optional()
     .isString().withMessage('Size must be a string')
     .trim()
-    .matches(/^[A-Z0-9]+$/i).withMessage('Size must contain only letters and numbers (e.g., S, M, L, XL, 32, 42)'),
+    .custom(validateSize).withMessage('Size must be in valid format (e.g., S, M, L, XL, 32, 42, 10.5)'),
   
   body('quantity')
     .isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
@@ -54,7 +81,7 @@ const addToCartValidator = [
     return true;
   }),
   
-  // Enhanced error handling middleware with detailed logging
+  // Error handling middleware
   (req, res, next) => {
     const errors = validationResult(req);
     
@@ -77,10 +104,6 @@ const addToCartValidator = [
         console.log('Value:', JSON.stringify(error.value));
         console.log('Message:', error.msg);
         console.log('Location:', error.location);
-        
-        if (error.nestedErrors) {
-          console.log('Nested Errors:', error.nestedErrors);
-        }
       });
       
       // Create formatted error response
@@ -95,7 +118,6 @@ const addToCartValidator = [
       console.log(JSON.stringify(formattedErrors, null, 2));
       console.log('=================================\n');
       
-      // Return detailed error response
       return next(new ApiError(400, 'Validation failed', formattedErrors));
     }
     
@@ -105,7 +127,7 @@ const addToCartValidator = [
   }
 ];
 
-// Validator for updating cart item quantity
+// Update the other validators similarly
 const updateCartItemValidator = [
   body('productId')
     .isMongoId().withMessage('Invalid product ID'),
@@ -118,12 +140,12 @@ const updateCartItemValidator = [
     .optional()
     .isString().withMessage('Storage capacity must be a string')
     .trim()
-    .matches(/^[0-9]+[KMGT]B$/i).withMessage('Storage capacity must be in valid format (e.g., 64GB, 256GB, 1TB)'),
+    .custom(validateStorageCapacity).withMessage('Storage capacity must be in valid format (e.g., 64GB, 4GB+64GB, 4GB/64GB)'),
   body('size')
     .optional()
     .isString().withMessage('Size must be a string')
     .trim()
-    .matches(/^[A-Z0-9]+$/i).withMessage('Size must contain only letters and numbers (e.g., S, M, L, XL, 32, 42)'),
+    .custom(validateSize).withMessage('Size must be in valid format (e.g., S, M, L, XL, 32, 42, 10.5)'),
   body('quantity')
     .isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
   // Custom validation for variant configuration
@@ -149,7 +171,6 @@ const updateCartItemValidator = [
   }
 ];
 
-// Validator for removing items from cart
 const removeFromCartValidator = [
   body('productId')
     .isMongoId().withMessage('Invalid product ID'),
@@ -162,12 +183,12 @@ const removeFromCartValidator = [
     .optional()
     .isString().withMessage('Storage capacity must be a string')
     .trim()
-    .matches(/^[0-9]+[KMGT]B$/i).withMessage('Storage capacity must be in valid format (e.g., 64GB, 256GB, 1TB)'),
+    .custom(validateStorageCapacity).withMessage('Storage capacity must be in valid format (e.g., 64GB, 4GB+64GB, 4GB/64GB)'),
   body('size')
     .optional()
     .isString().withMessage('Size must be a string')
     .trim()
-    .matches(/^[A-Z0-9]+$/i).withMessage('Size must contain only letters and numbers (e.g., S, M, L, XL, 32, 42)'),
+    .custom(validateSize).withMessage('Size must be in valid format (e.g., S, M, L, XL, 32, 42, 10.5)'),
   // Custom validation for variant configuration
   body().custom((value, { req }) => {
     const { variantColor, storageCapacity, size } = req.body;
