@@ -1246,7 +1246,7 @@ const ProductForm = ({
             label="SEO Description"
             rows={2}
             {...register("seo.description", {
-              maxLength: { value: 3000, message: "Maximum 3000 characters" },
+              maxLength: { value: 30000, message: "Maximum 30000 characters" },
             })}
             error={errors.seo?.description?.message}
             onChange={(e) => {

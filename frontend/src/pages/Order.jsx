@@ -158,25 +158,43 @@ const Order = () => {
   const getImageUrl = (item) => {
     const baseUrl =
       import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
-    return item.image
-      ? typeof item.image === "string"
-        ? item.image.startsWith("http")
-          ? item.image
-          : `${baseUrl}${item.image}`
-        : item.image.url
-          ? item.image.url.startsWith("http")
-            ? item.image.url
-            : `${baseUrl}${item.image.url}`
-          : "/images/placeholder-product.png"
-      : item.productId?.image?.url
-        ? item.productId.image.url.startsWith("http")
-          ? item.productId.image.url
-          : `${baseUrl}${item.productId.image.url}`
-        : item.productId?.images?.[0]?.url
-          ? item.productId.images[0].url.startsWith("http")
-            ? item.productId.images[0].url
-            : `${baseUrl}${item.productId.images[0].url}`
-          : "/images/placeholder-product.png";
+    
+    // Try to get image from variant first
+    if (item.variantDetails?.images?.[0]?.url) {
+      const variantImage = item.variantDetails.images[0].url;
+      return variantImage.startsWith("http") 
+        ? variantImage 
+        : `${baseUrl}${variantImage}`;
+    }
+    
+    // Then try product images
+    if (item.productId?.images?.[0]?.url) {
+      const productImage = item.productId.images[0].url;
+      return productImage.startsWith("http") 
+        ? productImage 
+        : `${baseUrl}${productImage}`;
+    }
+    
+    // Fallback to placeholder
+    return "/images/placeholder-product.png";
+  };
+
+  const getVariantDetails = (item) => {
+    if (!item.variantId) return null;
+    
+    if (item.storageOption) {
+      return `Storage: ${item.storageOption.capacity}`;
+    }
+    
+    if (item.sizeOption) {
+      return `Size: ${item.sizeOption.size}`;
+    }
+    
+    if (item.variantDetails?.color) {
+      return `Color: ${item.variantDetails.color}`;
+    }
+    
+    return "Variant";
   };
 
   if (loading && !orders.length) {
@@ -269,43 +287,42 @@ const Order = () => {
               <div>
                 <p className="text-sm text-gray-600 font-medium mb-2">Items</p>
                 <ul className="space-y-4">
-                  {(selectedOrder.items || []).map((item, index) => (
-                    <li key={index} className="flex items-start gap-4">
-                      <img
-                        src={getImageUrl(item)}
-                        alt={item.productId?.title || item.title || "Product"}
-                        className="w-12 h-12 object-contain rounded-md border border-gray-200"
-                        onError={(e) => {
-                          console.warn(
-                            `Order: Image failed to load for ${item.productId?.title || item.title || "unknown"}:`,
-                            e.target.src
-                          );
-                          e.currentTarget.src =
-                            "/images/placeholder-product.png";
-                          e.currentTarget.onerror = null;
-                        }}
-                      />
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">
-                          {item.productId?.title ||
-                            item.title ||
-                            "Untitled Product"}
-                        </p>
-                        {item.variantId && (
-                          <p className="text-sm text-gray-500">
-                            Variant:{" "}
-                            {item.variantValue || item.variantId || "Unknown"}
+                  {(selectedOrder.items || []).map((item, index) => {
+                    const variantDetails = getVariantDetails(item);
+                    return (
+                      <li key={index} className="flex items-start gap-4">
+                        <img
+                          src={getImageUrl(item)}
+                          alt={item.productId?.title || "Product"}
+                          className="w-12 h-12 object-contain rounded-md border border-gray-200"
+                          onError={(e) => {
+                            e.currentTarget.src =
+                              "/images/placeholder-product.png";
+                            e.currentTarget.onerror = null;
+                          }}
+                        />
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">
+                            {item.productId?.title || "Untitled Product"}
                           </p>
-                        )}
-                        <p className="text-sm text-gray-600">
-                          Quantity: {item.quantity || 1}
-                        </p>
-                        <p className="text-sm font-medium text-gray-900">
-                          {formatPrice(item.price)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
+                          {variantDetails && (
+                            <p className="text-sm text-gray-500">
+                              {variantDetails}
+                            </p>
+                          )}
+                          <p className="text-sm text-gray-600">
+                            Quantity: {item.quantity || 1}
+                          </p>
+                          <p className="text-sm font-medium text-gray-900">
+                            {formatPrice(item.price || item.selectedPrice)}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            SKU: {item.sku}
+                          </p>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
               <div>
@@ -404,17 +421,9 @@ const Order = () => {
                             <div className="flex-shrink-0">
                               <img
                                 src={getImageUrl(firstItem)}
-                                alt={
-                                  firstItem.productId?.title ||
-                                  firstItem.title ||
-                                  "Product"
-                                }
+                                alt={firstItem.productId?.title || "Product"}
                                 className="w-16 h-16 object-contain rounded-md border border-gray-200"
                                 onError={(e) => {
-                                  console.warn(
-                                    `Order: Image failed to load for ${firstItem.productId?.title || firstItem.title || "unknown"}:`,
-                                    e.target.src
-                                  );
                                   e.currentTarget.src =
                                     "/images/placeholder-product.png";
                                   e.currentTarget.onerror = null;
@@ -435,6 +444,11 @@ const Order = () => {
                             <p className="text-sm text-gray-600">
                               Order #{order.orderId}
                             </p>
+                            {firstItem && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {getVariantDetails(firstItem)}
+                              </p>
+                            )}
                           </div>
                         </div>
 

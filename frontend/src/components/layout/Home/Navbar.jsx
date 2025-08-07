@@ -702,7 +702,7 @@ function Navbar() {
       )}
 
       {/* Desktop Top Navigation */}
-      <nav className="hidden md:flex max-w-7xl mx-auto px-4 py-4 bg-white items-center justify-between border-b">
+      <nav className="hidden md:flex w-full mx-auto px-4 py-4 bg-white items-center justify-between border-b">
         <div className="flex-shrink-0">
           <Link to="/">
             <img src={Logo} alt="Raees Malls Logo" className="h-12 w-auto" />
@@ -854,7 +854,7 @@ function Navbar() {
       </nav>
 
       {/* Desktop Bottom Navigation */}
-      <nav className="hidden md:flex max-w-7xl mx-auto h-14 bg-[#1e3a8a] items-center justify-center px-4 lg:px-6">
+      <nav className="hidden md:flex w-full mx-auto h-14 bg-[#1e3a8a] items-center justify-center px-4 lg:px-6">
         <div className="flex items-center space-x-4 lg:space-x-8">
           {navLinks.map((link) => (
             <NavLink

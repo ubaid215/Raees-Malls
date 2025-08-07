@@ -29,6 +29,7 @@ const AuthProvider = ({ children }) => {
   const isLoggingIn = useRef(false);
   const isRegistering = useRef(false);
   const isLoggingOut = useRef(false);
+  const lastRefreshAttempt = useRef(0);
 
   // Promise cache to prevent duplicate requests
   const promiseCache = useRef({
@@ -47,6 +48,22 @@ const AuthProvider = ({ children }) => {
     }
   };
 
+  // Check if we have valid tokens
+  const hasValidTokens = useCallback(() => {
+    const storedToken = localStorage.getItem('userToken');
+    const storedRefreshToken = localStorage.getItem('userRefreshToken');
+    return !!(storedToken && storedRefreshToken);
+  }, []);
+
+  // Check if token might be expired (basic check)
+  const isTokenLikelyExpired = useCallback(() => {
+    const tokenExpiry = localStorage.getItem('tokenExpiry');
+    if (!tokenExpiry) return false;
+    
+    // Consider token expired if it expires within next 5 minutes
+    return Date.now() >= (parseInt(tokenExpiry) - 5 * 60 * 1000);
+  }, []);
+
   // Debounced functions that return Promises with caching
   const debouncedFetchUser = useCallback(() => {
     // Return existing promise if already in progress
@@ -54,10 +71,15 @@ const AuthProvider = ({ children }) => {
       return promiseCache.current.fetchUser;
     }
 
+    // Don't fetch if no valid tokens
+    if (!hasValidTokens()) {
+      return Promise.resolve(null);
+    }
+
     const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         if (isFetching.current) {
-          resolve();
+          resolve(null);
           return;
         }
         isFetching.current = true;
@@ -78,7 +100,7 @@ const AuthProvider = ({ children }) => {
 
     promiseCache.current.fetchUser = promise;
     return promise;
-  }, []);
+  }, [hasValidTokens]);
 
   const debouncedRefreshToken = useCallback(() => {
     // Return existing promise if already in progress
@@ -86,13 +108,22 @@ const AuthProvider = ({ children }) => {
       return promiseCache.current.refreshToken;
     }
 
+    // Don't refresh if no refresh token or if we attempted recently
+    const storedRefreshToken = localStorage.getItem('userRefreshToken');
+    const now = Date.now();
+    
+    if (!storedRefreshToken || (now - lastRefreshAttempt.current) < 30000) { // 30 second cooldown
+      return Promise.resolve(null);
+    }
+
     const promise = new Promise((resolve, reject) => {
       const debouncedFn = debounce(async () => {
         if (isRefreshing.current) {
-          resolve();
+          resolve(null);
           return;
         }
         isRefreshing.current = true;
+        lastRefreshAttempt.current = Date.now();
         
         try {
           const result = await refreshUserTokenInternal();
@@ -115,11 +146,9 @@ const AuthProvider = ({ children }) => {
   useEffect(() => {
     if (isInitializing.current) return;
     
-    // Check for the correct token key that matches authServices.js
-    const storedToken = localStorage.getItem('userToken');
-    const storedRefreshToken = localStorage.getItem('userRefreshToken');
-    
-    if (!storedToken && !storedRefreshToken) {
+    // Quick check - if no tokens at all, don't even try to authenticate
+    if (!hasValidTokens()) {
+      console.log('No tokens found, skipping authentication');
       setAuthState((prev) => ({ ...prev, loading: false }));
       return;
     }
@@ -128,26 +157,70 @@ const AuthProvider = ({ children }) => {
 
     const initializeAuth = async () => {
       try {
-        // First try to fetch user with existing token
-        await debouncedFetchUser();
-      } catch (error) {
-        console.log('Initial fetch failed, attempting token refresh:', error.message);
-        try {
-          // If fetch fails, try to refresh token
-          await debouncedRefreshToken();
-        } catch (refreshError) {
-          console.log('Token refresh failed, resetting auth state:', refreshError.message);
-          // Only reset if refresh definitively fails (not network errors)
-          if (refreshError.message.includes('Token refresh failed') || 
-              refreshError.message.includes('No refresh token') ||
-              refreshError.response?.status === 401 ||
-              refreshError.response?.status === 403) {
-            resetAuthState();
-          } else {
-            // For network errors or other issues, just stop loading but keep tokens
-            setAuthState((prev) => ({ ...prev, loading: false }));
+        // Check cached user data first
+        const cachedUser = localStorage.getItem('userData');
+        const cachedTimestamp = localStorage.getItem('userDataTimestamp');
+        const now = Date.now();
+        
+        // Use cached data if it's less than 10 minutes old and we have valid tokens
+        if (cachedUser && cachedTimestamp && (now - parseInt(cachedTimestamp)) < 600000) {
+          console.log('Using cached user data for initialization');
+          const userData = JSON.parse(cachedUser);
+          setAuthState({
+            user: userData,
+            loading: false,
+            error: null,
+            needsFetch: false,
+          });
+          setupSocketConnection(userData);
+          return;
+        }
+
+        // If token is likely expired, try refresh first
+        if (isTokenLikelyExpired()) {
+          console.log('Token likely expired, attempting refresh');
+          try {
+            await debouncedRefreshToken();
+            // After successful refresh, the token should be valid, so fetch user
+            await debouncedFetchUser();
+          } catch (refreshError) {
+            console.log('Token refresh failed during init, trying direct fetch:', refreshError.message);
+            // If refresh fails, still try to fetch user (token might still be valid)
+            try {
+              await debouncedFetchUser();
+            } catch (fetchError) {
+              console.log('Direct fetch also failed, resetting auth state');
+              if (fetchError.response?.status === 401 || fetchError.response?.status === 403) {
+                resetAuthState();
+              } else {
+                // For network errors, just stop loading but keep tokens
+                setAuthState((prev) => ({ ...prev, loading: false }));
+              }
+            }
+          }
+        } else {
+          // Token should be valid, try fetching user directly
+          try {
+            await debouncedFetchUser();
+          } catch (error) {
+            console.log('Initial fetch failed, attempting token refresh:', error.message);
+            // Only try refresh if it's an auth error, not network error
+            if (error.response?.status === 401 || error.response?.status === 403) {
+              try {
+                await debouncedRefreshToken();
+              } catch (refreshError) {
+                console.log('Token refresh failed, resetting auth state:', refreshError.message);
+                resetAuthState();
+              }
+            } else {
+              // For network errors, just stop loading but keep tokens
+              setAuthState((prev) => ({ ...prev, loading: false }));
+            }
           }
         }
+      } catch (error) {
+        console.error('Initialization error:', error);
+        setAuthState((prev) => ({ ...prev, loading: false }));
       } finally {
         isInitializing.current = false;
       }
@@ -155,19 +228,23 @@ const AuthProvider = ({ children }) => {
 
     initializeAuth();
 
-    // Periodic token refresh (every 10 minutes) - debounced and cached
+    // More conservative periodic token refresh (every 15 minutes instead of 10)
     const refreshInterval = setInterval(() => {
-      // Only refresh if we have a user and tokens and not already refreshing
-      const currentToken = localStorage.getItem('userToken');
-      const currentRefreshToken = localStorage.getItem('userRefreshToken');
-      
-      if (currentToken && currentRefreshToken && !isRefreshing.current && !promiseCache.current.refreshToken) {
-        debouncedRefreshToken().catch(err => {
-          console.error('Periodic token refresh failed:', err);
-          // Don't auto-logout on periodic refresh failures
-        });
+      // Only refresh if we have valid tokens, user is authenticated, and not already refreshing
+      if (hasValidTokens() && authState.user && !isRefreshing.current && !promiseCache.current.refreshToken) {
+        // Only refresh if token is likely to expire soon
+        if (isTokenLikelyExpired()) {
+          console.log('Periodic token refresh triggered');
+          debouncedRefreshToken().catch(err => {
+            console.error('Periodic token refresh failed:', err);
+            // Don't auto-logout on periodic refresh failures unless it's a definitive auth error
+            if (err.response?.status === 401 || err.response?.status === 403) {
+              resetAuthState();
+            }
+          });
+        }
       }
-    }, 10 * 60 * 1000); // 10 minutes
+    }, 15 * 60 * 1000); // 15 minutes
 
     return () => {
       clearInterval(refreshInterval);
@@ -179,12 +256,13 @@ const AuthProvider = ({ children }) => {
       isLoggingIn.current = false;
       isRegistering.current = false;
       isLoggingOut.current = false;
+      lastRefreshAttempt.current = 0;
       // Clear promise cache
       Object.keys(promiseCache.current).forEach(key => {
         promiseCache.current[key] = null;
       });
     };
-  }, [debouncedFetchUser, debouncedRefreshToken]);
+  }, [debouncedFetchUser, debouncedRefreshToken, hasValidTokens, isTokenLikelyExpired]);
 
   const setupSocketConnection = (user) => {
     const userId = user._id || user.id;
@@ -217,7 +295,9 @@ const AuthProvider = ({ children }) => {
     // Don't reset auth state for rate limiting or network errors
     if (error.message.includes('Too many requests') || 
         error.message.includes('Network error') ||
-        error.message.includes('timeout')) {
+        error.message.includes('timeout') ||
+        error.code === 'ECONNREFUSED' ||
+        error.code === 'ERR_NETWORK') {
       return;
     }
 
@@ -260,6 +340,7 @@ const AuthProvider = ({ children }) => {
     isLoggingIn.current = false;
     isRegistering.current = false;
     isLoggingOut.current = false;
+    lastRefreshAttempt.current = 0;
 
     // Clear promise cache
     Object.keys(promiseCache.current).forEach(key => {
@@ -270,13 +351,13 @@ const AuthProvider = ({ children }) => {
   const fetchUserInternal = async () => {
     setAuthState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      // Check cached user data first
+      // Check cached user data first (shorter cache time during fetch)
       const cachedUser = localStorage.getItem('userData');
       const cachedTimestamp = localStorage.getItem('userDataTimestamp');
       const now = Date.now();
       
-      // Use cached data if it's less than 5 minutes old
-      if (cachedUser && cachedTimestamp && now - parseInt(cachedTimestamp) < 300000) {
+      // Use cached data if it's less than 3 minutes old during explicit fetch
+      if (cachedUser && cachedTimestamp && now - parseInt(cachedTimestamp) < 180000) {
         const userData = JSON.parse(cachedUser);
         setAuthState({
           user: userData,
@@ -502,8 +583,11 @@ const AuthProvider = ({ children }) => {
       
       return userData;
     } catch (err) {
-      // Don't automatically reset auth state on refresh errors
-      handleAuthError(err, false);
+      // Don't automatically reset auth state on refresh errors unless it's definitive
+      const shouldReset = err.response?.status === 401 || err.response?.status === 403 || 
+                         err.message.includes('No refresh token') || 
+                         err.message.includes('Token refresh failed');
+      handleAuthError(err, shouldReset);
       throw err;
     }
   };

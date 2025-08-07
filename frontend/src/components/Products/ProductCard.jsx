@@ -10,6 +10,9 @@ import {
   FaCrown,
   FaEye,
   FaShippingFast,
+  FaMemory,
+  FaTshirt,
+  FaPalette,
 } from "react-icons/fa";
 import { BsLightningChargeFill } from "react-icons/bs";
 import { MdLocalOffer, MdVerified } from "react-icons/md";
@@ -39,7 +42,13 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const [isInWishlist, setIsInWishlist] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [urgencyTimer, setUrgencyTimer] = useState(null);
+  const [selectedVariant, setSelectedVariant] = useState(null);
+  const [selectedOptions, setSelectedOptions] = useState({
+    variantColor: null,
+    storageCapacity: null,
+    size: null,
+  });
+  const [showVariantSelector, setShowVariantSelector] = useState(false);
 
   useEffect(() => {
     if (productId && !initialProduct) {
@@ -66,10 +75,12 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   }, [wishlist, product]);
 
   useEffect(() => {
-    if (product?.hasLimitedOffer) {
-      const timer = new Date();
-      timer.setHours(timer.getHours() + 24);
-      setUrgencyTimer(timer);
+    if (product?.variants?.length > 0) {
+      const stockInfo = getStockInfo();
+      if (stockInfo.defaultVariant) {
+        setSelectedVariant(stockInfo.defaultVariant);
+        setSelectedOptions(stockInfo.defaultVariantOptions || {});
+      }
     }
   }, [product]);
 
@@ -87,10 +98,12 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
 
   const getAllImages = () => {
     const images = [];
-    if (product?.images?.length > 0) {
+    if (selectedVariant?.images?.length > 0) {
+      images.push(...selectedVariant.images);
+    } else if (product?.images?.length > 0) {
       images.push(...product.images);
     }
-    if (product?.variants?.length > 0) {
+    if (product?.variants?.length > 0 && images.length === 0) {
       product.variants.forEach((variant) => {
         if (variant.images?.length > 0) {
           images.push(...variant.images);
@@ -139,7 +152,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       let firstAvailableOption = null;
 
       for (const variant of product.variants) {
-        // Check simple color variant
         if (variant.stock > 0 && !variant.storageOptions?.length && !variant.sizeOptions?.length) {
           totalStock += variant.stock;
           availableOptions++;
@@ -152,7 +164,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             };
           }
         }
-        // Check storage options
         if (variant.storageOptions?.length > 0) {
           for (const option of variant.storageOptions) {
             if (option.stock > 0) {
@@ -169,7 +180,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             }
           }
         }
-        // Check size options
         if (variant.sizeOptions?.length > 0) {
           for (const option of variant.sizeOptions) {
             if (option.stock > 0) {
@@ -210,157 +220,96 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     };
   };
 
+  const getCurrentPrice = () => {
+    if (selectedOptions.storageCapacity && selectedVariant) {
+      const storageOption = selectedVariant.storageOptions?.find(
+        (opt) => opt.capacity === selectedOptions.storageCapacity
+      );
+      if (storageOption) {
+        return {
+          price: storageOption.price,
+          discountPrice: storageOption.discountPrice,
+          stock: storageOption.stock,
+        };
+      }
+    }
+
+    if (selectedOptions.size && selectedVariant) {
+      const sizeOption = selectedVariant.sizeOptions?.find(
+        (opt) => opt.size === selectedOptions.size
+      );
+      if (sizeOption) {
+        return {
+          price: sizeOption.price,
+          discountPrice: sizeOption.discountPrice,
+          stock: sizeOption.stock,
+        };
+      }
+    }
+
+    if (selectedVariant) {
+      return {
+        price: selectedVariant.price,
+        discountPrice: selectedVariant.discountPrice,
+        stock: selectedVariant.stock,
+      };
+    }
+
+    return {
+      price: product?.price || 0,
+      discountPrice: product?.discountPrice,
+      stock: product?.stock || 0,
+    };
+  };
+
+  const getColorStyle = (color) => {
+    // Handle different color formats
+    if (color.hex) return { backgroundColor: color.hex };
+    if (color.code) return { backgroundColor: color.code };
+    if (color.value) return { backgroundColor: color.value };
+    
+    // Fallback to common color names
+    const colorMap = {
+      'black': '#000000',
+      'white': '#ffffff',
+      'red': '#ef4444',
+      'blue': '#3b82f6',
+      'green': '#10b981',
+      'yellow': '#f59e0b',
+      'purple': '#8b5cf6',
+      'pink': '#ec4899',
+      'gray': '#6b7280',
+      'grey': '#6b7280',
+      'brown': '#92400e',
+      'orange': '#f97316',
+      'navy': '#1e3a8a',
+      'silver': '#94a3b8',
+      'gold': '#fbbf24'
+    };
+    
+    const colorName = color.name?.toLowerCase();
+    if (colorName && colorMap[colorName]) {
+      return { backgroundColor: colorMap[colorName] };
+    }
+    
+    // Last resort - try to use the name as a CSS color
+    return { backgroundColor: colorName || '#cccccc' };
+  };
+
   const getPriceInfo = () => {
-    if (!product) {
-      return {
-        displayPrice: 0,
-        originalPrice: 0,
-        discountPrice: null,
-        hasDiscount: false,
-        discountPercentage: 0,
-        priceRange: null,
-      };
-    }
-
-    // Handle simple product pricing (no variants)
-    if (!product.variants?.length) {
-      const hasDiscount = product.discountPrice && product.discountPrice < product.price;
-      const discountPercentage = hasDiscount
-        ? Math.round(((product.price - product.discountPrice) / product.price) * 100)
-        : 0;
-
-      return {
-        displayPrice: product.discountPrice || product.price,
-        originalPrice: product.price,
-        discountPrice: product.discountPrice,
-        hasDiscount,
-        discountPercentage,
-        priceRange: null,
-      };
-    }
-
-    // Handle variant pricing
-    const stockInfo = getStockInfo();
-    const firstAvailableVariant = stockInfo.defaultVariant;
-
-    if (stockInfo.availableOptions === 1 && firstAvailableVariant) {
-      // Single variant or option in stock
-      if (firstAvailableVariant.stock > 0 && !firstAvailableVariant.storageOptions?.length && !firstAvailableVariant.sizeOptions?.length) {
-        const hasDiscount = firstAvailableVariant.discountPrice && firstAvailableVariant.discountPrice < firstAvailableVariant.price;
-        const discountPercentage = hasDiscount
-          ? Math.round(((firstAvailableVariant.price - firstAvailableVariant.discountPrice) / firstAvailableVariant.price) * 100)
-          : 0;
-
-        return {
-          displayPrice: firstAvailableVariant.discountPrice || firstAvailableVariant.price,
-          originalPrice: firstAvailableVariant.price,
-          discountPrice: firstAvailableVariant.discountPrice,
-          hasDiscount,
-          discountPercentage,
-          priceRange: null,
-        };
-      }
-
-      // Single storage option
-      if (firstAvailableVariant.storageOptions?.length === 1) {
-        const option = firstAvailableVariant.storageOptions[0];
-        const hasDiscount = option.discountPrice && option.discountPrice < option.price;
-        const discountPercentage = hasDiscount
-          ? Math.round(((option.price - option.discountPrice) / option.price) * 100)
-          : 0;
-
-        return {
-          displayPrice: option.discountPrice || option.price,
-          originalPrice: option.price,
-          discountPrice: option.discountPrice,
-          hasDiscount,
-          discountPercentage,
-          priceRange: null,
-        };
-      }
-
-      // Single size option
-      if (firstAvailableVariant.sizeOptions?.length === 1) {
-        const option = firstAvailableVariant.sizeOptions[0];
-        const hasDiscount = option.discountPrice && option.discountPrice < option.price;
-        const discountPercentage = hasDiscount
-          ? Math.round(((option.price - option.discountPrice) / option.price) * 100)
-          : 0;
-
-        return {
-          displayPrice: option.discountPrice || option.price,
-          originalPrice: option.price,
-          discountPrice: option.discountPrice,
-          hasDiscount,
-          discountPercentage,
-          priceRange: null,
-        };
-      }
-    }
-
-    // Multiple variants/options
-    let minPrice = Infinity;
-    let maxPrice = -Infinity;
-    let firstAvailablePrice = null;
-    let firstAvailableOriginalPrice = null;
-    let firstAvailableDiscountPrice = null;
-    let hasAnyDiscount = false;
-
-    for (const variant of product.variants) {
-      if (variant.stock > 0) {
-        const price = variant.discountPrice || variant.price;
-        minPrice = Math.min(minPrice, price);
-        maxPrice = Math.max(maxPrice, price);
-        if (!firstAvailablePrice) {
-          firstAvailablePrice = price;
-          firstAvailableOriginalPrice = variant.price;
-          firstAvailableDiscountPrice = variant.discountPrice;
-          hasAnyDiscount = !!variant.discountPrice;
-        }
-      }
-      if (variant.storageOptions?.length > 0) {
-        for (const option of variant.storageOptions) {
-          if (option.stock > 0) {
-            const price = option.discountPrice || option.price;
-            minPrice = Math.min(minPrice, price);
-            maxPrice = Math.max(maxPrice, price);
-            if (!firstAvailablePrice) {
-              firstAvailablePrice = price;
-              firstAvailableOriginalPrice = option.price;
-              firstAvailableDiscountPrice = option.discountPrice;
-              hasAnyDiscount = !!option.discountPrice;
-            }
-          }
-        }
-      }
-      if (variant.sizeOptions?.length > 0) {
-        for (const option of variant.sizeOptions) {
-          if (option.stock > 0) {
-            const price = option.discountPrice || option.price;
-            minPrice = Math.min(minPrice, price);
-            maxPrice = Math.max(maxPrice, price);
-            if (!firstAvailablePrice) {
-              firstAvailablePrice = price;
-              firstAvailableOriginalPrice = option.price;
-              firstAvailableDiscountPrice = option.discountPrice;
-              hasAnyDiscount = !!option.discountPrice;
-            }
-          }
-        }
-      }
-    }
-
-    const discountPercentage = hasAnyDiscount && firstAvailableOriginalPrice
-      ? Math.round(((firstAvailableOriginalPrice - firstAvailablePrice) / firstAvailableOriginalPrice) * 100)
+    const currentPrice = getCurrentPrice();
+    const hasDiscount = currentPrice.discountPrice && currentPrice.discountPrice < currentPrice.price;
+    const discountPercentage = hasDiscount
+      ? Math.round(((currentPrice.price - currentPrice.discountPrice) / currentPrice.price) * 100)
       : 0;
 
     return {
-      displayPrice: firstAvailablePrice || maxPrice,
-      originalPrice: firstAvailableOriginalPrice || maxPrice,
-      discountPrice: firstAvailableDiscountPrice,
-      hasDiscount: hasAnyDiscount,
+      displayPrice: currentPrice.discountPrice || currentPrice.price,
+      originalPrice: currentPrice.price,
+      discountPrice: currentPrice.discountPrice,
+      hasDiscount,
       discountPercentage,
-      priceRange: minPrice !== maxPrice ? { min: minPrice, max: maxPrice } : null,
+      stock: currentPrice.stock,
     };
   };
 
@@ -393,15 +342,78 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     return stars;
   };
 
+  const getAvailableColors = () => {
+    if (!product?.variants) return [];
+    return product.variants
+      .filter(variant => variant.stock > 0 || variant.storageOptions?.some(opt => opt.stock > 0) || variant.sizeOptions?.some(opt => opt.stock > 0))
+      .map(variant => variant.color)
+      .filter(Boolean);
+  };
+
+  const getAvailableStorageOptions = () => {
+    if (!selectedVariant?.storageOptions) return [];
+    return selectedVariant.storageOptions.filter(opt => opt.stock > 0);
+  };
+
+  const getAvailableSizeOptions = () => {
+    if (!selectedVariant?.sizeOptions) return [];
+    return selectedVariant.sizeOptions.filter(opt => opt.stock > 0);
+  };
+
+  const handleVariantChange = (type, value) => {
+    // console.log('handleVariantChange called:', { type, value }); 
+    
+    if (type === 'color') {
+      const newVariant = product.variants.find(v => v.color?.name === value);
+      // console.log('Found variant:', newVariant); 
+      
+      if (newVariant) {
+        setSelectedVariant(newVariant);
+        
+        const newOptions = {
+          variantColor: value,
+          storageCapacity: null,
+          size: null,
+        };
+        
+        // Auto-select first available option based on variant structure
+        if (newVariant.storageOptions?.length > 0) {
+          const firstAvailableStorage = newVariant.storageOptions.find(opt => opt.stock > 0);
+          if (firstAvailableStorage) {
+            newOptions.storageCapacity = firstAvailableStorage.capacity;
+          }
+        } else if (newVariant.sizeOptions?.length > 0) {
+          const firstAvailableSize = newVariant.sizeOptions.find(opt => opt.stock > 0);
+          if (firstAvailableSize) {
+            newOptions.size = firstAvailableSize.size;
+          }
+        }
+        // If no sub-options, the variant itself should have stock
+        
+        setSelectedOptions(newOptions);
+        // console.log('Updated selectedOptions:', newOptions); 
+      }
+    } else {
+      setSelectedOptions(prev => {
+        const updated = {
+          ...prev,
+          [type === 'storage' ? 'storageCapacity' : 'size']: value,
+        };
+        // console.log('Updated selectedOptions for', type, ':', updated); 
+        return updated;
+      });
+    }
+  };
+
   if (loadingProduct) {
     return (
       <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden">
         <div className="animate-pulse">
-          <div className="bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 w-full aspect-square"></div>
-          <div className="p-3 space-y-3">
-            <div className="h-5 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-3/4"></div>
-            <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-1/2"></div>
-            <div className="h-7 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded"></div>
+          <div className="bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 w-full aspect-square sm:aspect-square"></div>
+          <div className="p-2 sm:p-3 space-y-2 sm:space-y-3">
+            <div className="h-4 sm:h-5 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-3/4"></div>
+            <div className="h-3 sm:h-4 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded w-1/2"></div>
+            <div className="h-6 sm:h-7 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 rounded"></div>
           </div>
         </div>
       </div>
@@ -410,8 +422,8 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
 
   if (!product || !product._id) {
     return (
-      <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden text-center p-4">
-        <p className="text-red-500 text-sm font-medium">
+      <div className="w-full bg-white rounded-lg shadow border border-gray-100 overflow-hidden text-center p-3 sm:p-4">
+        <p className="text-red-500 text-xs sm:text-sm font-medium">
           Product not available
         </p>
       </div>
@@ -421,9 +433,12 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const stockInfo = getStockInfo();
   const priceInfo = getPriceInfo();
   const displayImage = getDisplayImage();
-  const isOutOfStock = !stockInfo.hasStock;
+  const isOutOfStock = priceInfo.stock <= 0;
   const ratingInfo = getRatingData();
   const isHotDeal = priceInfo.discountPercentage > 40;
+  const availableColors = getAvailableColors();
+  const availableStorageOptions = getAvailableStorageOptions();
+  const availableSizeOptions = getAvailableSizeOptions();
 
   const handleCardClick = (e) => {
     if (e.target.tagName === "BUTTON" || e.target.closest("button") || e.target.tagName === "A") {
@@ -446,8 +461,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     setAddToCartStatus({ loading: true, success: false, error: null });
 
     try {
-      const variantOptions = stockInfo.defaultVariantOptions || {};
-      const result = await addItemToCart(product._id, variantOptions, 1);
+      const result = await addItemToCart(product._id, selectedOptions, 1);
 
       if (result.success) {
         toast.success(result.message || `${product.title} added to cart!`);
@@ -504,9 +518,9 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
 
   const renderPricing = () => {
     return (
-      <div className="mt-2 space-y-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-base font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
+      <div className="mt-1 sm:mt-2 space-y-1">
+        <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+          <p className="text-sm sm:text-base font-bold bg-gradient-to-r from-red-600 to-red-700 bg-clip-text text-transparent">
             {formatPrice(priceInfo.displayPrice)}
           </p>
           {priceInfo.hasDiscount && (
@@ -514,7 +528,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
               <p className="text-xs text-gray-500 line-through">
                 {formatPrice(priceInfo.originalPrice)}
               </p>
-              <div className="flex items-center gap-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-1.5 py-0.5 rounded-full">
+              <div className="flex items-center gap-0.5 sm:gap-1 bg-gradient-to-r from-red-500 to-red-600 text-white px-1 sm:px-1.5 py-0.5 rounded-full">
                 <BsLightningChargeFill className="text-xs" />
                 <span className="text-xs font-bold">
                   {priceInfo.discountPercentage}% OFF
@@ -529,16 +543,122 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             Save {formatPrice(priceInfo.originalPrice - priceInfo.displayPrice)}
           </p>
         )}
-        {stockInfo.hasVariants && stockInfo.defaultVariantOptions && (
-          <p className="text-xs text-gray-600">
-            {[
-              stockInfo.defaultVariantOptions.variantColor && `Color: ${stockInfo.defaultVariantOptions.variantColor}`,
-              stockInfo.defaultVariantOptions.storageCapacity && `Storage: ${stockInfo.defaultVariantOptions.storageCapacity}`,
-              stockInfo.defaultVariantOptions.size && `Size: ${stockInfo.defaultVariantOptions.size}`,
-            ]
-              .filter(Boolean)
-              .join(", ")}
-          </p>
+      </div>
+    );
+  };
+
+  const renderVariantSelector = () => {
+    const hasVariants = availableColors.length > 0 || availableStorageOptions.length > 0 || availableSizeOptions.length > 0;
+    
+    if (!hasVariants) return null;
+
+    return (
+      <div className="mt-2 space-y-2">
+        {/* Color Options */}
+        {availableColors.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <FaPalette className="text-xs text-gray-500" />
+            <div className="flex gap-1 flex-wrap">
+              {availableColors.slice(0, 4).map((color, index) => {
+                // console.log('Rendering color:', color); 
+                return (
+                  <button
+                    key={color.name || index}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // console.log('Color clicked:', color.name); 
+                      handleVariantChange('color', color.name);
+                    }}
+                    className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 transition-all relative ${
+                      selectedOptions.variantColor === color.name
+                        ? 'border-red-500 scale-110 shadow-md'
+                        : 'border-gray-300 hover:border-gray-400'
+                    }`}
+                    style={getColorStyle(color)}
+                    title={color.name}
+                  >
+                    {/* White border for light colors */}
+                    {color.name?.toLowerCase() === 'white' && (
+                      <div className="absolute inset-0 rounded-full border border-gray-200 opacity-30" />
+                    )}
+                    {/* Selection indicator */}
+                    {selectedOptions.variantColor === color.name && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-1.5 h-1.5 bg-white rounded-full shadow-sm border border-gray-300" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+              {availableColors.length > 4 && (
+                <span className="text-xs text-gray-500 self-center">+{availableColors.length - 4}</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Storage Options */}
+        {availableStorageOptions.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <FaMemory className="text-xs text-gray-500" />
+            <div className="flex gap-1 flex-wrap">
+              {availableStorageOptions.slice(0, 3).map((storage) => (
+                <button
+                  key={storage.capacity}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleVariantChange('storage', storage.capacity);
+                  }}
+                  className={`px-1.5 py-0.5 text-xs rounded border transition-all ${
+                    selectedOptions.storageCapacity === storage.capacity
+                      ? 'border-red-500 bg-red-50 text-red-700 font-semibold'
+                      : storage.stock > 0 
+                        ? 'border-gray-300 hover:border-gray-400 text-gray-600'
+                        : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                  disabled={storage.stock <= 0}
+                  title={`${storage.capacity} - ${storage.stock > 0 ? `${storage.stock} available` : 'Out of stock'}`}
+                >
+                  {storage.capacity}
+                </button>
+              ))}
+              {availableStorageOptions.length > 3 && (
+                <span className="text-xs text-gray-500 self-center">+{availableStorageOptions.length - 3}</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Size Options */}
+        {availableSizeOptions.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <FaTshirt className="text-xs text-gray-500" />
+            <div className="flex gap-1 flex-wrap">
+              {availableSizeOptions.slice(0, 4).map((size) => (
+                <button
+                  key={size.size}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleVariantChange('size', size.size);
+                  }}
+                  className={`px-1.5 py-0.5 text-xs rounded border transition-all ${
+                    selectedOptions.size === size.size
+                      ? 'border-red-500 bg-red-50 text-red-700 font-semibold'
+                      : size.stock > 0
+                        ? 'border-gray-300 hover:border-gray-400 text-gray-600'
+                        : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
+                  disabled={size.stock <= 0}
+                  title={`Size ${size.size} - ${size.stock > 0 ? `${size.stock} available` : 'Out of stock'}`}
+                >
+                  {size.size}
+                </button>
+              ))}
+              {availableSizeOptions.length > 4 && (
+                <span className="text-xs text-gray-500 self-center">+{availableSizeOptions.length - 4}</span>
+              )}
+            </div>
+          </div>
         )}
       </div>
     );
@@ -580,43 +700,45 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
           onError={handleMediaError}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-        <div className="absolute top-2 left-2 flex flex-col gap-1 z-10">
+        
+        {/* Top badges */}
+        <div className="absolute top-1 sm:top-2 left-1 sm:left-2 flex flex-col gap-1 z-10">
           <div className="flex flex-wrap gap-1">
             {product.isFeatured && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-white text-xs font-bold shadow">
+              <span className="flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded-full bg-gradient-to-r from-yellow-400 to-yellow-500 text-white text-xs font-bold shadow">
                 <FaCrown className="text-xs" />
-                Featured
+                <span className="hidden sm:inline">Featured</span>
               </span>
             )}
             {priceInfo.hasDiscount && isHotDeal && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-bold shadow animate-pulse">
+              <span className="flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded-full bg-gradient-to-r from-red-500 to-red-600 text-white text-xs font-bold shadow animate-pulse">
                 <FaFire className="text-xs" />
-                HOT DEAL
+                <span className="hidden sm:inline">HOT</span>
               </span>
             )}
           </div>
           <span
-            className={`px-1.5 py-0.5 rounded-full text-xs font-bold shadow ${
+            className={`px-1 sm:px-1.5 py-0.5 rounded-full text-xs font-bold shadow ${
               isOutOfStock
                 ? "bg-red-100 text-red-700"
-                : stockInfo.isLowStock
+                : priceInfo.stock <= 5
                   ? "bg-orange-100 text-orange-700"
                   : "bg-green-100 text-green-700"
             }`}
           >
             {isOutOfStock
               ? "Out of Stock"
-              : stockInfo.isLowStock
-                ? `Only ${stockInfo.displayStock} left!`
-                : stockInfo.hasVariants
-                  ? `${stockInfo.availableOptions} Options`
-                  : `${stockInfo.displayStock} Available`}
+              : priceInfo.stock <= 5
+                ? `${priceInfo.stock} left`
+                : `In Stock`}
           </span>
         </div>
-        <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+
+        {/* Top right actions */}
+        <div className="absolute top-1 sm:top-2 right-1 sm:right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <button
             onClick={handleWishlistClick}
-            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
+            className="p-1 sm:p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
             aria-label={
               isInWishlist
                 ? `Remove ${product.title} from wishlist`
@@ -625,27 +747,29 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
             disabled={loading}
           >
             {isInWishlist ? (
-              <FaHeart className="text-red-600 text-sm" />
+              <FaHeart className="text-red-600 text-xs sm:text-sm" />
             ) : (
-              <FaRegHeart className="text-gray-600 text-sm hover:text-red-600 transition-colors" />
+              <FaRegHeart className="text-gray-600 text-xs sm:text-sm hover:text-red-600 transition-colors" />
             )}
           </button>
           <button
             onClick={handleQuickView}
-            className="p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
+            className="p-1 sm:p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
             aria-label={`Quick view ${product.title}`}
           >
-            <FaEye className="text-gray-600 text-sm hover:text-blue-600 transition-colors" />
+            <FaEye className="text-gray-600 text-xs sm:text-sm hover:text-blue-600 transition-colors" />
           </button>
         </div>
+
+        {/* Image indicators */}
         {getAllImages().length > 1 && (
-          <div className="absolute bottom-2 right-2 flex gap-1">
+          <div className="absolute bottom-1 sm:bottom-2 right-1 sm:right-2 flex gap-0.5 sm:gap-1">
             {getAllImages()
               .slice(0, 3)
               .map((_, index) => (
                 <div
                   key={index}
-                  className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                  className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full transition-colors ${
                     index === currentImageIndex ? "bg-white" : "bg-white/50"
                   }`}
                 />
@@ -653,54 +777,71 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
           </div>
         )}
       </div>
-      <div className="p-3 flex flex-col gap-2 flex-grow">
+
+      <div className="p-2 sm:p-3 flex flex-col gap-1 sm:gap-2 flex-grow">
+        {/* Product title and category */}
         <div className="space-y-1">
-          <h2 className="text-sm font-bold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight transition-colors">
+          <h2 className="text-xs sm:text-sm font-bold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight transition-colors">
             {product.title}
           </h2>
-          {product.categoryId?.name && (
-            <div className="flex items-center gap-1 text-xs text-gray-500">
-              <MdVerified className="text-green-500 text-xs" />
-              <span className="text-gray-600">{product.categoryId.name}</span>
-            </div>
-          )}
-          {ratingInfo.hasReviews && (
-            <div className="flex items-center gap-1 text-xs">
-              <div className="flex items-center gap-0.5">
-                {renderStars(ratingInfo.rating)}
+          
+          {/* Rating and category in one row on mobile */}
+          <div className="flex items-center justify-between gap-2">
+            {ratingInfo.hasReviews ? (
+              <div className="flex items-center gap-1 text-xs">
+                <div className="flex items-center gap-0.5">
+                  {renderStars(ratingInfo.rating).slice(0, 3)}
+                </div>
+                <span className="text-gray-600 hidden sm:inline">
+                  {ratingInfo.rating.toFixed(1)}
+                </span>
+                <span className="text-gray-500 text-xs">
+                  ({ratingInfo.reviewCount})
+                </span>
               </div>
-              <span className="text-gray-600">
-                {ratingInfo.rating.toFixed(1)} ({ratingInfo.reviewCount})
-              </span>
-            </div>
-          )}
-          {!ratingInfo.hasReviews && (
-            <div className="flex items-center gap-1 text-xs text-gray-500">
-              <div className="flex items-center gap-0.5">{renderStars(0)}</div>
-              <span>No reviews</span>
-            </div>
-          )}
+            ) : (
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                <div className="flex items-center gap-0.5">{renderStars(0).slice(0, 3)}</div>
+                <span className="hidden sm:inline">No reviews</span>
+              </div>
+            )}
+            
+            {product.categoryId?.name && (
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                <MdVerified className="text-green-500 text-xs" />
+                <span className="text-gray-600 hidden sm:inline">{product.categoryId.name}</span>
+              </div>
+            )}
+          </div>
         </div>
+
         {renderPricing()}
-        {stockInfo.isLowStock && (
-          <div className="bg-red-50 border border-red-200 rounded p-1.5 flex items-center gap-1">
+        {renderVariantSelector()}
+
+        {/* Trust badges - simplified for mobile */}
+        <div className="flex items-center gap-2 sm:gap-3 text-xs text-gray-500">
+          <div className="flex items-center gap-0.5">
+            <MdVerified className="text-green-500 text-xs" />
+            <span className="hidden sm:inline">Verified</span>
+          </div>
+          <div className="flex items-center gap-0.5">
+            <FaShippingFast className="text-blue-500 text-xs" />
+            <span className="hidden sm:inline">Fast Ship</span>
+          </div>
+        </div>
+
+        {/* Low stock warning - compact for mobile */}
+        {priceInfo.stock <= 5 && priceInfo.stock > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded p-1 sm:p-1.5 flex items-center gap-1">
             <IoTimeOutline className="text-red-500 text-xs" />
             <span className="text-xs text-red-700">Limited stock!</span>
           </div>
         )}
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <div className="flex items-center gap-0.5">
-            <MdVerified className="text-green-500 text-xs" />
-            <span>Verified</span>
-          </div>
-          <div className="flex items-center gap-0.5">
-            <FaShippingFast className="text-blue-500 text-xs" />
-            <span>Fast Ship</span>
-          </div>
-        </div>
+
+        {/* Add to Cart Button */}
         <Button
           onClick={handleAddToCartClick}
-          className={`mt-2 w-full font-bold transition-all duration-300 ${
+          className={`mt-1 sm:mt-2 w-full font-bold transition-all duration-300 ${
             addToCartStatus.loading
               ? "bg-gray-500 cursor-wait"
               : addToCartStatus.success
@@ -710,7 +851,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
                   : isOutOfStock
                     ? "bg-gray-400 cursor-not-allowed"
                     : "bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800"
-          } text-white px-3 py-2 rounded-lg flex items-center justify-center gap-1 text-sm shadow`}
+          } text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg flex items-center justify-center gap-1 text-xs sm:text-sm shadow`}
           aria-label={`Add ${product.title} to cart`}
           disabled={isOutOfStock || addToCartStatus.loading}
           icon={addToCartStatus.success ? MdVerified : CiShoppingCart}
@@ -748,6 +889,8 @@ ProductCard.propTypes = {
       PropTypes.shape({
         color: PropTypes.shape({
           name: PropTypes.string,
+          hex: PropTypes.string,
+          code: PropTypes.string,
         }),
         images: PropTypes.arrayOf(
           PropTypes.shape({

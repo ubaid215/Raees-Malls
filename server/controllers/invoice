@@ -1,0 +1,232 @@
+exports.downloadInvoice = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findOne({ orderId })
+      .populate('userId', 'name email')
+      .populate('items.productId', 'title brand images variants')
+      .populate('discountInfo.discountId', 'code value type');
+
+    if (!order) {
+      throw new ApiError(404, 'Order not found');
+    }
+
+    const doc = new PDFDocument({ 
+      margin: 50,
+      size: 'A4',
+      info: {
+        Title: `Invoice-${order.orderId}`,
+        Author: 'Raees Malls',
+        Subject: 'Invoice',
+        Keywords: 'invoice, order, receipt'
+      }
+    });
+    
+    const fileName = `invoice-${order.orderId}.pdf`;
+    const filePath = path.join(__dirname, '../invoices', fileName);
+
+    if (!fs.existsSync(path.join(__dirname, '../invoices'))) {
+      fs.mkdirSync(path.join(__dirname, '../invoices'), { recursive: true });
+    }
+
+    doc.pipe(fs.createWriteStream(filePath));
+    doc.pipe(res);
+
+    // Color scheme - Red and White Brand
+    const primaryColor = '#dc2626'; // Brand Red
+    const secondaryColor = '#6b7280'; // Gray
+    const accentColor = '#b91c1c'; // Dark Red
+    const lightRed = '#fee2e2'; // Light Red Background
+    const darkRed = '#991b1b'; // Dark Red for text
+
+    // Generate QR code
+    const qrData = {
+      orderId: order.orderId,
+      products: order.items.map(item => ({
+        productId: item.productId._id,
+        variantId: item.variantInfo ? {
+          colorName: item.variantInfo.colorName,
+          storageCapacity: item.variantInfo.storageCapacity,
+          size: item.variantInfo.size
+        } : null
+      })),
+      redirectUrl: `${process.env.FRONTEND_URL}/orders/${order.orderId}`
+    };
+
+    const qrCodeDataURL = await generateQR(JSON.stringify(qrData), {
+      errorCorrectionLevel: 'H',
+      margin: 1,
+      scale: 4
+    });
+
+    const qrCodeBuffer = Buffer.from(qrCodeDataURL.split(',')[1], 'base64');
+
+    // Header section with company logo area and QR code
+    doc.rect(50, 50, doc.page.width - 100, 120).fill('white').stroke(primaryColor).lineWidth(2);
+    
+    // Company information (left side)
+    doc.fillColor(darkRed).fontSize(24).font('Helvetica-Bold')
+       .text('Raees Malls', 70, 80);
+    doc.fillColor(secondaryColor).fontSize(10).font('Helvetica')
+       .text('Masjid Bazar Opposite Jamia Masjid Jaranwala', 70, 110)
+       .text('Head Office, Opposite Ayesha Masjid Motor Market Jhang Road Faisalabad', 70, 125)
+       .text('Phone: 0300-6530063', 70, 140)
+       .text('Email: raeesmalls1@gmail.com', 70, 155);
+
+    // QR code (right side)
+    doc.image(qrCodeBuffer, doc.page.width - 170, 70, { width: 80, height: 80 });
+    doc.fillColor(secondaryColor).fontSize(8)
+       .text('Scan to view order', doc.page.width - 170, 155, { width: 80, align: 'center' });
+
+    // Invoice title and details
+    doc.moveDown(2);
+    const invoiceY = doc.y + 20;
+    
+    // Invoice title with background
+    doc.rect(50, invoiceY, doc.page.width - 100, 40).fill(primaryColor);
+    doc.fillColor('white').fontSize(18).font('Helvetica-Bold')
+       .text('INVOICE', 0, invoiceY + 12, { align: 'center' });
+
+    // Invoice details box
+    doc.rect(50, invoiceY + 50, (doc.page.width - 100) / 2 - 10, 80).stroke(primaryColor).fillColor(lightRed).fill();
+    doc.fillColor(darkRed).fontSize(12).font('Helvetica-Bold')
+       .text('Invoice Details', 60, invoiceY + 65);
+    doc.fillColor('#374151').fontSize(10).font('Helvetica')
+       .text(`Invoice #: ${order.orderId}`, 60, invoiceY + 85)
+       .text(`Date: ${order.createdAt.toLocaleDateString()}`, 60, invoiceY + 100)
+       .text(`Status: ${order.status.charAt(0).toUpperCase() + order.status.slice(1)}`, 60, invoiceY + 115);
+
+    // Customer details box
+    const customerBoxX = 50 + (doc.page.width - 100) / 2 + 10;
+    doc.rect(customerBoxX, invoiceY + 50, (doc.page.width - 100) / 2 - 10, 80).stroke(primaryColor).fillColor('white').fill();
+    doc.fillColor(darkRed).fontSize(12).font('Helvetica-Bold')
+       .text('Customer Details', customerBoxX + 10, invoiceY + 65);
+    doc.fillColor('#374151').fontSize(10).font('Helvetica')
+       .text(`Name: ${order.userId.name}`, customerBoxX + 10, invoiceY + 85)
+       .text(`Email: ${order.userId.email}`, customerBoxX + 10, invoiceY + 100);
+
+    // Shipping address section
+    const shippingY = invoiceY + 150;
+    doc.fillColor(primaryColor).fontSize(14).font('Helvetica-Bold')
+       .text('Shipping Address', 50, shippingY);
+    
+    doc.rect(50, shippingY + 20, doc.page.width - 100, 80).stroke(primaryColor).fillColor('white').fill();
+    doc.fillColor('#374151').fontSize(10).font('Helvetica')
+       .text(`${order.shippingAddress.fullName}`, 60, shippingY + 35)
+       .text(`${order.shippingAddress.addressLine1}`, 60, shippingY + 50);
+    
+    if (order.shippingAddress.addressLine2) {
+      doc.text(`${order.shippingAddress.addressLine2}`, 60, shippingY + 65);
+    }
+    
+    doc.text(`${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode}`, 60, shippingY + 80)
+       .text(`${order.shippingAddress.country}`, 60, shippingY + 95)
+       .text(`Phone: ${order.shippingAddress.phone}`, 60, shippingY + 110);
+
+    // Order items table
+    const tableY = shippingY + 150;
+    doc.fillColor(primaryColor).fontSize(14).font('Helvetica-Bold')
+       .text('Order Items', 50, tableY);
+
+    // Table header with background
+    doc.rect(50, tableY + 25, doc.page.width - 100, 25).fill(primaryColor);
+    doc.fillColor('white').fontSize(10).font('Helvetica-Bold')
+       .text('Item Description', 60, tableY + 35)
+       .text('Price', 300, tableY + 35, { width: 70, align: 'right' })
+       .text('Qty', 380, tableY + 35, { width: 40, align: 'right' })
+       .text('Total', 430, tableY + 35, { width: 70, align: 'right' });
+
+    // Table rows with alternating colors
+    let currentY = tableY + 55;
+    doc.fillColor('#374151').font('Helvetica');
+    
+    order.items.forEach((item, index) => {
+      // Alternating row colors
+      if (index % 2 === 0) {
+        doc.rect(50, currentY - 5, doc.page.width - 100, 25).fill(lightRed).stroke(primaryColor);
+      } else {
+        doc.rect(50, currentY - 5, doc.page.width - 100, 25).fill('white').stroke(primaryColor);
+      }
+
+      const variantText = item.variantInfo ? 
+        Object.entries(item.variantInfo)
+          .filter(([_, value]) => value)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ') : '';
+
+      // Item description
+      doc.fillColor(darkRed).fontSize(9).font('Helvetica-Bold')
+         .text(`${item.productId.title}`, 60, currentY, { width: 230 });
+      
+      if (variantText) {
+        doc.fillColor('#6b7280').fontSize(8).font('Helvetica')
+           .text(`${variantText}`, 60, currentY + 12, { width: 230 });
+      }
+
+      // Price, quantity, total
+      doc.fillColor('#374151').fontSize(9).font('Helvetica')
+         .text(`PKR ${item.finalUnitPrice.toFixed(2)}`, 300, currentY, { width: 70, align: 'right' })
+         .text(item.quantity.toString(), 380, currentY, { width: 40, align: 'right' })
+         .text(`PKR ${item.itemTotal.toFixed(2)}`, 430, currentY, { width: 70, align: 'right' });
+
+      currentY += 30;
+    });
+
+    // Order summary with styled boxes
+    const summaryY = currentY + 20;
+    const summaryBoxWidth = 200;
+    const summaryBoxX = doc.page.width - 50 - summaryBoxWidth;
+
+    // Summary background
+    doc.rect(summaryBoxX, summaryY, summaryBoxWidth, 120).fill('white').stroke(primaryColor).lineWidth(2);
+    
+    doc.fillColor('#374151').fontSize(10).font('Helvetica')
+       .text(`Subtotal:`, summaryBoxX + 10, summaryY + 15)
+       .text(`PKR ${order.subtotal.toFixed(2)}`, summaryBoxX + 10, summaryY + 15, { width: summaryBoxWidth - 20, align: 'right' });
+
+    let summaryLineY = summaryY + 35;
+    
+    if (order.discountInfo.discountAmount) {
+      doc.fillColor(accentColor)
+         .text(`Discount (${order.discountInfo.discountCode}):`, summaryBoxX + 10, summaryLineY)
+         .text(`-PKR ${order.discountInfo.discountAmount.toFixed(2)}`, summaryBoxX + 10, summaryLineY, { width: summaryBoxWidth - 20, align: 'right' });
+      summaryLineY += 20;
+    }
+
+    doc.fillColor('#374151')
+       .text(`Shipping:`, summaryBoxX + 10, summaryLineY)
+       .text(`PKR ${order.totalShippingCost.toFixed(2)}`, summaryBoxX + 10, summaryLineY, { width: summaryBoxWidth - 20, align: 'right' })
+       .text(`Tax:`, summaryBoxX + 10, summaryLineY + 20)
+       .text(`PKR ${order.taxAmount.toFixed(2)}`, summaryBoxX + 10, summaryLineY + 20, { width: summaryBoxWidth - 20, align: 'right' });
+
+    // Total with emphasis
+    doc.rect(summaryBoxX, summaryLineY + 45, summaryBoxWidth, 25).fill(primaryColor);
+    doc.fillColor('white').fontSize(12).font('Helvetica-Bold')
+       .text('Total:', summaryBoxX + 10, summaryLineY + 52)
+       .text(`PKR ${order.totalPrice.toFixed(2)}`, summaryBoxX + 10, summaryLineY + 52, { width: summaryBoxWidth - 20, align: 'right' });
+
+    // Payment information box
+    const paymentY = summaryY + 140;
+    doc.rect(50, paymentY, doc.page.width - 100, 50).fill(lightRed).stroke(primaryColor).lineWidth(2);
+    doc.fillColor(darkRed).fontSize(12).font('Helvetica-Bold')
+       .text('Payment Information', 60, paymentY + 15);
+    doc.fillColor('#374151').fontSize(10).font('Helvetica')
+       .text(`Method: ${order.paymentInfo.method.split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}`, 60, paymentY + 35)
+       .text(`Status: ${order.paymentInfo.status.charAt(0).toUpperCase() + order.paymentInfo.status.slice(1)}`, 300, paymentY + 35);
+
+    // Footer
+    const footerY = paymentY + 80;
+    doc.rect(50, footerY, doc.page.width - 100, 40).fill(darkRed);
+    doc.fillColor('white').fontSize(12).font('Helvetica-Bold')
+       .text('Thank you for your purchase!', 0, footerY + 15, { align: 'center' });
+    doc.fontSize(8).font('Helvetica')
+       .text('For questions about this invoice, contact us at raeesmalls1@gmail.com', 0, footerY + 30, { align: 'center' });
+
+    doc.end();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+  } catch (error) {
+    next(error);
+  }
+};

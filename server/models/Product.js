@@ -167,7 +167,7 @@ const productSchema = new mongoose.Schema({
       if (!value || value.trim() === '') return true;
       
       // If value exists, check length
-      return value.length >= 10 && value.length <= 3000;
+      return value.length >= 10 && value.length <= 30000;
     },
     message: 'Description must be empty or contain at least 10 characters'
   }

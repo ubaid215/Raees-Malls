@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FiCheckCircle, FiMessageSquare } from "react-icons/fi";
-import { FaWhatsapp } from "react-icons/fa";
+import { FiCheckCircle } from "react-icons/fi";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
 import Button from "../components/core/Button";
@@ -11,80 +10,95 @@ import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
 const CheckoutPage = () => {
-  const { cartItems, clearCart, removeAllFromCart } = useCart();
-  const { placeNewOrder } = useOrder();
+  const { cartItems, clearCart } = useCart();
+  const { placeOrder } = useOrder();
   const { user, fetchUser } = useAuth();
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
-  const [redirectCount, setRedirectCount] = useState(0);
   const [orderDetails, setOrderDetails] = useState(null);
 
-  // Find the default address or the first address if no default exists
-  const defaultAddress = user?.addresses?.find((addr) => addr.isDefault) || user?.addresses?.[0] || {};
+  // Default address handling
+  const defaultAddress =
+    user?.addresses?.find((addr) => addr.isDefault) ||
+    user?.addresses?.[0] || {};
 
   const {
     register,
     handleSubmit,
     watch,
-    setValue,
     formState: { errors },
   } = useForm({
     defaultValues: {
       email: user?.email || "",
-      firstName: defaultAddress.fullName ? defaultAddress.fullName.split(" ")[0] || "" : "",
-      lastName: defaultAddress.fullName
-        ? defaultAddress.fullName.split(" ").slice(1).join(" ") || ""
-        : "",
-      phone: defaultAddress.phone?.replace(/^\+\d{1,4}\s/, "") || "",
-      countryCode: defaultAddress.phone?.match(/^\+\d{1,4}/)?.[0] || "+92",
-      address1: defaultAddress.street || "",
-      address2: defaultAddress.addressLine2 || "",
+      fullName: defaultAddress.fullName || "",
+      phone: defaultAddress.phone || "",
+      addressLine1: defaultAddress.addressLine1 || "",
+      addressLine2: defaultAddress.addressLine2 || "",
       country: defaultAddress.country || "Pakistan",
       city: defaultAddress.city || "",
       state: defaultAddress.state || "",
-      postalCode: defaultAddress.zip || "",
-      saveAddress: true, // Default to true for convenience
+      postalCode: defaultAddress.postalCode || "",
+      saveAddress: true,
+      orderNotes: "",
+      billingSameAsShipping: true,
     },
   });
 
-  const countryCode = watch("countryCode");
-
-  const countryCodes = [
-    { code: "+92", label: "Pakistan (+92)" },
-    { code: "+1", label: "United States (+1)" },
-    { code: "+44", label: "United Kingdom (+44)" },
-    { code: "+91", label: "India (+91)" },
-  ];
+  const billingSameAsShipping = watch("billingSameAsShipping");
 
   useEffect(() => {
-    if (!user && redirectCount < 2) {
-      setRedirectCount((prev) => prev + 1);
+    if (!user) {
       navigate("/login", { state: { from: "/checkout" } });
     }
-  }, [user, navigate, redirectCount]);
+  }, [user, navigate]);
 
   const calculateTotal = () => {
     const subtotal = cartItems.reduce(
-      (sum, item) => sum + item.price * item.quantity,
+      (sum, item) => sum + (item.discountPrice || item.price) * item.quantity,
       0
     );
-    const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+    // Calculate shipping cost (once per unique product)
     const uniqueProducts = new Set();
     let shipping = 0;
-    for (const item of cartItems) {
-      const productId =
-        typeof item.productId === "object"
-          ? item.productId._id
-          : item.productId || item._id;
+
+    cartItems.forEach((item) => {
+      const productId = item.productId?._id || item.productId;
       if (!uniqueProducts.has(productId)) {
         shipping += item.shippingCost || 0;
         uniqueProducts.add(productId);
       }
+    });
+
+    // Apply free shipping for orders over 2500 PKR or 10+ items
+    const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    shipping = subtotal >= 2500 || totalItems >= 10 ? 0 : shipping;
+
+    return {
+      subtotal,
+      shipping,
+      tax: 0,
+      total: subtotal + shipping,
+    };
+  };
+
+  const getVariantDetails = (item) => {
+    if (!item.productId) return {};
+    
+    const variantInfo = {};
+    const product = item.productId;
+    
+    if (item.variantId && product.variants) {
+      const variant = product.variants.find(v => v._id === item.variantId);
+      if (variant) {
+        if (variant.colorName) variantInfo.colorName = variant.colorName;
+        if (variant.storageCapacity) variantInfo.storageCapacity = variant.storageCapacity;
+        if (variant.size) variantInfo.size = variant.size;
+      }
     }
-    shipping = subtotal >= 2500 || totalItems >= 2500 ? 0 : shipping;
-    const tax = 0;
-    return { subtotal, shipping, tax, total: subtotal + shipping + tax };
+    
+    return variantInfo;
   };
 
   const onSubmit = async (data) => {
@@ -94,110 +108,85 @@ const CheckoutPage = () => {
     }
 
     setIsSubmitting(true);
+
     try {
-      const fullPhoneNumber = `${data.countryCode} ${data.phone}`;
+      const items = cartItems.map((item) => {
+        const productId = item.productId?._id || item.productId;
+        if (!productId) throw new Error("Product ID is missing");
 
-      const validatedItems = cartItems.map((item) => {
-        let validProductId;
-        if (
-          item.productId &&
-          typeof item.productId === "object" &&
-          item.productId._id
-        ) {
-          validProductId = item.productId._id;
-        } else if (item.productId && typeof item.productId === "string") {
-          validProductId = item.productId;
-        } else if (item._id) {
-          validProductId = item._id;
-        } else {
-          validProductId = String(Math.random()).substring(2);
-        }
-
+        const variantInfo = getVariantDetails(item);
+        
         return {
-          productId: validProductId,
+          productId,
           quantity: item.quantity,
-          sku: item.sku || "UNKNOWN_SKU",
-          price: item.price,
-          title: item.title,
-          shippingCost: item.shippingCost || 0,
+          variantId: item.variantId || undefined,
+          variantInfo: Object.keys(variantInfo).length > 0 ? variantInfo : undefined
         };
       });
 
-      const { shipping } = calculateTotal();
+      const { subtotal, shipping } = calculateTotal();
 
-      const order = {
-        items: validatedItems,
+      // Prepare the complete order data
+      const orderData = {
+        items,
         shippingAddress: {
-          fullName: `${data.firstName} ${data.lastName}`,
-          addressLine1: data.address1,
-          addressLine2: data.address2 || "",
-          city: data.city,
-          state: data.state,
-          postalCode: data.postalCode,
-          country: data.country,
-          phone: fullPhoneNumber,
+          fullName: data.fullName.trim(),
+          addressLine1: data.addressLine1.trim(),
+          addressLine2: data.addressLine2?.trim() || "",
+          city: data.city.trim(),
+          state: data.state.trim(),
+          postalCode: data.postalCode.trim(),
+          country: data.country.trim(),
+          phone: data.phone.trim(),
+          email: data.email.trim()
         },
-        totalShippingCost: shipping,
-        saveAddress: data.saveAddress,
+        saveAddress: Boolean(data.saveAddress),
+        paymentMethod: "cash_on_delivery",
+        orderNotes: data.orderNotes?.trim() || "",
+        totalShippingCost: shipping
       };
 
-      // console.log("Submitting order:", JSON.stringify(order));
+      // Add billing address if different from shipping
+      if (!billingSameAsShipping) {
+        orderData.billingAddress = {
+          fullName: data.billingFullName.trim(),
+          addressLine1: data.billingAddressLine1.trim(),
+          addressLine2: data.billingAddressLine2?.trim() || "",
+          city: data.billingCity.trim(),
+          state: data.billingState.trim(),
+          postalCode: data.billingPostalCode.trim(),
+          country: data.billingCountry?.trim() || "Pakistan",
+          phone: data.billingPhone.trim()
+        };
+      }
 
-      const result = await placeNewOrder(order);
+      console.log("Submitting order:", orderData);
+
+      // Place the order
+      const order = await placeOrder(orderData);
+
+      // Handle successful order
       setOrderDetails({
-        ...order,
-        orderId:
-          result.order?.orderId ||
-          `ORD-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        orderId: order.orderId,
+        items: cartItems,
         total: calculateTotal().total,
-        totalShippingCost: result.order?.totalShippingCost || shipping,
+        shippingAddress: orderData.shippingAddress
       });
 
-      if (typeof clearCart === "function") {
-        clearCart();
-      } else if (typeof removeAllFromCart === "function") {
-        removeAllFromCart();
-      } else {
-        console.warn("No cart clearing function available");
-        try {
-          cartItems.forEach((item) => {
-            if (typeof removeFromCart === "function") {
-              removeFromCart(item.productId);
-            }
-          });
-        } catch (e) {
-          console.warn("Could not clear cart items individually:", e);
-        }
-      }
-
-      // Refresh user data to ensure addresses are updated
-      if (data.saveAddress) {
-        try {
-          await fetchUser();
-          // console.log('User data refreshed after order placement');
-        } catch (error) {
-          console.error('Error refreshing user data:', error);
-          toast.error('Order placed, but failed to refresh user data');
-        }
-      }
+      clearCart();
+      if (data.saveAddress) await fetchUser();
 
       setOrderSuccess(true);
-      toast.success("Order placed successfully!");
+      toast.success(`Order #${order.orderId} placed successfully!`);
+
     } catch (error) {
       console.error("Order placement error:", error);
-      let errorMessage = "Order submission failed. Please try again.";
+      let errorMessage = "Failed to place order.";
 
-      if (error.response) {
-        console.error("Error response data:", error.response.data);
-        console.error("Error response status:", error.response.status);
-        if (error.response.data && error.response.data.message) {
-          errorMessage = error.response.data.message;
-        } else if (
-          error.response.data &&
-          typeof error.response.data === "string"
-        ) {
-          errorMessage = error.response.data;
-        }
+      if (error.response?.data?.errors) {
+        errorMessage = error.response.data.errors.join("\n");
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -208,7 +197,7 @@ const CheckoutPage = () => {
     }
   };
 
-  if (orderSuccess) {
+  if (orderSuccess && orderDetails) {
     return (
       <div className="w-full min-h-screen bg-gray-100 flex items-center justify-center px-4 py-6">
         <div className="max-w-sm w-full bg-white shadow-lg rounded-lg p-6 text-center">
@@ -216,10 +205,10 @@ const CheckoutPage = () => {
           <h2 className="text-xl font-bold text-gray-900 mb-2">
             Order Placed Successfully!
           </h2>
-          <p className="text-sm text-gray-600 mb-6">
-            Thank you for your order. We'll deliver it soon via Cash on
-            Delivery.
+          <p className="text-sm text-gray-600 mb-4">
+            Your order ID: <span className="font-bold">{orderDetails.orderId}</span>
           </p>
+          
           <div className="space-y-3">
             <Button
               onClick={() => navigate("/products")}
@@ -227,46 +216,6 @@ const CheckoutPage = () => {
             >
               Continue Shopping
             </Button>
-            {orderDetails && (
-              <Button
-                onClick={() => {
-                  const {
-                    shippingAddress,
-                    items,
-                    orderId,
-                    total,
-                    totalShippingCost,
-                  } = orderDetails;
-                  const message = `Hi, I just placed an order (${orderId}) with the following details:
-    
-*Order Summary:*
-${items.map((item) => `- ${item.title} (Qty: ${item.quantity}, Shipping: ${formatPrice(item.shippingCost)}) - ${formatPrice(item.price * item.quantity)}`).join("\n")}
-
-*Subtotal:* ${formatPrice(total - totalShippingCost)}
-*Total Shipping:* ${formatPrice(totalShippingCost)}
-*Total:* ${formatPrice(total)}
-
-*Shipping Address:*
-${shippingAddress.fullName}
-${shippingAddress.addressLine1}${shippingAddress.addressLine2 ? `, ${shippingAddress.addressLine2}` : ""}
-${shippingAddress.city}, ${shippingAddress.state}, ${shippingAddress.country}
-${shippingAddress.postalCode}
-Phone: ${shippingAddress.phone}
-
-Please confirm my order. Thank you!`;
-                  const phoneNumber = "923006530063";
-                  window.open(
-                    `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`,
-                    "_blank"
-                  );
-                }}
-                variant="outline"
-                className="w-full border-green-600 text-green-600 hover:bg-green-50 py-2 rounded-md text-sm"
-                icon={FaWhatsapp}
-              >
-                Share Order via WhatsApp
-              </Button>
-            )}
           </div>
         </div>
       </div>
@@ -280,9 +229,6 @@ Please confirm my order. Thank you!`;
           <h2 className="text-xl font-bold text-gray-900 mb-2">
             Your Cart is Empty
           </h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Add some items to your cart to proceed with checkout.
-          </p>
           <Button
             onClick={() => navigate("/products")}
             className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-md text-sm"
@@ -294,28 +240,7 @@ Please confirm my order. Thank you!`;
     );
   }
 
-  const { subtotal, shipping, tax, total } = calculateTotal();
-
-  const getImageUrl = (item) => {
-    const baseUrl = import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
-    return (
-      item.image
-        ? typeof item.image === "string"
-          ? item.image.startsWith("http")
-            ? item.image
-            : `${baseUrl}${item.image}`
-          : item.image.url
-            ? item.image.url.startsWith("http")
-              ? item.image.url
-              : `${baseUrl}${item.image.url}`
-            : "/images/placeholder-product.png"
-        : item.productId?.images?.[0]?.url
-          ? item.productId.images[0].url.startsWith("http")
-            ? item.productId.images[0].url
-            : `${baseUrl}${item.productId.images[0].url}`
-          : "/images/placeholder-product.png"
-    );
-  };
+  const { subtotal, shipping, total } = calculateTotal();
 
   return (
     <div className="w-full min-h-screen bg-gray-100 px-4 py-6">
@@ -326,11 +251,8 @@ Please confirm my order. Thank you!`;
 
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="flex-1">
-            <form
-              id="checkout-form"
-              onSubmit={handleSubmit(onSubmit)}
-              className="space-y-4"
-            >
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" id="checkout-form">
+              {/* Contact Information */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">
                   Contact Information
@@ -345,125 +267,117 @@ Please confirm my order. Thank you!`;
                     },
                   })}
                   type="email"
-                  className="py-2 px-3 text-sm"
                   error={errors.email?.message}
                 />
               </div>
 
+              {/* Shipping Information */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">
                   Shipping Information
                 </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                  <Input
-                    label="First name"
-                    {...register("firstName", {
-                      required: "First name is required",
-                    })}
-                    className="py-2 px-3 text-sm"
-                    error={errors.firstName?.message}
-                  />
-                  <Input
-                    label="Last name"
-                    {...register("lastName", {
-                      required: "Last name is required",
-                    })}
-                    className="py-2 px-3 text-sm"
-                    error={errors.lastName?.message}
-                  />
-                </div>
-                <div className="flex gap-3 mb-3">
-                  <div className="w-32">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Country Code
-                    </label>
-                    <select
-                      {...register("countryCode", {
-                        required: "Country code is required",
-                      })}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 text-sm py-2 px-3"
-                    >
-                      {countryCodes.map((option) => (
-                        <option key={option.code} value={option.code}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.countryCode && (
-                      <p className="mt-1 text-xs text-red-600">
-                        {errors.countryCode.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <Input
-                      label="Phone number"
-                      {...register("phone", {
-                        required: "Phone number is required",
-                        pattern: {
-                          value: /^\+?[\d\s-]{10,}$/,
-                          message: "Phone number must be at least 10 digits",
-                        },
-                      })}
-                      type="tel"
-                      className="py-2 px-3 text-sm"
-                      placeholder="3001234567"
-                      error={errors.phone?.message}
-                    />
-                  </div>
-                </div>
+
                 <Input
-                  label="Address line 1"
-                  {...register("address1", { required: "Address is required" })}
-                  className="py-2 px-3 text-sm mb-3"
-                  error={errors.address1?.message}
+                  label="Full Name"
+                  {...register("fullName", {
+                    required: "Full name is required",
+                    maxLength: {
+                      value: 100,
+                      message: "Cannot exceed 100 characters",
+                    },
+                  })}
+                  error={errors.fullName?.message}
                 />
+
                 <Input
-                  label="Address line 2 (Optional)"
-                  {...register("address2")}
-                  className="py-2 px-3 text-sm mb-3"
+                  label="Phone Number"
+                  {...register("phone", {
+                    required: "Phone number is required",
+                    pattern: {
+                      value: /^\+?[\d\s-]{6,14}$/,
+                      message: "Invalid phone number format",
+                    },
+                  })}
+                  type="tel"
+                  placeholder="e.g. +92 3001234567"
+                  error={errors.phone?.message}
                 />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Country
-                    </label>
-                    <select
-                      {...register("country", {
-                        required: "Country is required",
-                      })}
-                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500 text-sm py-2 px-3"
-                    >
-                      <option value="Pakistan">Pakistan</option>
-                      <option value="United States">United States</option>
-                    </select>
-                    {errors.country && (
-                      <p className="mt-1 text-xs text-red-600">
-                        {errors.country.message}
-                      </p>
-                    )}
-                  </div>
+
+                <Input
+                  label="Address Line 1"
+                  {...register("addressLine1", {
+                    required: "Address is required",
+                    maxLength: {
+                      value: 200,
+                      message: "Cannot exceed 200 characters",
+                    },
+                  })}
+                  error={errors.addressLine1?.message}
+                />
+
+                <Input
+                  label="Address Line 2 (Optional)"
+                  {...register("addressLine2", {
+                    maxLength: {
+                      value: 200,
+                      message: "Cannot exceed 200 characters",
+                    },
+                  })}
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <Input
                     label="City"
-                    {...register("city", { required: "City is required" })}
-                    className="py-2 px-3 text-sm"
+                    {...register("city", {
+                      required: "City is required",
+                      maxLength: {
+                        value: 50,
+                        message: "Cannot exceed 50 characters",
+                      },
+                    })}
                     error={errors.city?.message}
                   />
+
                   <Input
-                    label="State"
-                    {...register("state", { required: "State is required" })}
-                    className="py-2 px-3 text-sm"
+                    label="State/Province"
+                    {...register("state", {
+                      required: "State is required",
+                      maxLength: {
+                        value: 50,
+                        message: "Cannot exceed 50 characters",
+                      },
+                    })}
                     error={errors.state?.message}
                   />
+
                   <Input
-                    label="Postal code"
+                    label="Postal Code"
                     {...register("postalCode", {
                       required: "Postal code is required",
+                      maxLength: {
+                        value: 20,
+                        message: "Cannot exceed 20 characters",
+                      },
                     })}
-                    className="py-2 px-3 text-sm"
                     error={errors.postalCode?.message}
                   />
                 </div>
+
+                <div className="mt-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Country
+                  </label>
+                  <select
+                    {...register("country", {
+                      required: "Country is required",
+                    })}
+                    className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                  >
+                    <option value="Pakistan">Pakistan</option>
+                    <option value="United States">United States</option>
+                  </select>
+                </div>
+
                 <div className="mt-4">
                   <label className="flex items-center">
                     <input
@@ -472,84 +386,172 @@ Please confirm my order. Thank you!`;
                       className="rounded border-gray-300 text-red-600 focus:ring-red-500"
                     />
                     <span className="ml-2 text-sm text-gray-600">
-                      Save this address for future orders
+                      Save this address
                     </span>
                   </label>
                 </div>
               </div>
 
+              {/* Billing Information */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
                 <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                  Payment Method
+                  Billing Information
                 </h2>
-                <div className="text-sm text-gray-600">
-                  <p>Cash on Delivery</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    You will pay the total amount when the order is delivered.
-                  </p>
+                <div className="mb-4">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      {...register("billingSameAsShipping")}
+                      className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-600">
+                      Same as shipping address
+                    </span>
+                  </label>
                 </div>
+
+                {!billingSameAsShipping && (
+                  <div className="space-y-3">
+                    <Input
+                      label="Full Name"
+                      {...register("billingFullName", {
+                        required: "Billing name is required",
+                        maxLength: {
+                          value: 100,
+                          message: "Cannot exceed 100 characters",
+                        },
+                      })}
+                      error={errors.billingFullName?.message}
+                    />
+
+                    <Input
+                      label="Phone Number"
+                      {...register("billingPhone", {
+                        required: "Billing phone is required",
+                        pattern: {
+                          value: /^\+?[\d\s-]{6,14}$/,
+                          message: "Invalid phone number format",
+                        },
+                      })}
+                      error={errors.billingPhone?.message}
+                    />
+
+                    <Input
+                      label="Address Line 1"
+                      {...register("billingAddressLine1", {
+                        required: "Billing address is required",
+                        maxLength: {
+                          value: 200,
+                          message: "Cannot exceed 200 characters",
+                        },
+                      })}
+                      error={errors.billingAddressLine1?.message}
+                    />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Input
+                        label="City"
+                        {...register("billingCity", {
+                          required: "Billing city is required",
+                          maxLength: {
+                            value: 50,
+                            message: "Cannot exceed 50 characters",
+                          },
+                        })}
+                        error={errors.billingCity?.message}
+                      />
+
+                      <Input
+                        label="State/Province"
+                        {...register("billingState", {
+                          required: "Billing state is required",
+                          maxLength: {
+                            value: 50,
+                            message: "Cannot exceed 50 characters",
+                          },
+                        })}
+                        error={errors.billingState?.message}
+                      />
+
+                      <Input
+                        label="Postal Code"
+                        {...register("billingPostalCode", {
+                          required: "Billing postal code is required",
+                          maxLength: {
+                            value: 20,
+                            message: "Cannot exceed 20 characters",
+                          },
+                        })}
+                        error={errors.billingPostalCode?.message}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Order Notes */}
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">
+                  Order Notes (Optional)
+                </h2>
+                <textarea
+                  {...register("orderNotes", {
+                    maxLength: {
+                      value: 500,
+                      message: "Cannot exceed 500 characters",
+                    },
+                  })}
+                  className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                  rows={3}
+                  placeholder="Special instructions..."
+                />
+              </div>
+
+              {/* Submit Button - Mobile */}
+              <div className="lg:hidden">
+                <Button
+                  type="submit"
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-md text-sm"
+                  disabled={isSubmitting}
+                  loading={isSubmitting}
+                >
+                  {isSubmitting ? "Placing Order..." : "Place Order"}
+                </Button>
               </div>
             </form>
           </div>
 
+          {/* Order Summary */}
           <div className="lg:w-80 lg:sticky lg:top-6">
             <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                Order Details
+                Order Summary
               </h2>
 
-              <div className="space-y-3 mb-4">
-                {cartItems.map((item, index) => {
-                  const imageUrl = getImageUrl(item);
-
-                  // console.log("CheckoutPage: Item image data:", {
-                  //   itemId: item.productId?._id || item._id || index,
-                  //   title: item.title,
-                  //   image: item.image,
-                  //   productIdImages: item.productId?.images,
-                  //   computedImageUrl: imageUrl,
-                  // });
-
-                  return (
-                    <div
-                      key={`${item.productId?._id || item._id || index}-${item.variantId || "no-variant"}`}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <div className="flex items-center gap-3">
-                        <img
-                          src={imageUrl}
-                          alt={item.title || "Product"}
-                          className="w-12 h-12 object-cover rounded-md border border-gray-200"
-                          onError={(e) => {
-                            console.warn(
-                              `CheckoutPage: Image failed to load for ${item.title || "unknown"}:`,
-                              e.target.src
-                            );
-                            e.currentTarget.src = "/images/placeholder-product.png";
-                            e.currentTarget.onerror = null;
-                          }}
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-900 line-clamp-2">
-                            {item.title || "Untitled Product"}
-                          </p>
-                          <p className="text-xs text-gray-600">
-                            SKU: {item.sku || "N/A"}
-                          </p>
-                          <p className="text-xs text-gray-600">
-                            Qty: {item.quantity}
-                          </p>
-                          <p className="text-xs text-gray-600">
-                            Shipping: {formatPrice(item.shippingCost || 0)}
-                          </p>
-                        </div>
+              <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
+                {cartItems.map((item) => (
+                  <div key={`${item.productId?._id || item.productId}-${item.variantId || ""}`} 
+                       className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={item.image?.url || item.productId?.images?.[0]?.url || "/placeholder.png"}
+                        alt={item.title}
+                        className="w-12 h-12 object-cover rounded-md border border-gray-200"
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {item.title || item.productId?.title}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          Qty: {item.quantity} × {formatPrice(item.discountPrice || item.price)}
+                        </p>
                       </div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {formatPrice(item.price * item.quantity)}
-                      </p>
                     </div>
-                  );
-                })}
+                    <p className="text-sm font-medium text-gray-900">
+                      {formatPrice((item.discountPrice || item.price) * item.quantity)}
+                    </p>
+                  </div>
+                ))}
               </div>
 
               <div className="space-y-2 border-t border-gray-200 pt-3 mb-4 text-sm">
@@ -558,56 +560,27 @@ Please confirm my order. Thank you!`;
                   <span>{formatPrice(subtotal)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Tax</span>
-                  <span>{formatPrice(tax)}</span>
-                </div>
-                <div className="flex justify-between">
                   <span className="text-gray-600">Shipping</span>
                   <span>{formatPrice(shipping)}</span>
                 </div>
-                {shipping === 0 && (
-                  <p className="text-xs text-green-600">
-                    Free shipping applied (Order above PKR 2,500)
-                  </p>
-                )}
                 <div className="flex justify-between font-bold text-base pt-2">
                   <span>Total</span>
                   <span>{formatPrice(total)}</span>
                 </div>
               </div>
 
-              <Button
-                type="submit"
-                form="checkout-form"
-                className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-md text-sm mb-3"
-                disabled={isSubmitting || cartItems.length === 0}
-              >
-                {isSubmitting ? "Processing..." : "Place Order"}
-              </Button>
-
-              <Button
-                variant="outline"
-                className="w-full border-green-600 text-green-600 hover:bg-green-50 py-2 rounded-md text-sm"
-                icon={FiMessageSquare}
-                onClick={() => {
-                  const message = `Hi, I need help with my order. Here are my cart details:
-                  
-${cartItems.map((item) => `- ${item.title || "Product"} (Qty: ${item.quantity}, Shipping: ${formatPrice(item.shippingCost || 0)}) - ${formatPrice(item.price * item.quantity)}`).join("\n")}
-
-Subtotal: ${formatPrice(subtotal)}
-Total Shipping: ${formatPrice(shipping)}
-Total: ${formatPrice(total)}
-
-Can you assist me?`;
-                  const phoneNumber = "923006530063";
-                  window.open(
-                    `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`,
-                    "_blank"
-                  );
-                }}
-              >
-                Chat with Support
-              </Button>
+              {/* Submit Button - Desktop */}
+              <div className="hidden lg:block">
+                <Button
+                  type="submit"
+                  form="checkout-form"
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-md text-sm mb-3"
+                  disabled={isSubmitting}
+                  loading={isSubmitting}
+                >
+                  {isSubmitting ? "Placing Order..." : "Place Order"}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -233,8 +233,8 @@ const commonProductValidators = [
   body('description')
   .optional({ checkFalsy: true }) 
   .trim()
-  .isLength({ min: 10, max: 3000 })
-  .withMessage('If provided, product description must be between 10 and 3000 characters'),
+  .isLength({ min: 10, max: 30000 })
+  .withMessage('If provided, product description must be between 10 and 30000 characters'),
 
 
   body('price')
@@ -417,8 +417,8 @@ const commonProductValidators = [
       if (seo.title && (typeof seo.title !== 'string' || seo.title.length > 300)) {
         throw new Error('SEO title must be a string with max 60 characters');
       }
-      if (seo.description && (typeof seo.description !== 'string' || seo.description.length > 3000)) {
-        throw new Error('SEO description must be a string with max 3000 characters');
+      if (seo.description && (typeof seo.description !== 'string' || seo.description.length > 30000)) {
+        throw new Error('SEO description must be a string with max 30000 characters');
       }
       return true;
     }),

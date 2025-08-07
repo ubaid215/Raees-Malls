@@ -39,6 +39,7 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-local": "^1.0.0",
     "pdfkit": "^0.17.0",
+    "qrcode": "^1.5.4",
     "redis": "^4.7.0",
     "sharp": "^0.34.1",
     "slugify": "^1.6.6",
