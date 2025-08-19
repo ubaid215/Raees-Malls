@@ -337,6 +337,49 @@ const OrderManagement = () => {
     }).format(price || 0);
   };
 
+  // Helper function to get price from order item
+  const getItemPrice = (item) => {
+    if (!item) return 0;
+    
+    switch (item.variantType) {
+      case 'simple':
+        return item.simpleProduct?.discountPrice || item.simpleProduct?.price || 0;
+      case 'color':
+        return item.colorVariant?.discountPrice || item.colorVariant?.price || 0;
+      case 'storage':
+        return item.storageVariant?.storageOption?.discountPrice || 
+               item.storageVariant?.storageOption?.price || 0;
+      case 'size':
+        return item.sizeVariant?.sizeOption?.discountPrice || 
+               item.sizeVariant?.sizeOption?.price || 0;
+      default:
+        return item.price || 0;
+    }
+  };
+
+  // Helper function to get variant details
+  const getVariantDetails = (item) => {
+    if (!item) return null;
+    
+    switch (item.variantType) {
+      case 'color':
+        return item.colorVariant?.color?.name ? 
+               `Color: ${item.colorVariant.color.name}` : null;
+      case 'storage':
+        return [
+          item.storageVariant?.color?.name ? `Color: ${item.storageVariant.color.name}` : null,
+          item.storageVariant?.storageOption?.capacity ? `Storage: ${item.storageVariant.storageOption.capacity}` : null
+        ].filter(Boolean).join(', ');
+      case 'size':
+        return [
+          item.sizeVariant?.color?.name ? `Color: ${item.sizeVariant.color.name}` : null,
+          item.sizeVariant?.sizeOption?.size ? `Size: ${item.sizeVariant.sizeOption.size}` : null
+        ].filter(Boolean).join(', ');
+      default:
+        return null;
+    }
+  };
+
   const getOrderStatusBadge = (status) => {
     const statusStyles = {
       pending: "bg-yellow-100 text-yellow-800",
@@ -643,7 +686,7 @@ const OrderManagement = () => {
                     <div>
                       <p className="text-xs text-gray-600">Total Amount</p>
                       <p className="font-medium text-gray-900 text-sm">
-                        {formatPrice(order.totalPrice)}
+                        {formatPrice(order.totalAmount || order.totalPrice)}
                       </p>
                     </div>
                     <div>
@@ -680,6 +723,9 @@ const OrderManagement = () => {
                         altText = item.productId.images[0].alt || altText;
                       }
 
+                      const variantDetails = getVariantDetails(item);
+                      const itemPrice = getItemPrice(item);
+
                       return (
                         <div
                           key={index}
@@ -696,10 +742,9 @@ const OrderManagement = () => {
                           <div className="flex-1">
                             <p className="font-medium text-gray-900 text-sm">
                               {item.productId?.title || "Untitled Product"}
-                              {item.variantId && (
+                              {variantDetails && (
                                 <span className="ml-1 text-xs text-gray-500">
-                                  (Variant:{" "}
-                                  {item.variantValue || item.variantId})
+                                  ({variantDetails})
                                 </span>
                               )}
                             </p>
@@ -707,8 +752,13 @@ const OrderManagement = () => {
                               Quantity: {item.quantity || 1}
                             </p>
                             <p className="text-xs text-gray-600">
-                              Price: {formatPrice(item.price)}
+                              Price: {formatPrice(itemPrice)}
                             </p>
+                            {itemPrice !== item.price && (
+                              <p className="text-xs text-gray-400 line-through">
+                                Original: {formatPrice(item.price)}
+                              </p>
+                            )}
                           </div>
                         </div>
                       );

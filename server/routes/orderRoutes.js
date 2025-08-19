@@ -34,6 +34,27 @@ router.put(
   orderController.cancelOrder
 );
 
+// Notification routes (public access for toast notifications)
+router.get(
+  '/notifications/recent',
+  orderController.getRecentOrderNotifications
+);
+
+// Revenue/Analytics routes (admin only)
+router.get(
+  '/analytics/revenue',
+  authenticateJWT,
+  authorizeRoles('admin'),
+  orderController.getRevenueStats
+);
+
+router.get(
+  '/analytics/products',
+  authenticateJWT,
+  authorizeRoles('admin'),
+  orderController.getProductRevenue
+);
+
 // Admin routes
 router.get(
   '/',

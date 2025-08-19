@@ -2,7 +2,17 @@ import React, { createContext, useState, useEffect, useCallback, useContext, use
 import { debounce } from 'lodash';
 import { useAdminAuth } from './AdminAuthContext';
 import { useAuth } from './AuthContext';
-import { placeOrder, getUserOrders, getAllOrders, updateOrderStatus, downloadInvoice, cancelOrder as apiCancelOrder } from '../services/orderService';
+import { 
+  placeOrder, 
+  getUserOrders, 
+  getAllOrders, 
+  updateOrderStatus, 
+  downloadInvoice, 
+  cancelOrder as apiCancelOrder,
+  getRecentOrderNotifications,
+  getRevenueStats,
+  getProductRevenue
+} from '../services/orderService';
 import socketService from '../services/socketService';
 import { toast } from 'react-toastify';
 
@@ -15,13 +25,28 @@ export const OrderProvider = ({ children }) => {
   const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 10, totalPages: 1 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notifications, setNotifications] = useState([]);
+  const [revenueStats, setRevenueStats] = useState(null);
+  const [productStats, setProductStats] = useState([]);
+
+  // Add these refs for preventing multiple fetches
+  const lastAdminFetch = useRef(0);
+  const lastUserFetch = useRef(0);
+  const initializationRef = useRef(false);
 
   const isAdmin = isAdminAuthenticated && admin && (admin.role === 'admin' || admin.role === 'administrator');
   const isRegularUser = isAuthenticated && user && user.role === 'user';
   const userRole = isAdmin ? admin.role : (isRegularUser ? user.role : null);
 
+  // Improved cache key generation
+  const generateCacheKey = useCallback((type, userId, page, limit, status, extraParams = '') => {
+    return `orders_${type}_${userId || 'all'}_p${page}_l${limit}_s${status || 'all'}${extraParams}`;
+  }, []);
+
+  // Enhanced validation with better error messages
   const validateOrderData = (orderData) => {
     const errors = [];
+    
     if (!orderData.items || !Array.isArray(orderData.items) || orderData.items.length === 0) {
       errors.push('Order must contain at least one item');
     } else {
@@ -35,8 +60,8 @@ export const OrderProvider = ({ children }) => {
         if (!item.quantity || item.quantity < 1 || !Number.isInteger(item.quantity)) {
           errors.push(`Item ${index + 1}: Quantity must be a positive integer`);
         }
-        if (typeof item.shippingCost !== 'number' || item.shippingCost < 0) {
-          errors.push(`Item ${index + 1}: Shipping cost must be a non-negative number`);
+        if (item.variantType && !['simple', 'color', 'storage', 'size'].includes(item.variantType)) {
+          errors.push(`Item ${index + 1}: Invalid variant type`);
         }
       });
     }
@@ -62,18 +87,14 @@ export const OrderProvider = ({ children }) => {
       errors.push('Discount code can only contain letters, numbers, and hyphens');
     }
     
-    if (typeof orderData.totalShippingCost !== 'number' || orderData.totalShippingCost < 0) {
-      errors.push('Total shipping cost must be a non-negative number');
-    }
-    
     return errors;
   };
 
-  // Fixed cache clearing function
+  // Improved cache management
   const clearAllOrdersCache = useCallback(() => {
     console.log('Clearing all orders cache...');
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('orders_') || key.includes('_orders_')) {
+      if (key.startsWith('orders_') || key.includes('_orders_') || key.startsWith('notifications_') || key.startsWith('stats_')) {
         localStorage.removeItem(key);
         localStorage.removeItem(`${key}_timestamp`);
         console.log('Removed cache key:', key);
@@ -94,25 +115,42 @@ export const OrderProvider = ({ children }) => {
     }
   }, [user?._id]);
 
+  // Enhanced socket reconnection logic
+  const handleSocketReconnect = useCallback(() => {
+    if (!socketService.getConnectionState()) {
+      console.log('Attempting socket reconnection...');
+      const currentUserId = isAdmin ? admin?._id : user?._id;
+      if (currentUserId) {
+        socketService.connect(currentUserId, isAdmin ? 'admin' : 'user');
+      }
+    }
+  }, [isAdmin, admin?._id, user?._id]);
+
   const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '', forceRefresh = false) => {
     if (!isRegularUser && !isAdmin) {
       return;
     }
 
-    const cacheKey = `orders_user_${user?._id}_page_${page}_limit_${limit}_status_${status || 'all'}`;
+    const cacheKey = generateCacheKey('user', user?._id, page, limit, status);
     
     // Skip cache if forceRefresh is true
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 2 * 60 * 1000; // Reduced to 2 minutes
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 2 * 60 * 1000;
 
       if (cached && cacheValid) {
-        console.log('fetchUserOrders: Using cached orders');
-        const { orders, pagination } = JSON.parse(cached);
-        setOrders(orders || []);
-        setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
-        return;
+        try {
+          console.log('fetchUserOrders: Using cached orders');
+          const { orders, pagination } = JSON.parse(cached);
+          setOrders(orders || []);
+          setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
+          return;
+        } catch (parseError) {
+          console.warn('Failed to parse cached orders:', parseError);
+          localStorage.removeItem(cacheKey);
+          localStorage.removeItem(`${cacheKey}_timestamp`);
+        }
       }
     }
 
@@ -125,12 +163,16 @@ export const OrderProvider = ({ children }) => {
       
       console.log('fetchUserOrders: API response:', { orders: orders.length, total });
       
-      const filteredOrders = Array.isArray(orders) ? orders.filter(order => order && order.orderId) : [];
+      // Improved order filtering
+      const filteredOrders = Array.isArray(orders) ? orders.filter(order => {
+        return order && (order.orderId || order._id) && order.items && Array.isArray(order.items);
+      }) : [];
+      
       setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
       
       // Cache response only if not forcing refresh
-      if (!forceRefresh) {
+      if (!forceRefresh && filteredOrders.length > 0) {
         localStorage.setItem(cacheKey, JSON.stringify({
           orders: filteredOrders,
           pagination: { total, page: currentPage, limit: currentLimit, totalPages }
@@ -143,27 +185,33 @@ export const OrderProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [isRegularUser, isAdmin, user?._id]);
+  }, [isRegularUser, isAdmin, user?._id, generateCacheKey]);
 
   const fetchAllOrders = useCallback(async (page = 1, limit = 10, status = '', userId = '', forceRefresh = false) => {
     if (!isAdmin) {
       return;
     }
 
-    const cacheKey = `orders_all_page_${page}_limit_${limit}_status_${status || 'all'}_user_${userId || 'all'}`;
+    const cacheKey = generateCacheKey('all', 'admin', page, limit, status, `_user_${userId || 'all'}`);
     
     // Skip cache if forceRefresh is true
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 2 * 60 * 1000; // Reduced to 2 minutes
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 2 * 60 * 1000;
 
       if (cached && cacheValid) {
-        console.log('fetchAllOrders: Using cached orders');
-        const { orders, pagination } = JSON.parse(cached);
-        setOrders(orders || []);
-        setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
-        return;
+        try {
+          console.log('fetchAllOrders: Using cached orders');
+          const { orders, pagination } = JSON.parse(cached);
+          setOrders(orders || []);
+          setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
+          return;
+        } catch (parseError) {
+          console.warn('Failed to parse cached orders:', parseError);
+          localStorage.removeItem(cacheKey);
+          localStorage.removeItem(`${cacheKey}_timestamp`);
+        }
       }
     }
 
@@ -176,12 +224,16 @@ export const OrderProvider = ({ children }) => {
       
       console.log('fetchAllOrders: API response:', { orders: orders.length, total });
       
-      const filteredOrders = Array.isArray(orders) ? orders.filter(order => order && order.orderId) : [];
+      // Improved order filtering
+      const filteredOrders = Array.isArray(orders) ? orders.filter(order => {
+        return order && order.orderId && order.items && Array.isArray(order.items);
+      }) : [];
+      
       setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
       
       // Cache response only if not forcing refresh
-      if (!forceRefresh) {
+      if (!forceRefresh && filteredOrders.length > 0) {
         localStorage.setItem(cacheKey, JSON.stringify({
           orders: filteredOrders,
           pagination: { total, page: currentPage, limit: currentLimit, totalPages }
@@ -194,86 +246,216 @@ export const OrderProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
+  }, [isAdmin, generateCacheKey]);
+
+  // New function to fetch notifications
+  const fetchNotifications = useCallback(async (limit = 5, forceRefresh = false) => {
+    if (!isAdmin) return;
+
+    const cacheKey = `notifications_recent_${limit}`;
+    
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 1 * 60 * 1000; // 1 minute cache
+
+      if (cached && cacheValid) {
+        try {
+          const { notifications } = JSON.parse(cached);
+          setNotifications(notifications || []);
+          return;
+        } catch (parseError) {
+          localStorage.removeItem(cacheKey);
+          localStorage.removeItem(`${cacheKey}_timestamp`);
+        }
+      }
+    }
+
+    try {
+      const response = await getRecentOrderNotifications(limit);
+      const notifications = response.data?.notifications || [];
+      setNotifications(notifications);
+      
+      if (!forceRefresh) {
+        localStorage.setItem(cacheKey, JSON.stringify({ notifications }));
+        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      }
+    } catch (err) {
+      console.error('fetchNotifications error:', err);
+    }
+  }, [isAdmin]);
+
+  // New function to fetch revenue stats
+  const fetchRevenueStats = useCallback(async (period = 'month', startDate = '', endDate = '', forceRefresh = false) => {
+    if (!isAdmin) return;
+
+    const cacheKey = `stats_revenue_${period}_${startDate}_${endDate}`;
+    
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes cache
+
+      if (cached && cacheValid) {
+        try {
+          const { stats } = JSON.parse(cached);
+          setRevenueStats(stats);
+          return;
+        } catch (parseError) {
+          localStorage.removeItem(cacheKey);
+          localStorage.removeItem(`${cacheKey}_timestamp`);
+        }
+      }
+    }
+
+    try {
+      const response = await getRevenueStats(period, startDate, endDate);
+      const stats = response.data?.stats || null;
+      setRevenueStats(stats);
+      
+      if (!forceRefresh) {
+        localStorage.setItem(cacheKey, JSON.stringify({ stats }));
+        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      }
+    } catch (err) {
+      console.error('fetchRevenueStats error:', err);
+    }
+  }, [isAdmin]);
+
+  // New function to fetch product revenue stats
+  const fetchProductStats = useCallback(async (limit = 10, startDate = '', endDate = '', forceRefresh = false) => {
+    if (!isAdmin) return;
+
+    const cacheKey = `stats_products_${limit}_${startDate}_${endDate}`;
+    
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes cache
+
+      if (cached && cacheValid) {
+        try {
+          const { products } = JSON.parse(cached);
+          setProductStats(products || []);
+          return;
+        } catch (parseError) {
+          localStorage.removeItem(cacheKey);
+          localStorage.removeItem(`${cacheKey}_timestamp`);
+        }
+      }
+    }
+
+    try {
+      const response = await getProductRevenue(limit, startDate, endDate);
+      const products = response.data?.products || [];
+      setProductStats(products);
+      
+      if (!forceRefresh) {
+        localStorage.setItem(cacheKey, JSON.stringify({ products }));
+        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      }
+    } catch (err) {
+      console.error('fetchProductStats error:', err);
+    }
   }, [isAdmin]);
 
   const debouncedFetchUserOrders = useCallback(
     debounce((page, limit, status, forceRefresh = false) => {
       return fetchUserOrders(page, limit, status, forceRefresh);
-    }, 500), // Reduced debounce time
+    }, 300),
     [fetchUserOrders]
   );
 
   const debouncedFetchAllOrders = useCallback(
     debounce((page, limit, status, userId, forceRefresh = false) => {
       return fetchAllOrders(page, limit, status, userId, forceRefresh);
-    }, 500), // Reduced debounce time
+    }, 300),
     [fetchAllOrders]
   );
 
+  // Enhanced useEffect with better initialization control
   useEffect(() => {
-    if (!userRole) return;
+    if (!userRole || initializationRef.current) return;
 
-    // Prevent multiple initializations
     const currentUserId = isAdmin ? admin?._id : user?._id;
     if (!currentUserId) return;
 
     console.log('OrderProvider: Setting up for role:', userRole, 'UserID:', currentUserId);
+    initializationRef.current = true;
 
-    // Add a small delay to prevent race conditions with auth initialization
     const setupTimer = setTimeout(() => {
-      // Only fetch if we don't have recent data
       const lastFetchTime = isAdmin ? lastAdminFetch.current : lastUserFetch.current;
       const now = Date.now();
-      const shouldFetch = !lastFetchTime || (now - lastFetchTime) > 30000; // 30 seconds
+      const shouldFetch = !lastFetchTime || (now - lastFetchTime) > 30000;
 
       if (shouldFetch) {
         console.log('OrderProvider: Fetching initial data');
-        const fetchData = isAdmin ? 
-          () => debouncedFetchAllOrders(1, 10, '', '', true) : 
-          () => debouncedFetchUserOrders(1, 10, '', true);
         
-        fetchData();
-        
-        // Update last fetch time
         if (isAdmin) {
+          debouncedFetchAllOrders(1, 10, '', '', true);
+          fetchNotifications(5, true);
+          fetchRevenueStats('month', '', '', true);
+          fetchProductStats(10, '', '', true);
           lastAdminFetch.current = now;
         } else {
+          debouncedFetchUserOrders(1, 10, '', true);
           lastUserFetch.current = now;
         }
-      } else {
-        console.log('OrderProvider: Skipping fetch - recent data available');
       }
-    }, 100); // Small delay to let auth settle
+    }, 100);
 
     let pollingInterval = null;
 
+    // Enhanced socket setup
     if (isAdmin) {
       socketService.connect(currentUserId, 'admin');
 
       const handleSocketError = (error) => {
         console.error('Socket error:', error);
-        setError('Failed to connect to real-time updates. Using fallback polling.');
+        setError('Connection issues detected. Using backup sync.');
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
             if (!socketService.getConnectionState()) {
               console.log('Polling: Fetching orders due to socket disconnect');
               debouncedFetchAllOrders(1, 10, '', '', true);
+              fetchNotifications(5, true);
             }
           }, 15000);
         }
       };
 
+      // Enhanced socket event handlers
       socketService.on('connect_error', handleSocketError);
-      socketService.on('orderCreated', (newOrder) => {
-        console.log('Socket: New order created:', newOrder);
+      
+      socketService.on('orderNotification', (notification) => {
+        console.log('Socket: Order notification received:', notification);
+        setNotifications(prev => [notification, ...prev.slice(0, 4)]); // Keep latest 5
+      });
+
+      socketService.on('newOrder', (data) => {
+        console.log('Socket: New order received:', data);
         clearAllOrdersCache();
         debouncedFetchAllOrders(1, 10, '', '', true);
+        fetchNotifications(5, true);
+        fetchRevenueStats('month', '', '', true);
+        fetchProductStats(10, '', '', true);
+        
+        // Show toast notification
+        toast.success(`New order received: ${data.order?.orderId}`, {
+          position: "top-right",
+          autoClose: 5000,
+        });
       });
 
       socketService.on('orderStatusUpdated', (updatedOrder) => {
         console.log('Socket: Order status updated:', updatedOrder);
         clearAllOrdersCache();
         debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
+        
+        // Update local state optimistically
+        setOrders(prev => prev.map(order => 
+          order.orderId === updatedOrder.orderId ? { ...order, ...updatedOrder } : order
+        ));
       });
 
       socketService.on('connect', () => {
@@ -289,31 +471,41 @@ export const OrderProvider = ({ children }) => {
         console.log('Socket: Disconnected');
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
-            console.log('Polling: Fetching orders due to socket disconnect');
+            console.log('Polling: Fetching data due to socket disconnect');
             debouncedFetchAllOrders(1, 10, '', '', true);
+            fetchNotifications(5, true);
           }, 15000);
         }
       });
+
     } else if (isRegularUser) {
       socketService.connect(currentUserId, 'user');
       
-      socketService.on('orderCreated', (newOrder) => {
-        console.log('Socket: User order created:', newOrder);
-        clearUserOrdersCache();
-        debouncedFetchUserOrders(1, 10, '', true);
-      });
-
       socketService.on('orderStatusUpdated', (updatedOrder) => {
         console.log('Socket: User order status updated:', updatedOrder);
-        clearUserOrdersCache();
-        debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
+        if (updatedOrder.userId === currentUserId) {
+          clearUserOrdersCache();
+          debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
+          
+          // Update local state optimistically
+          setOrders(prev => prev.map(order => 
+            order.orderId === updatedOrder.orderId ? { ...order, ...updatedOrder } : order
+          ));
+          
+          // Show user notification
+          toast.info(`Order ${updatedOrder.orderId} status updated to: ${updatedOrder.status}`, {
+            position: "top-right",
+            autoClose: 4000,
+          });
+        }
       });
     }
 
     return () => {
       console.log('OrderProvider: Cleaning up...');
       clearTimeout(setupTimer);
-      socketService.off('orderCreated');
+      socketService.off('orderNotification');
+      socketService.off('newOrder');
       socketService.off('orderStatusUpdated');
       socketService.off('connect');
       socketService.off('connect_error');
@@ -323,12 +515,9 @@ export const OrderProvider = ({ children }) => {
       }
       debouncedFetchUserOrders.cancel();
       debouncedFetchAllOrders.cancel();
+      initializationRef.current = false;
     };
-  }, [userRole, admin?._id, user?._id]); 
-
-// Add these refs at the top of your component
-const lastAdminFetch = useRef(0);
-const lastUserFetch = useRef(0);
+  }, [userRole, admin?._id, user?._id, pagination.page, pagination.limit]);
 
   const handleOrderError = async (err, isUser, retryFn) => {
     console.error('Order error:', {
@@ -336,6 +525,7 @@ const lastUserFetch = useRef(0);
       status: err.response?.status,
       data: err.response?.data,
     });
+    
     if (err.response && err.response.status === 401) {
       try {
         await (isUser ? refreshToken() : refreshAdminToken());
@@ -345,7 +535,9 @@ const lastUserFetch = useRef(0);
         throw new Error('Token refresh failed: ' + refreshErr.message);
       }
     } else {
-      setError(err.response?.data?.message || err.message || 'An error occurred while processing the request');
+      const errorMessage = err.response?.data?.message || err.message || 'An error occurred while processing the request';
+      setError(errorMessage);
+      toast.error(errorMessage, { position: "top-right", autoClose: 5000 });
       throw err;
     }
   };
@@ -356,9 +548,11 @@ const lastUserFetch = useRef(0);
     
     const validationErrors = validateOrderData(orderData);
     if (validationErrors.length > 0) {
-      setError(validationErrors.join(', '));
+      const errorMessage = validationErrors.join(', ');
+      setError(errorMessage);
       setLoading(false);
-      throw new Error(validationErrors.join(', '));
+      toast.error(errorMessage, { position: "top-right", autoClose: 5000 });
+      throw new Error(errorMessage);
     }
 
     try {
@@ -367,18 +561,20 @@ const lastUserFetch = useRef(0);
         items: orderData.items.map(item => ({
           ...item,
           productId: String(item.productId),
-          shippingCost: item.shippingCost || 0,
         })),
-        totalShippingCost: orderData.totalShippingCost || 0,
       });
 
       console.log('Order placed successfully:', order);
+      toast.success('Order placed successfully!', { position: "top-right", autoClose: 3000 });
       
       // Clear cache and force refresh
       clearAllOrdersCache();
       
       if (isAdmin) {
         await debouncedFetchAllOrders(1, 10, '', '', true);
+        fetchNotifications(5, true);
+        fetchRevenueStats('month', '', '', true);
+        fetchProductStats(10, '', '', true);
       } else if (isRegularUser) {
         await debouncedFetchUserOrders(1, 10, '', true);
       }
@@ -394,32 +590,42 @@ const lastUserFetch = useRef(0);
 
   const updateStatus = async (orderId, status) => {
     if (!isAdmin) {
-      setError('Unauthorized: Only admins can update order status');
-      throw new Error('Unauthorized: Only admins can update order status');
+      const errorMessage = 'Unauthorized: Only admins can update order status';
+      setError(errorMessage);
+      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
     }
     
     setLoading(true);
     setError('');
     
-    if (!['pending', 'processing', 'shipped', 'delivered', 'cancelled'].includes(status)) {
-      setError('Invalid status value');
+    const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      const errorMessage = 'Invalid status value';
+      setError(errorMessage);
       setLoading(false);
-      throw new Error('Invalid status value');
+      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
     }
     
     if (!orderId || typeof orderId !== 'string') {
-      setError('Invalid order ID');
+      const errorMessage = 'Invalid order ID';
+      setError(errorMessage);
       setLoading(false);
-      throw new Error('Invalid order ID');
+      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
     }
 
     try {
       const order = await updateOrderStatus(orderId, status);
       console.log('Order status updated:', order);
+      toast.success(`Order status updated to: ${status}`, { position: "top-right", autoClose: 3000 });
       
       // Clear cache and force refresh
       clearAllOrdersCache();
       await debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
+      fetchNotifications(5, true);
+      
       return order;
     } catch (err) {
       await handleOrderError(err, isAdmin, () => updateStatus(orderId, status));
@@ -431,17 +637,21 @@ const lastUserFetch = useRef(0);
 
   const cancelUserOrder = async (orderId) => {
     if (!isRegularUser) {
-      setError('Unauthorized: Only users can cancel their own orders');
-      throw new Error('Unauthorized: Only users can cancel their own orders');
+      const errorMessage = 'Unauthorized: Only users can cancel their own orders';
+      setError(errorMessage);
+      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
     }
     
     setLoading(true);
     setError('');
     
     if (!orderId || typeof orderId !== 'string') {
-      setError('Invalid order ID');
+      const errorMessage = 'Invalid order ID';
+      setError(errorMessage);
       setLoading(false);
-      throw new Error('Invalid order ID');
+      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
     }
 
     try {
@@ -451,7 +661,7 @@ const lastUserFetch = useRef(0);
       // Clear cache and force refresh
       clearUserOrdersCache();
       await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
-      toast.success('Order cancelled successfully');
+      toast.success('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
       return order;
     } catch (err) {
       console.error('Cancel order error:', {
@@ -469,22 +679,26 @@ const lastUserFetch = useRef(0);
 
   const downloadOrderInvoice = async (orderId) => {
     if (!isAdmin && !isRegularUser) {
-      setError('Unauthorized: Please log in to download invoices');
-      throw new Error('Unauthorized: Please log in to download invoices');
+      const errorMessage = 'Unauthorized: Please log in to download invoices';
+      setError(errorMessage);
+      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
     }
     
     setLoading(true);
     setError('');
     
     if (!orderId || typeof orderId !== 'string') {
-      setError('Invalid order ID');
+      const errorMessage = 'Invalid order ID';
+      setError(errorMessage);
       setLoading(false);
-      throw new Error('Invalid order ID');
+      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
     }
 
     try {
       const response = await downloadInvoice(orderId);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `invoice-${orderId}.pdf`);
@@ -492,6 +706,8 @@ const lastUserFetch = useRef(0);
       link.click();
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
+      
+      toast.success('Invoice downloaded successfully', { position: "top-right", autoClose: 3000 });
       return response;
     } catch (err) {
       await handleOrderError(err, isRegularUser || isAdmin, () => downloadOrderInvoice(orderId));
@@ -501,29 +717,41 @@ const lastUserFetch = useRef(0);
     }
   };
 
-  // Add a force refresh function
+  // Enhanced force refresh function
   const forceRefreshOrders = useCallback(() => {
     console.log('Force refreshing orders...');
     clearAllOrdersCache();
     if (isAdmin) {
-      return debouncedFetchAllOrders(1, 10, '', '', true);
+      debouncedFetchAllOrders(1, 10, '', '', true);
+      fetchNotifications(5, true);
+      fetchRevenueStats('month', '', '', true);
+      fetchProductStats(10, '', '', true);
     } else if (isRegularUser) {
-      return debouncedFetchUserOrders(1, 10, '', true);
+      debouncedFetchUserOrders(1, 10, '', true);
     }
-  }, [isAdmin, isRegularUser, debouncedFetchAllOrders, debouncedFetchUserOrders]);
+  }, [isAdmin, isRegularUser, debouncedFetchAllOrders, debouncedFetchUserOrders, fetchNotifications, fetchRevenueStats, fetchProductStats]);
 
   const value = {
     orders,
     pagination,
     loading,
     error,
+    notifications,
+    revenueStats,
+    productStats,
     placeNewOrder,
     fetchUserOrders: debouncedFetchUserOrders,
     fetchAllOrders: debouncedFetchAllOrders,
+    fetchNotifications,
+    fetchRevenueStats,
+    fetchProductStats,
     updateStatus,
     cancelOrder: cancelUserOrder,
     downloadOrderInvoice,
-    forceRefreshOrders, // Add this new function
+    forceRefreshOrders,
+    clearAllOrdersCache,
+    clearUserOrdersCache,
+    handleSocketReconnect,
     isAdmin,
     isRegularUser
   };

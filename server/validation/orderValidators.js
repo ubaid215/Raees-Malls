@@ -14,77 +14,221 @@ const validate = (req, res, next) => {
     console.log('Request body:', JSON.stringify(req.body, null, 2));
     console.log('Request params:', JSON.stringify(req.params, null, 2));
     console.log('Request query:', JSON.stringify(req.query, null, 2));
-    
+
     return next(new ApiError(400, 'Validation failed', errors.array()));
   }
   next();
 };
 
+
 const placeOrderValidator = [
+  // Items array validation
   body('items')
     .isArray({ min: 1 })
     .withMessage('Items must be a non-empty array'),
-  body('items.*.productId')
-    .isMongoId()
-    .withMessage('Invalid product ID'),
-  body('items.*.variantId')
-    .optional({ nullable: true, checkFalsy: false })
-    .isMongoId()
-    .withMessage('Invalid variant ID'),
-  body('items.*.quantity')
-    .isInt({ min: 1 })
-    .withMessage('Quantity must be at least 1'),
+
+  // Validate each item
+  body('items').custom((items) => {
+    items.forEach((item, i) => {
+      if (!item.productId) {
+        throw new Error(`items[${i}]: productId is required`);
+      }
+      if (!/^[0-9a-fA-F]{24}$/.test(item.productId)) {
+        throw new Error(`items[${i}]: Invalid productId`);
+      }
+      if (!item.quantity || item.quantity < 1) {
+        throw new Error(`items[${i}]: quantity must be at least 1`);
+      }
+      if (!item.price || item.price < 0) {
+        throw new Error(`items[${i}]: price must be valid`);
+      }
+
+      // Variant validation - UPDATED to handle both old and new formats
+      if (item.variantType) {
+        if (!['simple', 'color', 'storage', 'size'].includes(item.variantType)) {
+          throw new Error(`items[${i}]: Invalid variantType`);
+        }
+
+        switch (item.variantType) {
+          case 'simple':
+            if (!item.simpleProduct) {
+              throw new Error(`items[${i}]: simple product details are required`);
+            }
+            break;
+
+          case 'color':
+            if (!item.colorVariant || !item.colorVariant.color || !item.colorVariant.color.name) {
+              throw new Error(`items[${i}]: color variant details are required`);
+            }
+            if (!item.colorVariant.sku) {
+              throw new Error(`items[${i}]: SKU is required for color variant`);
+            }
+            break;
+
+          case 'storage':
+            // Support both old format (storageVariant.capacity) and new format (storageVariant.storageOption.capacity)
+            const hasOldFormat = item.storageVariant && item.storageVariant.capacity;
+            const hasNewFormat = item.storageVariant && item.storageVariant.storageOption && item.storageVariant.storageOption.capacity;
+
+            if (!hasOldFormat && !hasNewFormat) {
+              throw new Error(`items[${i}]: storage variant details are required`);
+            }
+
+            // Check SKU in both formats
+            const hasSkuOld = hasOldFormat && item.storageVariant.sku;
+            const hasSkuNew = hasNewFormat && item.storageVariant.storageOption.sku;
+
+            if (!hasSkuOld && !hasSkuNew) {
+              throw new Error(`items[${i}]: SKU is required for storage variant`);
+            }
+            break;
+
+          case 'size':
+            // Support both old format (sizeVariant.size, sizeVariant.sku)
+            // and new format (sizeVariant.sizeOption.size, sizeVariant.sizeOption.sku)
+            const hasOldSize = item.sizeVariant && item.sizeVariant.size;
+            const hasNewSize = item.sizeVariant && item.sizeVariant.sizeOption && item.sizeVariant.sizeOption.size;
+
+            if (!hasOldSize && !hasNewSize) {
+              throw new Error(`items[${i}]: size variant details are required`);
+            }
+
+            const hasOldSku = item.sizeVariant && item.sizeVariant.sku;
+            const hasNewSku = item.sizeVariant && item.sizeVariant.sizeOption && item.sizeVariant.sizeOption.sku;
+
+            if (!hasOldSku && !hasNewSku) {
+              throw new Error(`items[${i}]: SKU is required for size variant`);
+            }
+
+            // Validate color if present
+            if (item.sizeVariant.color) {
+              if (!item.sizeVariant.color.name) {
+                throw new Error(`items[${i}]: color name is required for size variant`);
+              }
+            }
+            break;
+
+        }
+      } else {
+        // If no variantType specified, assume it's a simple product
+        if (!item.simpleProduct) {
+          throw new Error(`items[${i}]: product details are required`);
+        }
+      }
+    });
+    return true;
+  }),
+
+  // Shipping address validation (unchanged)
   body('shippingAddress')
-    .exists()
-    .withMessage('Shipping address is required')
-    .isObject()
-    .withMessage('Shipping address must be an object'),
+    .exists().withMessage('Shipping address is required')
+    .isObject().withMessage('Shipping address must be an object'),
+
   body('shippingAddress.fullName')
-    .if(body('shippingAddress').exists())
-    .trim()
-    .notEmpty()
-    .withMessage('Full name is required'),
+    .trim().notEmpty().withMessage('Full name is required')
+    .isLength({ max: 100 }).withMessage('Full name cannot exceed 100 characters'),
+
   body('shippingAddress.addressLine1')
-    .if(body('shippingAddress').exists())
-    .trim()
-    .notEmpty()
-    .withMessage('Address line 1 is required'),
+    .trim().notEmpty().withMessage('Address line 1 is required')
+    .isLength({ max: 200 }).withMessage('Address line 1 cannot exceed 200 characters'),
+
   body('shippingAddress.addressLine2')
-    .optional({ nullable: true })
-    .trim(),
+    .optional({ nullable: true }).trim()
+    .isLength({ max: 200 }).withMessage('Address line 2 cannot exceed 200 characters'),
+
   body('shippingAddress.city')
-    .if(body('shippingAddress').exists())
-    .trim()
-    .notEmpty()
-    .withMessage('City is required'),
+    .trim().notEmpty().withMessage('City is required')
+    .isLength({ max: 50 }).withMessage('City cannot exceed 50 characters'),
+
   body('shippingAddress.state')
-    .if(body('shippingAddress').exists())
-    .trim()
-    .notEmpty()
-    .withMessage('State is required'),
+    .trim().notEmpty().withMessage('State is required')
+    .isLength({ max: 50 }).withMessage('State cannot exceed 50 characters'),
+
   body('shippingAddress.postalCode')
-    .if(body('shippingAddress').exists())
-    .trim()
-    .notEmpty()
-    .withMessage('Postal code is required'),
+    .trim().notEmpty().withMessage('Postal code is required')
+    .isLength({ max: 20 }).withMessage('Postal code cannot exceed 20 characters'),
+
   body('shippingAddress.country')
-    .if(body('shippingAddress').exists())
-    .trim()
-    .notEmpty()
-    .withMessage('Country is required'),
+    .trim().notEmpty().withMessage('Country is required')
+    .isLength({ max: 50 }).withMessage('Country cannot exceed 50 characters'),
+
   body('shippingAddress.phone')
-    .if(body('shippingAddress').exists())
-    .trim()
-    .notEmpty()
-    .withMessage('Phone number is required')
-    .matches(/^\+\d{1,4}\s\d{6,14}$/)
-    .withMessage('Phone number must be in the format +[country code] [number], e.g., +92 3001234567'),
+    .trim().notEmpty().withMessage('Phone number is required')
+    .matches(/^\+?\d{1,4}[\s-]?\d{6,14}$/).withMessage('Invalid phone number format'),
+
+  // Add email validation for shipping address
+  body('shippingAddress.email')
+    .optional({ nullable: true })
+    .isEmail().withMessage('Invalid email address'),
+
+  // Payment and billing validation (unchanged)
+  body('paymentMethod')
+    .optional()
+    .isIn(['cash_on_delivery', 'credit_card', 'paypal', 'bank_transfer'])
+    .withMessage('Invalid payment method'),
+
+  body('billingAddress')
+    .optional().isObject().withMessage('Billing address must be an object'),
+
+  body('billingAddress.sameAsShipping')
+    .optional().isBoolean().withMessage('sameAsShipping must be a boolean'),
+
+  body('billingAddress.fullName')
+    .optional().trim().isLength({ max: 100 })
+    .withMessage('Full name cannot exceed 100 characters'),
+
+  body('billingAddress.addressLine1')
+    .optional().trim().isLength({ max: 200 })
+    .withMessage('Address line 1 cannot exceed 200 characters'),
+
+  body('billingAddress.addressLine2')
+    .optional().trim().isLength({ max: 200 })
+    .withMessage('Address line 2 cannot exceed 200 characters'),
+
+  body('billingAddress.city')
+    .optional().trim().isLength({ max: 50 })
+    .withMessage('City cannot exceed 50 characters'),
+
+  body('billingAddress.state')
+    .optional().trim().isLength({ max: 50 })
+    .withMessage('State cannot exceed 50 characters'),
+
+  body('billingAddress.postalCode')
+    .optional().trim().isLength({ max: 20 })
+    .withMessage('Postal code cannot exceed 20 characters'),
+
+  body('billingAddress.country')
+    .optional().trim().isLength({ max: 50 })
+    .withMessage('Country cannot exceed 50 characters'),
+
+  // Order totals validation
+  body('totalShippingCost')
+    .optional().isFloat({ min: 0 }).withMessage('Invalid shipping cost'),
+
+  body('subtotal')
+    .optional().isFloat({ min: 0 }).withMessage('Invalid subtotal'),
+
+  body('total')
+    .optional().isFloat({ min: 0 }).withMessage('Invalid total'),
+
+  // Discount validation (unchanged)
   body('discountCode')
-    .optional({ nullable: true, checkFalsy: false })
-    .isString().withMessage('Invalid discount code')
-    .matches(/^[A-Z0-9-]+$/i).withMessage('Discount code can only contain letters, numbers, and hyphens'),
+    .optional({ nullable: true }).isString().withMessage('Invalid discount code')
+    .matches(/^[A-Z0-9-]+$/i).withMessage('Discount code can only contain letters, numbers, and hyphens')
+    .isLength({ max: 20 }).withMessage('Discount code cannot exceed 20 characters'),
+
+  // Save address validation (unchanged)
+  body('saveAddress')
+    .optional().isBoolean().withMessage('saveAddress must be a boolean'),
+
+  // Order notes validation
+  body('orderNotes')
+    .optional().isString().withMessage('Order notes must be a string')
+    .isLength({ max: 500 }).withMessage('Order notes cannot exceed 500 characters'),
+
   validate
 ];
+
 
 const updateOrderStatusValidator = [
   param('orderId')
@@ -92,9 +236,20 @@ const updateOrderStatusValidator = [
     .matches(/^ORD-[A-F0-9]{8}$/i)
     .withMessage('Invalid order ID format. Must be like ORD-XXXXXXXX'),
   body('status')
-    .optional()
-    .isIn(['pending', 'processing', 'shipped', 'delivered', 'cancelled'])
+    .isIn(['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'])
     .withMessage('Invalid status value'),
+  body('trackingInfo.carrier')
+    .optional()
+    .isString()
+    .withMessage('Carrier must be a string'),
+  body('trackingInfo.trackingNumber')
+    .optional()
+    .isString()
+    .withMessage('Tracking number must be a string'),
+  body('trackingInfo.trackingUrl')
+    .optional()
+    .isURL()
+    .withMessage('Tracking URL must be a valid URL'),
   validate
 ];
 
@@ -111,12 +266,28 @@ const getOrdersValidator = [
     .withMessage('Limit must be between 1 and 100'),
   query('status')
     .optional()
-    .isIn(['', 'pending', 'processing', 'shipped', 'delivered', 'cancelled'])
+    .isIn(['', 'pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'])
     .withMessage('Invalid status value'),
   query('userId')
     .optional()
     .custom(isValidObjectIdOrEmpty)
     .withMessage('Invalid user ID'),
+  query('paymentMethod')
+    .optional()
+    .isIn(['', 'cash_on_delivery', 'credit_card', 'paypal', 'bank_transfer'])
+    .withMessage('Invalid payment method'),
+  query('paymentStatus')
+    .optional()
+    .isIn(['', 'pending', 'authorized', 'paid', 'partially_refunded', 'refunded', 'voided'])
+    .withMessage('Invalid payment status'),
+  query('dateFrom')
+    .optional()
+    .isISO8601()
+    .withMessage('Invalid date format for dateFrom'),
+  query('dateTo')
+    .optional()
+    .isISO8601()
+    .withMessage('Invalid date format for dateTo'),
   validate
 ];
 
@@ -132,5 +303,6 @@ module.exports = {
   placeOrderValidator,
   updateOrderStatusValidator,
   getOrdersValidator,
-  downloadInvoiceValidator
+  downloadInvoiceValidator,
+  validate
 };

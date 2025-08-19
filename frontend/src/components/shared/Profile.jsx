@@ -84,6 +84,65 @@ const Profile = () => {
     }
   };
 
+  // Helper function to calculate item price based on variant type
+  const calculateItemPrice = (item) => {
+    if (!item) return 0;
+
+    switch (item.variantType) {
+      case "simple":
+        return (
+          item.simpleProduct?.discountPrice || item.simpleProduct?.price || 0
+        );
+      case "color":
+        return (
+          item.colorVariant?.discountPrice || item.colorVariant?.price || 0
+        );
+      case "storage":
+        return (
+          item.storageVariant?.storageOption?.discountPrice ||
+          item.storageVariant?.storageOption?.price ||
+          0
+        );
+      case "size":
+        return (
+          item.sizeVariant?.sizeOption?.discountPrice ||
+          item.sizeVariant?.sizeOption?.price ||
+          0
+        );
+      default:
+        return item.price || 0;
+    }
+  };
+
+  // Helper function to get item details including quantity and total
+  const getItemDetails = (item) => {
+    let quantity = 0;
+    let finalUnitPrice = calculateItemPrice(item);
+
+    switch (item.variantType) {
+      case "simple":
+        quantity = item.simpleProduct?.quantity || 0;
+        break;
+      case "color":
+        quantity = item.colorVariant?.quantity || 0;
+        break;
+      case "storage":
+        quantity = item.storageVariant?.quantity || 0;
+        break;
+      case "size":
+        quantity = item.sizeVariant?.quantity || 0;
+        break;
+      default:
+        quantity = item.quantity || 0;
+    }
+
+    return {
+      quantity,
+      finalUnitPrice,
+      itemTotal: quantity * finalUnitPrice,
+    };
+  };
+
   const getImageUrl = (item) => {
     const baseUrl =
       import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
@@ -572,93 +631,96 @@ const Profile = () => {
                           className="border border-gray-200 rounded-lg p-3 sm:p-4 hover:bg-gray-50 cursor-pointer transition-colors"
                           onClick={() => navigate(`/orders/${order.orderId}`)}
                         >
-                          {(order.items || []).map((item, index) => (
-                            <div
-                              key={index}
-                              className="flex gap-2 sm:gap-4 mb-2"
-                            >
-                              <div className="flex-shrink-0">
-                                <img
-                                  src={getImageUrl(item)}
-                                  alt={
-                                    item.productId?.title ||
-                                    item.title ||
-                                    "Product"
-                                  }
-                                  className="w-10 h-10 sm:w-12 sm:h-12 object-contain rounded-md border border-gray-200"
-                                  onError={(e) => {
-                                    console.warn(
-                                      `Order: Image failed to load for ${item.productId?.title || item.title || "unknown"}:`,
-                                      e.target.src
-                                    );
-                                    e.currentTarget.src =
-                                      "/images/placeholder-product.png";
-                                    e.currentTarget.onerror = null;
-                                  }}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2 mb-2">
-                                  <div className="min-w-0">
-                                    <h3 className="font-medium text-gray-900 text-sm sm:text-base truncate">
-                                      {item.productId?.title || "Product"}
-                                    </h3>
-                                    <p className="text-xs sm:text-sm text-gray-600">
-                                      #{order.orderId}
-                                    </p>
-                                    <p className="text-xs text-gray-500">
-                                      {new Date(
-                                        order.createdAt || Date.now()
-                                      ).toLocaleDateString()}
-                                    </p>
-                                  </div>
-                                  <div className="flex flex-row sm:flex-col items-start sm:items-end gap-2 sm:gap-1">
-                                    <p className="font-semibold text-gray-900 text-sm sm:text-base">
-                                      {formatPrice(item.price * item.quantity)}
-                                    </p>
-                                    {getOrderStatusBadge(order.status)}
-                                  </div>
+                          {(order.items || []).map((item, index) => {
+                            const itemDetails = getItemDetails(item);
+                            return (
+                              <div
+                                key={index}
+                                className="flex gap-2 sm:gap-4 mb-2"
+                              >
+                                <div className="flex-shrink-0">
+                                  <img
+                                    src={getImageUrl(item)}
+                                    alt={
+                                      item.productId?.title ||
+                                      item.title ||
+                                      "Product"
+                                    }
+                                    className="w-10 h-10 sm:w-12 sm:h-12 object-contain rounded-md border border-gray-200"
+                                    onError={(e) => {
+                                      console.warn(
+                                        `Order: Image failed to load for ${item.productId?.title || item.title || "unknown"}:`,
+                                        e.target.src
+                                      );
+                                      e.currentTarget.src =
+                                        "/images/placeholder-product.png";
+                                      e.currentTarget.onerror = null;
+                                    }}
+                                  />
                                 </div>
-                                <p className="text-xs sm:text-sm text-gray-600">
-                                  Qty: {item.quantity || 1}
-                                  {item.variantId && (
-                                    <span className="ml-1 sm:ml-2">
-                                      • {item.variantValue || "Variant"}
-                                    </span>
-                                  )}
-                                </p>
-                                {order.status === "delivered" &&
-                                  !item.reviewed && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleOpenReviewModal(
-                                          item.productId._id,
-                                          order.orderId
-                                        );
-                                      }}
-                                      className="mt-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors animate-split-bounce"
-                                      title="Add Review"
-                                    >
-                                      <svg
-                                        className="w-4 h-4 sm:w-5 sm:h-5"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                        xmlns="http://www.w3.org/2000/svg"
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-1 sm:gap-2 mb-2">
+                                    <div className="min-w-0">
+                                      <h3 className="font-medium text-gray-900 text-sm sm:text-base truncate">
+                                        {item.productId?.title || "Product"}
+                                      </h3>
+                                      <p className="text-xs sm:text-sm text-gray-600">
+                                        #{order.orderId}
+                                      </p>
+                                      <p className="text-xs text-gray-500">
+                                        {new Date(
+                                          order.createdAt || Date.now()
+                                        ).toLocaleDateString()}
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-row sm:flex-col items-start sm:items-end gap-2 sm:gap-1">
+                                      <p className="font-semibold text-gray-900 text-sm sm:text-base">
+                                        {formatPrice(itemDetails.itemTotal)}
+                                      </p>
+                                      {getOrderStatusBadge(order.status)}
+                                    </div>
+                                  </div>
+                                  <p className="text-xs sm:text-sm text-gray-600">
+                                    Qty: {itemDetails.quantity}
+                                    {item.variantId && (
+                                      <span className="ml-1 sm:ml-2">
+                                        • {item.variantValue || "Variant"}
+                                      </span>
+                                    )}
+                                  </p>
+                                  {order.status === "delivered" &&
+                                    !item.reviewed && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenReviewModal(
+                                            item.productId._id,
+                                            order.orderId
+                                          );
+                                        }}
+                                        className="mt-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors animate-split-bounce"
+                                        title="Add Review"
                                       >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth="2"
-                                          d="M12 4v16m8-8H4"
-                                        />
-                                      </svg>
-                                    </button>
-                                  )}
+                                        <svg
+                                          className="w-4 h-4 sm:w-5 sm:h-5"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          viewBox="0 0 24 24"
+                                          xmlns="http://www.w3.org/2000/svg"
+                                        >
+                                          <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth="2"
+                                            d="M12 4v16m8-8H4"
+                                          />
+                                        </svg>
+                                      </button>
+                                    )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       );
                     })
@@ -746,30 +808,33 @@ const Profile = () => {
                               Items:
                             </p>
                             <ul className="space-y-2 text-sm sm:text-base">
-                              {(order.items || []).map((item, index) => (
-                                <li
-                                  key={index}
-                                  className="flex justify-between"
-                                >
-                                  <span className="text-gray-700">
-                                    {item.quantity || 1} ×{" "}
-                                    {item.productId?.title ||
-                                      "Untitled Product"}
-                                    {item.variantId && (
-                                      <span className="ml-1 text-xs text-gray-500">
-                                        (Variant:{" "}
-                                        {item.variantValue ||
-                                          item.variantId ||
-                                          "Unknown"}
-                                        )
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="text-gray-900 font-medium">
-                                    {formatPrice(item.price)}
-                                  </span>
-                                </li>
-                              ))}
+                              {(order.items || []).map((item, index) => {
+                                const itemDetails = getItemDetails(item);
+                                return (
+                                  <li
+                                    key={index}
+                                    className="flex justify-between"
+                                  >
+                                    <span className="text-gray-700">
+                                      {itemDetails.quantity} ×{" "}
+                                      {item.productId?.title ||
+                                        "Untitled Product"}
+                                      {item.variantId && (
+                                        <span className="ml-1 text-xs text-gray-500">
+                                          (Variant:{" "}
+                                          {item.variantValue ||
+                                            item.variantId ||
+                                            "Unknown"}
+                                          )
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="text-gray-900 font-medium">
+                                      {formatPrice(itemDetails.itemTotal)}
+                                    </span>
+                                  </li>
+                                );
+                              })}
                             </ul>
                           </div>
                           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-t pt-4">

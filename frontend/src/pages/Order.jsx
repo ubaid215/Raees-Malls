@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import {
   FiPackage,
   FiTruck,
@@ -23,6 +23,88 @@ const Order = () => {
   const navigate = useNavigate();
   const [newOrderIds, setNewOrderIds] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
+
+  // Helper function to calculate item price based on variant type
+  const calculateItemPrice = (item) => {
+    if (!item) return 0;
+    
+    switch(item.variantType) {
+      case 'simple':
+        return item.simpleProduct?.discountPrice || item.simpleProduct?.price || 0;
+      case 'color':
+        return item.colorVariant?.discountPrice || item.colorVariant?.price || 0;
+      case 'storage':
+        return item.storageVariant?.storageOption?.discountPrice || 
+               item.storageVariant?.storageOption?.price || 0;
+      case 'size':
+        return item.sizeVariant?.sizeOption?.discountPrice || 
+               item.sizeVariant?.sizeOption?.price || 0;
+      default:
+        return item.price || 0;
+    }
+  };
+
+  // Helper function to get item details including quantity and total
+  const getItemDetails = (item) => {
+    let quantity = 0;
+    let finalUnitPrice = calculateItemPrice(item);
+    
+    switch(item.variantType) {
+      case 'simple':
+        quantity = item.simpleProduct?.quantity || 0;
+        break;
+      case 'color':
+        quantity = item.colorVariant?.quantity || 0;
+        break;
+      case 'storage':
+        quantity = item.storageVariant?.quantity || 0;
+        break;
+      case 'size':
+        quantity = item.sizeVariant?.quantity || 0;
+        break;
+      default:
+        quantity = item.quantity || 0;
+    }
+    
+    return {
+      quantity,
+      finalUnitPrice,
+      itemTotal: quantity * finalUnitPrice
+    };
+  };
+
+  const getVariantDetails = (item) => {
+    if (!item) return null;
+    
+    const variantInfo = {};
+    
+    switch(item.variantType) {
+      case 'color':
+        if (item.colorVariant) {
+          variantInfo.colorName = item.colorVariant.color?.name;
+        }
+        break;
+      case 'storage':
+        if (item.storageVariant) {
+          variantInfo.colorName = item.storageVariant.color?.name;
+          variantInfo.storageCapacity = item.storageVariant.storageOption?.capacity;
+        }
+        break;
+      case 'size':
+        if (item.sizeVariant) {
+          variantInfo.colorName = item.sizeVariant.color?.name;
+          variantInfo.size = item.sizeVariant.sizeOption?.size;
+        }
+        break;
+      default:
+        break;
+    }
+    
+    return Object.entries(variantInfo)
+      .filter(([_, value]) => value)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ');
+  };
 
   useEffect(() => {
     if (!isRegularUser || !user) {
@@ -155,13 +237,15 @@ const Order = () => {
     setSelectedOrder(null);
   };
 
+  
+
   const getImageUrl = (item) => {
     const baseUrl =
       import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
     
     // Try to get image from variant first
-    if (item.variantDetails?.images?.[0]?.url) {
-      const variantImage = item.variantDetails.images[0].url;
+    if (item.variantType === 'color' && item.colorVariant?.images?.[0]?.url) {
+      const variantImage = item.colorVariant.images[0].url;
       return variantImage.startsWith("http") 
         ? variantImage 
         : `${baseUrl}${variantImage}`;
@@ -177,24 +261,6 @@ const Order = () => {
     
     // Fallback to placeholder
     return "/images/placeholder-product.png";
-  };
-
-  const getVariantDetails = (item) => {
-    if (!item.variantId) return null;
-    
-    if (item.storageOption) {
-      return `Storage: ${item.storageOption.capacity}`;
-    }
-    
-    if (item.sizeOption) {
-      return `Size: ${item.sizeOption.size}`;
-    }
-    
-    if (item.variantDetails?.color) {
-      return `Color: ${item.variantDetails.color}`;
-    }
-    
-    return "Variant";
   };
 
   if (loading && !orders.length) {
@@ -263,13 +329,16 @@ const Order = () => {
               <h2 className="text-xl font-semibold text-gray-900">
                 Order {selectedOrder.orderId || "Unknown"}
               </h2>
-              <Button
-                onClick={handleBackToList}
-                className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50"
-              >
-                <FiChevronLeft />
-                Back to Orders
-              </Button>
+              <div className="flex gap-2">
+                
+                <Button
+                  onClick={handleBackToList}
+                  className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50"
+                >
+                  <FiChevronLeft />
+                  Back
+                </Button>
+              </div>
             </div>
             <div className="space-y-6">
               <div>
@@ -289,6 +358,8 @@ const Order = () => {
                 <ul className="space-y-4">
                   {(selectedOrder.items || []).map((item, index) => {
                     const variantDetails = getVariantDetails(item);
+                    const itemDetails = getItemDetails(item);
+                    
                     return (
                       <li key={index} className="flex items-start gap-4">
                         <img
@@ -311,13 +382,16 @@ const Order = () => {
                             </p>
                           )}
                           <p className="text-sm text-gray-600">
-                            Quantity: {item.quantity || 1}
+                            Quantity: {itemDetails.quantity}
                           </p>
                           <p className="text-sm font-medium text-gray-900">
-                            {formatPrice(item.price || item.selectedPrice)}
+                            {formatPrice(itemDetails.finalUnitPrice)} each
+                          </p>
+                          <p className="text-sm font-medium text-gray-900">
+                            Total: {formatPrice(itemDetails.itemTotal)}
                           </p>
                           <p className="text-xs text-gray-500 mt-1">
-                            SKU: {item.sku}
+                            SKU: {item.sku || 'N/A'}
                           </p>
                         </div>
                       </li>
@@ -347,17 +421,36 @@ const Order = () => {
                 )}
               </div>
               <div>
-                <p className="text-sm text-gray-600">Total Price</p>
+                <p className="text-sm text-gray-600">Subtotal</p>
                 <p className="text-lg font-semibold text-gray-900">
-                  {formatPrice(selectedOrder.totalPrice)}
+                  {formatPrice(selectedOrder.subtotal)}
                 </p>
               </div>
-              {selectedOrder.discountId && (
+              {selectedOrder.discountAmount > 0 && (
                 <div>
-                  <p className="text-sm text-gray-600">Discount Applied</p>
-                  <p className="text-sm text-gray-900">
-                    Code: {selectedOrder.discountId.code} (
-                    {formatPrice(selectedOrder.discountAmount)} off)
+                  <p className="text-sm text-gray-600">Discount</p>
+                  <p className="text-lg font-semibold text-red-600">
+                    -{formatPrice(selectedOrder.discountAmount)}
+                  </p>
+                </div>
+              )}
+              <div>
+                <p className="text-sm text-gray-600">Shipping</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {formatPrice(selectedOrder.totalShippingCost)}
+                </p>
+              </div>
+              <div className="pt-2 border-t border-gray-200">
+                <p className="text-sm text-gray-600">Total Amount</p>
+                <p className="text-xl font-bold text-gray-900">
+                  {formatPrice(selectedOrder.totalAmount)}
+                </p>
+              </div>
+              {selectedOrder.paymentMethod && (
+                <div>
+                  <p className="text-sm text-gray-600">Payment Method</p>
+                  <p className="text-sm font-medium text-gray-900 capitalize">
+                    {selectedOrder.paymentMethod.replace(/_/g, ' ')}
                   </p>
                 </div>
               )}
@@ -465,7 +558,7 @@ const Order = () => {
                           <div>
                             <p className="text-sm text-gray-600">Total</p>
                             <p className="font-medium text-gray-900">
-                              {formatPrice(order.totalPrice)}
+                              {formatPrice(order.totalAmount)}
                             </p>
                           </div>
                           <div>

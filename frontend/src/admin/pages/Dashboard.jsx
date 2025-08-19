@@ -51,16 +51,84 @@ const Dashboard = () => {
   const [selectedMonth, setSelectedMonth] = useState(
     new Date().toISOString().slice(0, 7)
   );
-  const [chartType, setChartType] = useState("line"); // 'line' or 'bar'
-  const [chartFilter, setChartFilter] = useState("weekly"); // 'daily', 'weekly', 'monthly'
+  const [chartType, setChartType] = useState("line");
+  const [chartFilter, setChartFilter] = useState("weekly");
 
-  // Fetch orders on mount and when selectedMonth or chartFilter changes
+  // Helper function to calculate item price based on variant type
+  const calculateItemPrice = (item) => {
+    if (!item) return 0;
+    
+    switch(item.variantType) {
+      case 'simple':
+        return item.simpleProduct?.discountPrice || item.simpleProduct?.price || 0;
+      case 'color':
+        return item.colorVariant?.discountPrice || item.colorVariant?.price || 0;
+      case 'storage':
+        return item.storageVariant?.storageOption?.discountPrice || 
+               item.storageVariant?.storageOption?.price || 0;
+      case 'size':
+        return item.sizeVariant?.sizeOption?.discountPrice || 
+               item.sizeVariant?.sizeOption?.price || 0;
+      default:
+        return item.price || 0;
+    }
+  };
+
+  // Helper function to get complete item details
+  const getItemDetails = (item) => {
+    let quantity = 0;
+    let finalUnitPrice = calculateItemPrice(item);
+    let variantDetails = null;
+    
+    switch(item.variantType) {
+      case 'simple':
+        quantity = item.simpleProduct?.quantity || item.quantity || 0;
+        break;
+      case 'color':
+        quantity = item.colorVariant?.quantity || item.quantity || 0;
+        variantDetails = item.colorVariant?.color?.name ? `Color: ${item.colorVariant.color.name}` : null;
+        break;
+      case 'storage':
+        quantity = item.storageVariant?.quantity || item.quantity || 0;
+        variantDetails = [
+          item.storageVariant?.color?.name && `Color: ${item.storageVariant.color.name}`,
+          item.storageVariant?.storageOption?.capacity && `Storage: ${item.storageVariant.storageOption.capacity}`
+        ].filter(Boolean).join(', ');
+        break;
+      case 'size':
+        quantity = item.sizeVariant?.quantity || item.quantity || 0;
+        variantDetails = [
+          item.sizeVariant?.color?.name && `Color: ${item.sizeVariant.color.name}`,
+          item.sizeVariant?.sizeOption?.size && `Size: ${item.sizeVariant.sizeOption.size}`
+        ].filter(Boolean).join(', ');
+        break;
+      default:
+        quantity = item.quantity || 0;
+        variantDetails = item.variantValue || item.variantId ? `Variant: ${item.variantValue || item.variantId}` : null;
+    }
+    
+    return {
+      quantity,
+      finalUnitPrice,
+      itemTotal: quantity * finalUnitPrice,
+      variantDetails
+    };
+  };
+
+  const formatPrice = (price) => {
+    return new Intl.NumberFormat("en-PK", {
+      style: "currency",
+      currency: "PKR",
+      minimumFractionDigits: 0,
+    }).format(price || 0);
+  };
+
   useEffect(() => {
     const fetchOrders = async () => {
       try {
         const startDate = new Date(selectedMonth);
         const endDate = new Date(startDate);
-        endDate.setMonth(endDate.getMonth() + 1); // Fetch one month of data
+        endDate.setMonth(endDate.getMonth() + 1);
         const params = {
           startDate: startDate.toISOString().split("T")[0],
           endDate: endDate.toISOString().split("T")[0],
@@ -80,7 +148,7 @@ const Dashboard = () => {
     fetchOrders();
   }, [isAdmin, isRegularUser, fetchAllOrders, fetchUserOrders, selectedMonth]);
 
-  // Enhanced stats calculation
+  // Enhanced stats calculation with proper pricing
   const stats = useMemo(() => {
     if (!orders || orders.length === 0) {
       return {
@@ -101,14 +169,21 @@ const Dashboard = () => {
       );
     });
 
-    const revenue = filteredOrders.reduce(
-      (sum, order) => sum + (order.totalPrice || 0),
-      0
-    );
+    // Calculate revenue using proper item pricing
+    const revenue = filteredOrders.reduce((sum, order) => {
+      const orderTotal = (order.items || []).reduce((orderSum, item) => {
+        const itemDetails = getItemDetails(item);
+        return orderSum + itemDetails.itemTotal;
+      }, 0);
+      return sum + orderTotal;
+    }, 0);
+
     const orderCount = filteredOrders.length;
     const uniqueCustomers = new Set(
       filteredOrders.map((order) => order.userId?.email)
     ).size;
+
+    // Count unique products
     const uniqueProducts = new Set(
       filteredOrders.flatMap((order) =>
         (order.items || []).map((item) => item.productId?._id)
@@ -117,14 +192,17 @@ const Dashboard = () => {
 
     const averageOrderValue = orderCount > 0 ? revenue / orderCount : 0;
 
+    // Calculate top selling product with proper quantities
     const productSales = {};
     filteredOrders.forEach((order) => {
       order.items?.forEach((item) => {
         const productName = item.productId?.name || "Unknown";
+        const itemDetails = getItemDetails(item);
         productSales[productName] =
-          (productSales[productName] || 0) + item.quantity;
+          (productSales[productName] || 0) + itemDetails.quantity;
       });
     });
+
     const topSellingProduct = Object.keys(productSales).reduce(
       (a, b) => (productSales[a] > productSales[b] ? a : b),
       "N/A"
@@ -142,85 +220,7 @@ const Dashboard = () => {
     };
   }, [orders, selectedMonth]);
 
-  // Fetch previous period data for percentage change
-  const getPercentageChange = useCallback(
-    async (current, type) => {
-      try {
-        const now = new Date(selectedMonth);
-        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const prevMonthStr = prevMonth.toISOString().slice(0, 7);
-
-        let prevOrders = [];
-        if (isAdmin) {
-          const response = await fetchAllOrders(1, 100, "", "", true);
-          prevOrders = response?.orders || [];
-        } else if (isRegularUser) {
-          const response = await fetchUserOrders(1, 100, "", true);
-          prevOrders = response?.orders || [];
-        }
-
-        const prevFilteredOrders = prevOrders.filter(
-          (order) =>
-            order?.createdAt &&
-            new Date(order.createdAt).toISOString().slice(0, 7) === prevMonthStr
-        );
-
-        let prevValue = 0;
-        switch (type) {
-          case "revenue":
-            prevValue = prevFilteredOrders.reduce(
-              (sum, order) => sum + (order.totalPrice || 0),
-              0
-            );
-            break;
-          case "orders":
-            prevValue = prevFilteredOrders.length;
-            break;
-          case "customers":
-            prevValue = new Set(
-              prevFilteredOrders.map((order) => order.userId?.email)
-            ).size;
-            break;
-          case "products":
-            prevValue = new Set(
-              prevFilteredOrders.flatMap((order) =>
-                (order.items || []).map((item) => item.productId?._id)
-              )
-            ).size;
-            break;
-          case "averageOrderValue":
-            const prevOrderCount = prevFilteredOrders.length;
-            const prevRevenue = prevFilteredOrders.reduce(
-              (sum, order) => sum + (order.totalPrice || 0),
-              0
-            );
-            prevValue = prevOrderCount > 0 ? prevRevenue / prevOrderCount : 0;
-            break;
-          case "conversionRate":
-            const prevCustomers = new Set(
-              prevFilteredOrders.map((order) => order.userId?.email)
-            ).size;
-            prevValue =
-              prevCustomers > 0
-                ? (prevFilteredOrders.length / prevCustomers) * 100
-                : 0;
-            break;
-          default:
-            prevValue = 0;
-        }
-
-        if (prevValue === 0) return "N/A";
-        const percentage = ((current - prevValue) / prevValue) * 100;
-        return `${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}% from last month`;
-      } catch (err) {
-        console.error(`Error calculating ${type} percentage change:`, err);
-        return "N/A";
-      }
-    },
-    [isAdmin, isRegularUser, fetchAllOrders, fetchUserOrders, selectedMonth]
-  );
-
-  // Generate chart data based on chartFilter
+  // Generate chart data with proper pricing
   const chartData = useMemo(() => {
     if (!orders || orders.length === 0) return [];
 
@@ -238,15 +238,20 @@ const Dashboard = () => {
           order.createdAt?.startsWith(dateStr)
         );
 
+        // Calculate revenue with proper item pricing
+        const revenue = dayOrders.reduce((sum, order) => {
+          return sum + (order.items || []).reduce((orderSum, item) => {
+            const itemDetails = getItemDetails(item);
+            return orderSum + itemDetails.itemTotal;
+          }, 0);
+        }, 0);
+
         data.push({
           name: date.toLocaleDateString("en-US", {
             day: "numeric",
             month: "short",
           }),
-          revenue: dayOrders.reduce(
-            (sum, order) => sum + (order.totalPrice || 0),
-            0
-          ),
+          revenue,
           orders: dayOrders.length,
         });
       }
@@ -263,12 +268,17 @@ const Dashboard = () => {
           return orderDate >= weekStart && orderDate <= weekEnd;
         });
 
+        // Calculate revenue with proper item pricing
+        const revenue = weekOrders.reduce((sum, order) => {
+          return sum + (order.items || []).reduce((orderSum, item) => {
+            const itemDetails = getItemDetails(item);
+            return orderSum + itemDetails.itemTotal;
+          }, 0);
+        }, 0);
+
         data.push({
           name: `Week ${4 - i} (${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`,
-          revenue: weekOrders.reduce(
-            (sum, order) => sum + (order.totalPrice || 0),
-            0
-          ),
+          revenue,
           orders: weekOrders.length,
         });
       }
@@ -282,12 +292,17 @@ const Dashboard = () => {
           order.createdAt?.startsWith(monthStr)
         );
 
+        // Calculate revenue with proper item pricing
+        const revenue = monthOrders.reduce((sum, order) => {
+          return sum + (order.items || []).reduce((orderSum, item) => {
+            const itemDetails = getItemDetails(item);
+            return orderSum + itemDetails.itemTotal;
+          }, 0);
+        }, 0);
+
         data.push({
           name: date.toLocaleDateString("en-US", { month: "long" }),
-          revenue: monthOrders.reduce(
-            (sum, order) => sum + (order.totalPrice || 0),
-            0
-          ),
+          revenue,
           orders: monthOrders.length,
         });
       }
@@ -296,7 +311,7 @@ const Dashboard = () => {
     return data;
   }, [orders, chartFilter]);
 
-  // Top products data
+  // Top products data with proper pricing
   const topProducts = useMemo(() => {
     if (!orders || orders.length === 0) return [];
 
@@ -309,6 +324,7 @@ const Dashboard = () => {
         order.items?.forEach((item) => {
           const productId = item.productId?._id;
           const productName = item.productId?.name || "Unknown Product";
+          const itemDetails = getItemDetails(item);
 
           if (!productStats[productId]) {
             productStats[productId] = {
@@ -320,9 +336,8 @@ const Dashboard = () => {
             };
           }
 
-          productStats[productId].totalSold += item.quantity || 0;
-          productStats[productId].totalRevenue +=
-            (item.quantity || 0) * (item.price || 0);
+          productStats[productId].totalSold += itemDetails.quantity;
+          productStats[productId].totalRevenue += itemDetails.itemTotal;
           productStats[productId].orderCount += 1;
         });
       }
@@ -377,27 +392,27 @@ const Dashboard = () => {
     return options;
   };
 
-  const formatPrice = (price) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "PKR",
-      minimumFractionDigits: 0,
-    }).format(price || 0);
-  };
-
   const recentOrders = useMemo(
     () =>
       orders
         .filter((order) => order && order.orderId && order.createdAt)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
         .slice(0, 5)
-        .map((order) => ({
-          id: order.orderId,
-          customer: order.userId?.name || "Unknown",
-          amount: order.totalPrice || 0,
-          status: order.status || "unknown",
-          date: new Date(order.createdAt).toLocaleDateString(),
-        })),
+        .map((order) => {
+          // Calculate order total with proper item pricing
+          const orderTotal = (order.items || []).reduce((sum, item) => {
+            const itemDetails = getItemDetails(item);
+            return sum + itemDetails.itemTotal;
+          }, 0);
+
+          return {
+            id: order.orderId,
+            customer: order.userId?.name || "Unknown",
+            amount: orderTotal,
+            status: order.status || "unknown",
+            date: new Date(order.createdAt).toLocaleDateString(),
+          };
+        }),
     [orders]
   );
 

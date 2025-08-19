@@ -6,16 +6,25 @@ export const placeOrder = async (orderData) => {
 };
 
 export const getUserOrders = async (page = 1, limit = 10, status = '') => {
-  const response = await api.get('/orders/user', {
-    params: { page, limit, status },
-  });
+  const params = { page, limit };
+  if (status && status.trim() !== '') {
+    params.status = status;
+  }
+  
+  const response = await api.get('/orders/user', { params });
   return response.data;
 };
 
 export const getAllOrders = async (page = 1, limit = 10, status = '', userId = '') => {
-  const response = await api.get('/orders', { 
-    params: { page, limit, status, userId },
-  });
+  const params = { page, limit };
+  if (status && status.trim() !== '') {
+    params.status = status;
+  }
+  if (userId && userId.trim() !== '') {
+    params.userId = userId;
+  }
+  
+  const response = await api.get('/orders', { params });
   return response.data;
 };
 
@@ -34,4 +43,30 @@ export const downloadInvoice = async (orderId) => {
     responseType: 'blob',
   });
   return response;
+};
+
+// New service functions to match backend capabilities
+export const getRecentOrderNotifications = async (limit = 5) => {
+  const response = await api.get('/orders/notifications/recent', {
+    params: { limit }
+  });
+  return response.data;
+};
+
+export const getRevenueStats = async (period = 'month', startDate = '', endDate = '') => {
+  const params = { period };
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  
+  const response = await api.get('/orders/stats/revenue', { params });
+  return response.data;
+};
+
+export const getProductRevenue = async (limit = 10, startDate = '', endDate = '') => {
+  const params = { limit };
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  
+  const response = await api.get('/orders/stats/products', { params });
+  return response.data;
 };
