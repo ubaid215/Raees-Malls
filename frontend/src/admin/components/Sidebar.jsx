@@ -88,7 +88,7 @@ const Sidebar = () => {
       title: 'SHOP',
       items: [
         { path: '/admin/add-products', icon: FiShoppingBag, label: 'ProductForm' },
-        { path: '/admin/inventory', icon: ShoppingBasket, label: 'All Products' },
+        { path: '/admin/inventory', icon: ShoppingBasket, label: 'Products Inventory' },
         { 
           path: '/admin/orders', 
           icon: FiDollarSign, 

@@ -16,6 +16,51 @@ import LoadingSkeleton from "../components/shared/LoadingSkelaton";
 import Button from "../components/core/Button";
 import socketService from "../services/socketService";
 
+// Create a reusable image component with consistent URL handling
+const ProductImage = ({ image, alt, className, ...props }) => {
+  const [src, setSrc] = useState("");
+  const [error, setError] = useState(false);
+
+  const getImageUrl = (imageObj) => {
+    if (!imageObj || !imageObj.url) return "/images/placeholder-product.png";
+    
+    if (imageObj.url.startsWith("http")) {
+      return imageObj.url;
+    }
+    
+    // Handle relative paths
+    const baseUrl = import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
+    return `${baseUrl}${imageObj.url}`;
+  };
+
+  useEffect(() => {
+    if (image) {
+      setSrc(getImageUrl(image));
+      setError(false);
+    } else {
+      setSrc("/images/placeholder-product.png");
+    }
+  }, [image]);
+
+  const handleError = () => {
+    if (!error) {
+      setSrc("/images/placeholder-product.png");
+      setError(true);
+    }
+  };
+
+  return (
+    <img
+      src={src}
+      alt={alt || "Product image"}
+      className={className}
+      onError={handleError}
+      loading="lazy"
+      {...props}
+    />
+  );
+};
+
 const Order = () => {
   const { orders, pagination, loading, error, fetchUserOrders, isRegularUser } =
     useOrder();
@@ -23,6 +68,57 @@ const Order = () => {
   const navigate = useNavigate();
   const [newOrderIds, setNewOrderIds] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
+
+  // Enhanced function to extract image from any product/variant structure
+  const getItemImage = (item) => {
+    if (!item) return null;
+    
+    // Try to get image from the most specific source first
+    
+    // 1. Check if we have a color variant with images
+    if (item.colorVariant?.images?.[0]) {
+      return item.colorVariant.images[0];
+    }
+    
+    // 2. Check if we have a storage variant with color images
+    if (item.storageVariant?.color?.images?.[0]) {
+      return item.storageVariant.color.images[0];
+    }
+    
+    // 3. Check if we have a size variant with color images
+    if (item.sizeVariant?.color?.images?.[0]) {
+      return item.sizeVariant.color.images[0];
+    }
+    
+    // 4. Check if we have a simple product with images
+    if (item.simpleProduct?.images?.[0]) {
+      return item.simpleProduct.images[0];
+    }
+    
+    // 5. Check if the product itself has images
+    if (item.productId?.images?.[0]) {
+      return item.productId.images[0];
+    }
+    
+    // 6. For storage options, check if there's a parent variant with images
+    if (item.storageVariant && item.productId?.variants) {
+      // Try to find any variant with images
+      for (const variant of item.productId.variants) {
+        if (variant.images?.[0]) return variant.images[0];
+        if (variant.color?.images?.[0]) return variant.color.images[0];
+      }
+    }
+    
+    // 7. For size options, similar approach
+    if (item.sizeVariant && item.productId?.variants) {
+      for (const variant of item.productId.variants) {
+        if (variant.images?.[0]) return variant.images[0];
+        if (variant.color?.images?.[0]) return variant.color.images[0];
+      }
+    }
+    
+    return null;
+  };
 
   // Helper function to calculate item price based on variant type
   const calculateItemPrice = (item) => {
@@ -237,32 +333,6 @@ const Order = () => {
     setSelectedOrder(null);
   };
 
-  
-
-  const getImageUrl = (item) => {
-    const baseUrl =
-      import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
-    
-    // Try to get image from variant first
-    if (item.variantType === 'color' && item.colorVariant?.images?.[0]?.url) {
-      const variantImage = item.colorVariant.images[0].url;
-      return variantImage.startsWith("http") 
-        ? variantImage 
-        : `${baseUrl}${variantImage}`;
-    }
-    
-    // Then try product images
-    if (item.productId?.images?.[0]?.url) {
-      const productImage = item.productId.images[0].url;
-      return productImage.startsWith("http") 
-        ? productImage 
-        : `${baseUrl}${productImage}`;
-    }
-    
-    // Fallback to placeholder
-    return "/images/placeholder-product.png";
-  };
-
   if (loading && !orders.length) {
     return (
       <div className="min-h-screen bg-gray-100 px-4 sm:px-6 lg:px-8 py-8">
@@ -330,7 +400,6 @@ const Order = () => {
                 Order {selectedOrder.orderId || "Unknown"}
               </h2>
               <div className="flex gap-2">
-                
                 <Button
                   onClick={handleBackToList}
                   className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50"
@@ -359,18 +428,14 @@ const Order = () => {
                   {(selectedOrder.items || []).map((item, index) => {
                     const variantDetails = getVariantDetails(item);
                     const itemDetails = getItemDetails(item);
+                    const itemImage = getItemImage(item);
                     
                     return (
                       <li key={index} className="flex items-start gap-4">
-                        <img
-                          src={getImageUrl(item)}
+                        <ProductImage
+                          image={itemImage}
                           alt={item.productId?.title || "Product"}
                           className="w-12 h-12 object-contain rounded-md border border-gray-200"
-                          onError={(e) => {
-                            e.currentTarget.src =
-                              "/images/placeholder-product.png";
-                            e.currentTarget.onerror = null;
-                          }}
                         />
                         <div className="flex-1">
                           <p className="font-medium text-gray-900">
@@ -493,6 +558,7 @@ const Order = () => {
                   const additionalItemsCount = order.items
                     ? order.items.length - 1
                     : 0;
+                  const firstItemImage = firstItem ? getItemImage(firstItem) : null;
 
                   return (
                     <div
@@ -512,15 +578,10 @@ const Order = () => {
                         <div className="flex gap-4 flex-1">
                           {firstItem && (
                             <div className="flex-shrink-0">
-                              <img
-                                src={getImageUrl(firstItem)}
+                              <ProductImage
+                                image={firstItemImage}
                                 alt={firstItem.productId?.title || "Product"}
                                 className="w-16 h-16 object-contain rounded-md border border-gray-200"
-                                onError={(e) => {
-                                  e.currentTarget.src =
-                                    "/images/placeholder-product.png";
-                                  e.currentTarget.onerror = null;
-                                }}
                               />
                             </div>
                           )}

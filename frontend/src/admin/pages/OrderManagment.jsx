@@ -16,6 +16,51 @@ import { useOrder } from "../../context/OrderContext";
 import { useAdminAuth } from "../../context/AdminAuthContext";
 import socketService from "../../services/socketService";
 
+// Create a reusable image component with consistent URL handling
+const ProductImage = ({ image, alt, className, ...props }) => {
+  const [src, setSrc] = useState("");
+  const [error, setError] = useState(false);
+
+  const getImageUrl = (imageObj) => {
+    if (!imageObj || !imageObj.url) return "/images/placeholder-product.png";
+    
+    if (imageObj.url.startsWith("http")) {
+      return imageObj.url;
+    }
+    
+    // Handle relative paths
+    const baseUrl = import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
+    return `${baseUrl}${imageObj.url}`;
+  };
+
+  useEffect(() => {
+    if (image) {
+      setSrc(getImageUrl(image));
+      setError(false);
+    } else {
+      setSrc("/images/placeholder-product.png");
+    }
+  }, [image]);
+
+  const handleError = () => {
+    if (!error) {
+      setSrc("/images/placeholder-product.png");
+      setError(true);
+    }
+  };
+
+  return (
+    <img
+      src={src}
+      alt={alt || "Product image"}
+      className={className}
+      onError={handleError}
+      loading="lazy"
+      {...props}
+    />
+  );
+};
+
 const OrderManagement = () => {
   const {
     orders,
@@ -32,6 +77,57 @@ const OrderManagement = () => {
   const [filterStatus, setFilterStatus] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [newOrderIds, setNewOrderIds] = useState([]);
+
+  // Enhanced function to extract image from any product/variant structure
+  const getItemImage = (item) => {
+    if (!item) return null;
+    
+    // Try to get image from the most specific source first
+    
+    // 1. Check if we have a color variant with images
+    if (item.colorVariant?.images?.[0]) {
+      return item.colorVariant.images[0];
+    }
+    
+    // 2. Check if we have a storage variant with color images
+    if (item.storageVariant?.color?.images?.[0]) {
+      return item.storageVariant.color.images[0];
+    }
+    
+    // 3. Check if we have a size variant with color images
+    if (item.sizeVariant?.color?.images?.[0]) {
+      return item.sizeVariant.color.images[0];
+    }
+    
+    // 4. Check if we have a simple product with images
+    if (item.simpleProduct?.images?.[0]) {
+      return item.simpleProduct.images[0];
+    }
+    
+    // 5. Check if the product itself has images
+    if (item.productId?.images?.[0]) {
+      return item.productId.images[0];
+    }
+    
+    // 6. For storage options, check if there's a parent variant with images
+    if (item.storageVariant && item.productId?.variants) {
+      // Try to find any variant with images
+      for (const variant of item.productId.variants) {
+        if (variant.images?.[0]) return variant.images[0];
+        if (variant.color?.images?.[0]) return variant.color.images[0];
+      }
+    }
+    
+    // 7. For size options, similar approach
+    if (item.sizeVariant && item.productId?.variants) {
+      for (const variant of item.productId.variants) {
+        if (variant.images?.[0]) return variant.images[0];
+        if (variant.color?.images?.[0]) return variant.color.images[0];
+      }
+    }
+    
+    return null;
+  };
 
   const pendingOrdersCount = (orders || []).filter(
     (order) => order && order.status === "pending"
@@ -200,7 +296,7 @@ const OrderManagement = () => {
         }
       } catch (err) {
         console.error("OrderManagement: Socket ping error:", err);
-      }
+        }
     }, 30000);
 
     return () => {
@@ -361,23 +457,34 @@ const OrderManagement = () => {
   const getVariantDetails = (item) => {
     if (!item) return null;
     
-    switch (item.variantType) {
+    const variantInfo = {};
+    
+    switch(item.variantType) {
       case 'color':
-        return item.colorVariant?.color?.name ? 
-               `Color: ${item.colorVariant.color.name}` : null;
+        if (item.colorVariant) {
+          variantInfo.colorName = item.colorVariant.color?.name;
+        }
+        break;
       case 'storage':
-        return [
-          item.storageVariant?.color?.name ? `Color: ${item.storageVariant.color.name}` : null,
-          item.storageVariant?.storageOption?.capacity ? `Storage: ${item.storageVariant.storageOption.capacity}` : null
-        ].filter(Boolean).join(', ');
+        if (item.storageVariant) {
+          variantInfo.colorName = item.storageVariant.color?.name;
+          variantInfo.storageCapacity = item.storageVariant.storageOption?.capacity;
+        }
+        break;
       case 'size':
-        return [
-          item.sizeVariant?.color?.name ? `Color: ${item.sizeVariant.color.name}` : null,
-          item.sizeVariant?.sizeOption?.size ? `Size: ${item.sizeVariant.sizeOption.size}` : null
-        ].filter(Boolean).join(', ');
+        if (item.sizeVariant) {
+          variantInfo.colorName = item.sizeVariant.color?.name;
+          variantInfo.size = item.sizeVariant.sizeOption?.size;
+        }
+        break;
       default:
-        return null;
+        break;
     }
+    
+    return Object.entries(variantInfo)
+      .filter(([_, value]) => value)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ');
   };
 
   const getOrderStatusBadge = (status) => {
@@ -702,27 +809,7 @@ const OrderManagement = () => {
                       Items
                     </p>
                     {(order.items || []).map((item, index) => {
-                      // Determine the image URL
-                      let imageUrl = "/placeholder.png";
-                      let altText = item.productId?.title || "Product";
-
-                      if (item.variantId && item.productId?.variants) {
-                        // Find the variant by variantId
-                        const variant = item.productId.variants.find(
-                          (v) => v._id.toString() === item.variantId
-                        );
-                        if (variant?.images?.length > 0) {
-                          imageUrl = variant.images[0].url; // Use the first image from the variant
-                          altText = variant.images[0].alt || altText;
-                        } else if (item.productId?.images?.length > 0) {
-                          imageUrl = item.productId.images[0].url; // Fallback to product images
-                          altText = item.productId.images[0].alt || altText;
-                        }
-                      } else if (item.productId?.images?.length > 0) {
-                        imageUrl = item.productId.images[0].url; // Use the first image from the product
-                        altText = item.productId.images[0].alt || altText;
-                      }
-
+                      const itemImage = getItemImage(item);
                       const variantDetails = getVariantDetails(item);
                       const itemPrice = getItemPrice(item);
 
@@ -731,13 +818,10 @@ const OrderManagement = () => {
                           key={index}
                           className="flex items-start mb-2 last:mb-0"
                         >
-                          <img
-                            src={imageUrl}
-                            alt={altText}
+                          <ProductImage
+                            image={itemImage}
+                            alt={item.productId?.title || "Product"}
                             className="w-10 h-10 sm:w-12 sm:h-12 object-cover rounded mr-3"
-                            onError={(e) => {
-                              e.target.src = "/placeholder.png";
-                            }} // Fallback on error
                           />
                           <div className="flex-1">
                             <p className="font-medium text-gray-900 text-sm">

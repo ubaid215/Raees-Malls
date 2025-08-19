@@ -18,6 +18,51 @@ import Button from "../../components/core/Button";
 import socketService from "../../services/socketService";
 import ReviewForm from "../../components/core/ReviewForm";
 
+// Create a reusable image component with consistent URL handling
+const ProductImage = ({ image, alt, className, ...props }) => {
+  const [src, setSrc] = useState("");
+  const [error, setError] = useState(false);
+
+  const getImageUrl = (imageObj) => {
+    if (!imageObj || !imageObj.url) return "/images/placeholder-product.png";
+    
+    if (imageObj.url.startsWith("http")) {
+      return imageObj.url;
+    }
+    
+    // Handle relative paths
+    const baseUrl = import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
+    return `${baseUrl}${imageObj.url}`;
+  };
+
+  useEffect(() => {
+    if (image) {
+      setSrc(getImageUrl(image));
+      setError(false);
+    } else {
+      setSrc("/images/placeholder-product.png");
+    }
+  }, [image]);
+
+  const handleError = () => {
+    if (!error) {
+      setSrc("/images/placeholder-product.png");
+      setError(true);
+    }
+  };
+
+  return (
+    <img
+      src={src}
+      alt={alt || "Product image"}
+      className={className}
+      onError={handleError}
+      loading="lazy"
+      {...props}
+    />
+  );
+};
+
 const Profile = () => {
   const {
     user,
@@ -59,6 +104,57 @@ const Profile = () => {
       });
     }
   }, [user]);
+
+  // Enhanced function to extract image from any product/variant structure
+  const getItemImage = (item) => {
+    if (!item) return null;
+    
+    // Try to get image from the most specific source first
+    
+    // 1. Check if we have a color variant with images
+    if (item.colorVariant?.images?.[0]) {
+      return item.colorVariant.images[0];
+    }
+    
+    // 2. Check if we have a storage variant with color images
+    if (item.storageVariant?.color?.images?.[0]) {
+      return item.storageVariant.color.images[0];
+    }
+    
+    // 3. Check if we have a size variant with color images
+    if (item.sizeVariant?.color?.images?.[0]) {
+      return item.sizeVariant.color.images[0];
+    }
+    
+    // 4. Check if we have a simple product with images
+    if (item.simpleProduct?.images?.[0]) {
+      return item.simpleProduct.images[0];
+    }
+    
+    // 5. Check if the product itself has images
+    if (item.productId?.images?.[0]) {
+      return item.productId.images[0];
+    }
+    
+    // 6. For storage options, check if there's a parent variant with images
+    if (item.storageVariant && item.productId?.variants) {
+      // Try to find any variant with images
+      for (const variant of item.productId.variants) {
+        if (variant.images?.[0]) return variant.images[0];
+        if (variant.color?.images?.[0]) return variant.color.images[0];
+      }
+    }
+    
+    // 7. For size options, similar approach
+    if (item.sizeVariant && item.productId?.variants) {
+      for (const variant of item.productId.variants) {
+        if (variant.images?.[0]) return variant.images[0];
+        if (variant.color?.images?.[0]) return variant.color.images[0];
+      }
+    }
+    
+    return null;
+  };
 
   const handleFetchUser = async () => {
     setIsLoading(true);
@@ -143,28 +239,37 @@ const Profile = () => {
     };
   };
 
-  const getImageUrl = (item) => {
-    const baseUrl =
-      import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
-    return item.image
-      ? typeof item.image === "string"
-        ? item.image.startsWith("http")
-          ? item.image
-          : `${baseUrl}${item.image}`
-        : item.image.url
-          ? item.image.url.startsWith("http")
-            ? item.image.url
-            : `${baseUrl}${item.image.url}`
-          : "/images/placeholder-product.png"
-      : item.productId?.image?.url
-        ? item.productId.image.url.startsWith("http")
-          ? item.productId.image.url
-          : `${baseUrl}${item.productId.image.url}`
-        : item.productId?.images?.[0]?.url
-          ? item.productId.images[0].url.startsWith("http")
-            ? item.productId.images[0].url
-            : `${baseUrl}${item.productId.images[0].url}`
-          : "/images/placeholder-product.png";
+  const getVariantDetails = (item) => {
+    if (!item) return null;
+    
+    const variantInfo = {};
+    
+    switch(item.variantType) {
+      case 'color':
+        if (item.colorVariant) {
+          variantInfo.colorName = item.colorVariant.color?.name;
+        }
+        break;
+      case 'storage':
+        if (item.storageVariant) {
+          variantInfo.colorName = item.storageVariant.color?.name;
+          variantInfo.storageCapacity = item.storageVariant.storageOption?.capacity;
+        }
+        break;
+      case 'size':
+        if (item.sizeVariant) {
+          variantInfo.colorName = item.sizeVariant.color?.name;
+          variantInfo.size = item.sizeVariant.sizeOption?.size;
+        }
+        break;
+      default:
+        break;
+    }
+    
+    return Object.entries(variantInfo)
+      .filter(([_, value]) => value)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join(', ');
   };
 
   useEffect(() => {
@@ -612,7 +717,7 @@ const Profile = () => {
                 >
                   Retry
                 </Button>
-              </div>
+            </div>
             ) : (
               <div className="space-y-3 sm:space-y-4">
                 {(() => {
@@ -633,29 +738,19 @@ const Profile = () => {
                         >
                           {(order.items || []).map((item, index) => {
                             const itemDetails = getItemDetails(item);
+                            const itemImage = getItemImage(item);
+                            const variantDetails = getVariantDetails(item);
+                            
                             return (
                               <div
                                 key={index}
                                 className="flex gap-2 sm:gap-4 mb-2"
                               >
                                 <div className="flex-shrink-0">
-                                  <img
-                                    src={getImageUrl(item)}
-                                    alt={
-                                      item.productId?.title ||
-                                      item.title ||
-                                      "Product"
-                                    }
+                                  <ProductImage
+                                    image={itemImage}
+                                    alt={item.productId?.title || "Product"}
                                     className="w-10 h-10 sm:w-12 sm:h-12 object-contain rounded-md border border-gray-200"
-                                    onError={(e) => {
-                                      console.warn(
-                                        `Order: Image failed to load for ${item.productId?.title || item.title || "unknown"}:`,
-                                        e.target.src
-                                      );
-                                      e.currentTarget.src =
-                                        "/images/placeholder-product.png";
-                                      e.currentTarget.onerror = null;
-                                    }}
                                   />
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -664,6 +759,11 @@ const Profile = () => {
                                       <h3 className="font-medium text-gray-900 text-sm sm:text-base truncate">
                                         {item.productId?.title || "Product"}
                                       </h3>
+                                      {variantDetails && (
+                                        <p className="text-xs text-gray-500">
+                                          {variantDetails}
+                                        </p>
+                                      )}
                                       <p className="text-xs sm:text-sm text-gray-600">
                                         #{order.orderId}
                                       </p>
@@ -682,11 +782,6 @@ const Profile = () => {
                                   </div>
                                   <p className="text-xs sm:text-sm text-gray-600">
                                     Qty: {itemDetails.quantity}
-                                    {item.variantId && (
-                                      <span className="ml-1 sm:ml-2">
-                                        • {item.variantValue || "Variant"}
-                                      </span>
-                                    )}
                                   </p>
                                   {order.status === "delivered" &&
                                     !item.reviewed && (
@@ -810,6 +905,7 @@ const Profile = () => {
                             <ul className="space-y-2 text-sm sm:text-base">
                               {(order.items || []).map((item, index) => {
                                 const itemDetails = getItemDetails(item);
+                                const variantDetails = getVariantDetails(item);
                                 return (
                                   <li
                                     key={index}
@@ -819,13 +915,9 @@ const Profile = () => {
                                       {itemDetails.quantity} ×{" "}
                                       {item.productId?.title ||
                                         "Untitled Product"}
-                                      {item.variantId && (
+                                      {variantDetails && (
                                         <span className="ml-1 text-xs text-gray-500">
-                                          (Variant:{" "}
-                                          {item.variantValue ||
-                                            item.variantId ||
-                                            "Unknown"}
-                                          )
+                                          ({variantDetails})
                                         </span>
                                       )}
                                     </span>
