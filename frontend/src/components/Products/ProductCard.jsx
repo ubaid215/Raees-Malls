@@ -17,7 +17,7 @@ import {
 import { BsLightningChargeFill } from "react-icons/bs";
 import { MdLocalOffer, MdVerified } from "react-icons/md";
 import { IoTimeOutline } from "react-icons/io5";
-import { toast } from "react-toastify";
+import { useToast } from "../../context/ToastContext"; 
 import Button from "../core/Button";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../../context/CartContext";
@@ -43,6 +43,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState(null);
+   const { success, error, info } = useToast();
   const [selectedOptions, setSelectedOptions] = useState({
     variantColor: null,
     storageCapacity: null,
@@ -447,13 +448,10 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     navigate(`/product/${product._id}`);
   };
 
-  const handleAddToCartClick = async (e) => {
+   const handleAddToCartClick = async (e) => {
     e.stopPropagation();
     if (!user) {
-      toast.info("Please login to add items to cart", {
-        position: "top-center",
-        autoClose: 3000,
-      });
+      info("Please login to add items to cart");
       navigate("/login", { state: { from: window.location.pathname } });
       return;
     }
@@ -464,7 +462,8 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       const result = await addItemToCart(product._id, selectedOptions, 1);
 
       if (result.success) {
-        toast.success(result.message || `${product.title} added to cart!`);
+        // Replace react-toastify with custom toast
+        success(result.message || `${product.title} added to cart!`);
         setAddToCartStatus({ loading: false, success: true, error: null });
         setTimeout(() => {
           setAddToCartStatus((prev) => ({ ...prev, success: false }));
@@ -474,7 +473,8 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       }
     } catch (err) {
       console.error("Add to cart error:", err);
-      toast.error(err.message || "Failed to add to cart");
+      // Replace react-toastify with custom toast
+      error(err.message || "Failed to add to cart");
       setAddToCartStatus({
         loading: false,
         success: false,
@@ -493,13 +493,16 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     try {
       if (isInWishlist) {
         await removeItemFromWishlist(product._id);
-        toast.success(`${product.title} removed from wishlist!`);
+        // Replace react-toastify with custom toast
+        success(`${product.title} removed from wishlist!`);
       } else {
         await addItemToWishlist(product._id);
-        toast.success(`${product.title} added to wishlist!`);
+        // Replace react-toastify with custom toast
+        success(`${product.title} added to wishlist!`);
       }
     } catch (err) {
-      toast.error(err.message || "Failed to update wishlist");
+      // Replace react-toastify with custom toast
+      error(err.message || "Failed to update wishlist");
     }
   };
 

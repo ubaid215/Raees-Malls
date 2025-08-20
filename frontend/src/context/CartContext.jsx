@@ -11,7 +11,7 @@ import { debounce } from "lodash";
 import { useAuth } from "./AuthContext";
 import { useNavigate } from "react-router-dom";
 import * as cartService from "../services/cartService";
-import { toast } from "react-toastify";
+import { useToast } from "./ToastContext";
 
 const CartContext = createContext();
 CartContext.displayName = "CartContext";
@@ -22,6 +22,7 @@ const CartProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { success: toastSuccess, error: toastError, warning: toastWarn, info: toastInfo } = useToast();
 
   // Refs to prevent duplicate operations
   const isFetching = useRef(false);
@@ -104,7 +105,7 @@ const CartProvider = ({ children }) => {
             (item) => item.isUnavailable || item.isVariantUnavailable
           )
         ) {
-          toast.warn("Some items in your cart are unavailable");
+          toastWarn("Some items in your cart are unavailable");
         }
 
         return { success: true, cart: updatedCartData };
@@ -133,7 +134,7 @@ const CartProvider = ({ children }) => {
       setLoading(false);
       isFetching.current = false;
     }
-  }, [user]);
+  }, [user, toastWarn]);
 
   // Debounced fetch cart function that returns a Promise
   const debouncedFetchCart = useCallback(() => {
@@ -186,16 +187,14 @@ const CartProvider = ({ children }) => {
             });
           }, 100);
 
-          toast.success(result.message);
+          toastSuccess(result.message);
           return { success: true, cart: result.cart };
         }
 
         throw new Error(result.message);
       } catch (error) {
         console.error(`${operationName} error:`, error);
-        toast.error(
-          error.message || `Failed to ${operationName.toLowerCase()}`
-        );
+        toastError(error.message || `Failed to ${operationName.toLowerCase()}`);
         return { success: false, message: error.message };
       } finally {
         setLoading(false);
@@ -333,14 +332,14 @@ const CartProvider = ({ children }) => {
                 });
               }, 100);
 
-              toast.success("Order placed successfully");
+              toastSuccess("Order placed successfully");
               resolve({ success: true, order: result.order });
             } else {
               throw new Error(result.message);
             }
           } catch (error) {
             console.error("Place order error:", error);
-            toast.error(error.message || "Failed to place order");
+            toastError(error.message || "Failed to place order");
             reject(error);
           } finally {
             setLoading(false);
@@ -351,7 +350,7 @@ const CartProvider = ({ children }) => {
         debouncedFn();
       });
     },
-    [user, navigate, debouncedFetchCart, clearCartCache]
+    [user, navigate, debouncedFetchCart, clearCartCache,  toastSuccess, toastError]
   );
 
   // Helper functions for variant options
@@ -405,7 +404,7 @@ const CartProvider = ({ children }) => {
   if (user && !isFetching.current) {
     debouncedFetchCart().catch((err) => {
       console.error("Initial fetchCart error:", err);
-      toast.error("Failed to load cart: " + (err.message || "Unknown error"));
+      toastError("Failed to load cart: " + (err.message || "Unknown error"));
     });
   } else if (!user) {
     setCart(null);
@@ -417,7 +416,7 @@ const CartProvider = ({ children }) => {
     isUpdating.current = false;
     pendingOperations.current.clear();
   };
-}, [user]); // ← Only depend on user
+}, [user, toastError]); // ← Only depend on user
 
   const contextValue = useMemo(
     () => ({

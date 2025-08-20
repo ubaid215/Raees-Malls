@@ -9,6 +9,7 @@ import {
   FiCreditCard,
   FiBarChart2,
   FiActivity,
+  FiRefreshCw
 } from "react-icons/fi";
 import {
   LineChart,
@@ -53,8 +54,9 @@ const Dashboard = () => {
   );
   const [chartType, setChartType] = useState("line");
   const [chartFilter, setChartFilter] = useState("weekly");
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Helper function to calculate item price based on variant type
+  // Helper function to calculate item price based on variant type - FIXED TYPO
   const calculateItemPrice = (item) => {
     if (!item) return 0;
     
@@ -104,7 +106,6 @@ const Dashboard = () => {
         break;
       default:
         quantity = item.quantity || 0;
-        variantDetails = item.variantValue || item.variantId ? `Variant: ${item.variantValue || item.variantId}` : null;
     }
     
     return {
@@ -123,30 +124,33 @@ const Dashboard = () => {
     }).format(price || 0);
   };
 
-  useEffect(() => {
-    const fetchOrders = async () => {
-      try {
-        const startDate = new Date(selectedMonth);
-        const endDate = new Date(startDate);
-        endDate.setMonth(endDate.getMonth() + 1);
-        const params = {
-          startDate: startDate.toISOString().split("T")[0],
-          endDate: endDate.toISOString().split("T")[0],
-        };
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      const startDate = new Date(selectedMonth);
+      const endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + 1);
+      const params = {
+        startDate: startDate.toISOString().split("T")[0],
+        endDate: endDate.toISOString().split("T")[0],
+      };
 
-        if (isAdmin) {
-          await fetchAllOrders(1, 100, "", "", true, params);
-        } else if (isRegularUser) {
-          await fetchUserOrders(1, 100, "", true, params);
-        }
-      } catch (err) {
-        console.error("Failed to fetch orders:", err);
-        toast.error(err.message || "Failed to load dashboard data");
+      if (isAdmin) {
+        await fetchAllOrders(1, 100, "", "", true, params);
+      } else if (isRegularUser) {
+        await fetchUserOrders(1, 100, "", true, params);
       }
-    };
-
-    fetchOrders();
+    } catch (err) {
+      console.error("Failed to fetch orders:", err);
+      toast.error(err.message || "Failed to load dashboard data");
+    } finally {
+      setRefreshing(false);
+    }
   }, [isAdmin, isRegularUser, fetchAllOrders, fetchUserOrders, selectedMonth]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   // Enhanced stats calculation with proper pricing
   const stats = useMemo(() => {
@@ -180,13 +184,13 @@ const Dashboard = () => {
 
     const orderCount = filteredOrders.length;
     const uniqueCustomers = new Set(
-      filteredOrders.map((order) => order.userId?.email)
+      filteredOrders.map((order) => order.userId?._id || order.userId)
     ).size;
 
     // Count unique products
     const uniqueProducts = new Set(
       filteredOrders.flatMap((order) =>
-        (order.items || []).map((item) => item.productId?._id)
+        (order.items || []).map((item) => item.productId?._id || item.productId)
       )
     ).size;
 
@@ -196,17 +200,19 @@ const Dashboard = () => {
     const productSales = {};
     filteredOrders.forEach((order) => {
       order.items?.forEach((item) => {
-        const productName = item.productId?.name || "Unknown";
+        const productName = item.productId?.title || item.productId?.name || "Unknown Product";
         const itemDetails = getItemDetails(item);
         productSales[productName] =
           (productSales[productName] || 0) + itemDetails.quantity;
       });
     });
 
-    const topSellingProduct = Object.keys(productSales).reduce(
-      (a, b) => (productSales[a] > productSales[b] ? a : b),
-      "N/A"
-    );
+    const topSellingProduct = Object.keys(productSales).length > 0 
+      ? Object.keys(productSales).reduce(
+          (a, b) => (productSales[a] > productSales[b] ? a : b),
+          Object.keys(productSales)[0]
+        )
+      : "N/A";
 
     return {
       revenue,
@@ -277,7 +283,7 @@ const Dashboard = () => {
         }, 0);
 
         data.push({
-          name: `Week ${4 - i} (${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`,
+          name: `Week ${4 - i}`,
           revenue,
           orders: weekOrders.length,
         });
@@ -301,7 +307,7 @@ const Dashboard = () => {
         }, 0);
 
         data.push({
-          name: date.toLocaleDateString("en-US", { month: "long" }),
+          name: date.toLocaleDateString("en-US", { month: "short" }),
           revenue,
           orders: monthOrders.length,
         });
@@ -322,8 +328,8 @@ const Dashboard = () => {
         new Date(order.createdAt).toISOString().slice(0, 7) === selectedMonth
       ) {
         order.items?.forEach((item) => {
-          const productId = item.productId?._id;
-          const productName = item.productId?.name || "Unknown Product";
+          const productId = item.productId?._id || item.productId;
+          const productName = item.productId?.title || item.productId?.name || "Unknown Product";
           const itemDetails = getItemDetails(item);
 
           if (!productStats[productId]) {
@@ -348,7 +354,7 @@ const Dashboard = () => {
       .slice(0, 5);
   }, [orders, selectedMonth]);
 
-  // Order status distribution for pie chart
+  // Order status distribution for pie chart - MATCH BACKEND STATUSES
   const orderStatusData = useMemo(() => {
     if (!orders || orders.length === 0) return [];
 
@@ -357,17 +363,18 @@ const Dashboard = () => {
       if (
         new Date(order.createdAt).toISOString().slice(0, 7) === selectedMonth
       ) {
-        const status = order.status || "unknown";
+        const status = order.status || "pending";
         statusCount[status] = (statusCount[status] || 0) + 1;
       }
     });
 
     const colors = {
-      delivered: "#10B981",
-      shipped: "#3B82F6",
-      processing: "#F59E0B",
-      pending: "#EF4444",
-      cancelled: "#6B7280",
+      pending: "#F59E0B",      // amber
+      processing: "#3B82F6",   // blue
+      shipped: "#8B5CF6",      // purple
+      delivered: "#10B981",    // green
+      cancelled: "#EF4444",    // red
+      refunded: "#6B7280",     // gray
     };
 
     return Object.entries(statusCount).map(([status, count]) => ({
@@ -407,14 +414,19 @@ const Dashboard = () => {
 
           return {
             id: order.orderId,
-            customer: order.userId?.name || "Unknown",
+            customer: order.userId?.name || "Unknown Customer",
             amount: orderTotal,
-            status: order.status || "unknown",
+            status: order.status || "pending",
             date: new Date(order.createdAt).toLocaleDateString(),
           };
         }),
     [orders]
   );
+
+  const handleRefresh = async () => {
+    await fetchDashboardData();
+    toast.success("Dashboard data refreshed!");
+  };
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -447,11 +459,27 @@ const Dashboard = () => {
             color: #4b5563 !important;
             font-size: 14px !important;
           }
+          .refresh-spin {
+            animation: spin 1s linear infinite;
+          }
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
         `}
       </style>
+      
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-gray-800">Dashboard Overview</h1>
         <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center px-3 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors disabled:opacity-50"
+          >
+            <FiRefreshCw className={`mr-2 ${refreshing ? 'refresh-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh Data'}
+          </button>
           <div className="flex items-center space-x-2">
             <label
               htmlFor="month-select"
@@ -499,7 +527,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      {loading && (
+      {loading && !orders.length && (
         <div className="mb-4 p-4 bg-blue-50 text-blue-800 rounded-lg text-sm shadow-sm">
           Loading dashboard data...
         </div>
@@ -514,8 +542,8 @@ const Dashboard = () => {
               <p className="text-2xl font-bold text-gray-800">
                 {formatPrice(stats.revenue)}
               </p>
-              <p className="text-sm text-green-600 mt-1">
-                {stats.revenue ? "Calculating..." : "N/A"}
+              <p className="text-xs text-gray-500 mt-1">
+                {stats.orders} orders
               </p>
             </div>
             <div className="p-3 rounded-full bg-white bg-opacity-50">
@@ -529,8 +557,8 @@ const Dashboard = () => {
             <div>
               <p className="text-sm font-medium text-gray-600">Total Orders</p>
               <p className="text-2xl font-bold text-gray-800">{stats.orders}</p>
-              <p className="text-sm text-green-600 mt-1">
-                {stats.orders ? "Calculating..." : "N/A"}
+              <p className="text-xs text-gray-500 mt-1">
+                {stats.customers} customers
               </p>
             </div>
             <div className="p-3 rounded-full bg-white bg-opacity-50">
@@ -544,10 +572,10 @@ const Dashboard = () => {
             <div>
               <p className="text-sm font-medium text-gray-600">Customers</p>
               <p className="text-2xl font-bold text-gray-800">
-                {stats.customers.toLocaleString()}
+                {stats.customers}
               </p>
-              <p className="text-sm text-green-600 mt-1">
-                {stats.customers ? "Calculating..." : "N/A"}
+              <p className="text-xs text-gray-500 mt-1">
+                {stats.conversionRate.toFixed(1)}% conversion
               </p>
             </div>
             <div className="p-3 rounded-full bg-white bg-opacity-50">
@@ -563,8 +591,8 @@ const Dashboard = () => {
               <p className="text-2xl font-bold text-gray-800">
                 {stats.products}
               </p>
-              <p className="text-sm text-green-600 mt-1">
-                {stats.products ? "Calculating..." : "N/A"}
+              <p className="text-xs text-gray-500 mt-1">
+                Unique products
               </p>
             </div>
             <div className="p-3 rounded-full bg-white bg-opacity-50">
@@ -582,8 +610,8 @@ const Dashboard = () => {
               <p className="text-2xl font-bold text-gray-800">
                 {formatPrice(stats.averageOrderValue)}
               </p>
-              <p className="text-sm text-green-600 mt-1">
-                {stats.averageOrderValue ? "Calculating..." : "N/A"}
+              <p className="text-xs text-gray-500 mt-1">
+                Per order
               </p>
             </div>
             <div className="p-3 rounded-full bg-white bg-opacity-50">
@@ -596,13 +624,13 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">
-                Conversion Rate
+                Top Product
               </p>
-              <p className="text-2xl font-bold text-gray-800">
-                {stats.conversionRate.toFixed(1)}%
+              <p className="text-lg font-bold text-gray-800 truncate" title={stats.topSellingProduct}>
+                {stats.topSellingProduct}
               </p>
-              <p className="text-sm text-green-600 mt-1">
-                {stats.conversionRate ? "Calculating..." : "N/A"}
+              <p className="text-xs text-gray-500 mt-1 truncate">
+                Best seller
               </p>
             </div>
             <div className="p-3 rounded-full bg-white bg-opacity-50">
@@ -700,7 +728,7 @@ const Dashboard = () => {
                     tickLine={false}
                     axisLine={{ stroke: "#d1d5db" }}
                     tickFormatter={(value) =>
-                      chartFilter === "orders" ? value : `Rs. ${value / 1000}k`
+                      value >= 1000 ? `Rs. ${value / 1000}k` : `Rs. ${value}`
                     }
                   />
                   <Tooltip
@@ -772,7 +800,7 @@ const Dashboard = () => {
                     tickLine={false}
                     axisLine={{ stroke: "#d1d5db" }}
                     tickFormatter={(value) =>
-                      chartFilter === "orders" ? value : `$${value / 1000}k`
+                      value >= 1000 ? `Rs. ${value / 1000}k` : `Rs. ${value}`
                     }
                   />
                   <Tooltip
@@ -854,6 +882,7 @@ const Dashboard = () => {
                   }}
                   labelStyle={{ fontWeight: 600, color: "#1f2937" }}
                   itemStyle={{ color: "#4b5563", fontSize: "14px" }}
+                  formatter={(value) => [`${value} orders`, 'Count']}
                 />
                 <Legend
                   verticalAlign="bottom"
@@ -891,9 +920,9 @@ const Dashboard = () => {
             <h2 className="text-lg font-semibold text-gray-800">
               Top Products
             </h2>
-            <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-              View All
-            </button>
+            <span className="text-sm text-gray-500">
+              {selectedMonth}
+            </span>
           </div>
           {loading && !topProducts.length ? (
             <div className="text-center text-gray-600 text-sm py-8">
@@ -916,8 +945,8 @@ const Dashboard = () => {
                         #{index + 1}
                       </span>
                     </div>
-                    <div>
-                      <h3 className="font-medium text-gray-800">
+                    <div className="max-w-xs">
+                      <h3 className="font-medium text-gray-800 truncate" title={product.name}>
                         {product.name}
                       </h3>
                       <p className="text-sm text-gray-500">
@@ -942,9 +971,9 @@ const Dashboard = () => {
             <h2 className="text-lg font-semibold text-gray-800">
               Recent Orders
             </h2>
-            <button className="text-sm text-blue-600 hover:text-blue-800 font-medium">
-              View All
-            </button>
+            <span className="text-sm text-gray-500">
+              Latest 5 orders
+            </span>
           </div>
           {loading && !orders.length ? (
             <div className="text-center text-gray-600 text-sm py-8">
@@ -961,9 +990,13 @@ const Dashboard = () => {
                   key={order.id}
                   className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  <div>
-                    <p className="font-medium text-gray-800">{order.id}</p>
-                    <p className="text-sm text-gray-600">{order.customer}</p>
+                  <div className="max-w-xs">
+                    <p className="font-medium text-gray-800 truncate" title={order.id}>
+                      {order.id}
+                    </p>
+                    <p className="text-sm text-gray-600 truncate" title={order.customer}>
+                      {order.customer}
+                    </p>
                     <p className="text-xs text-gray-500">{order.date}</p>
                   </div>
                   <div className="text-right">
@@ -975,11 +1008,11 @@ const Dashboard = () => {
                         order.status === "delivered"
                           ? "bg-green-100 text-green-800"
                           : order.status === "shipped"
-                            ? "bg-blue-100 text-blue-800"
+                            ? "bg-purple-100 text-purple-800"
                             : order.status === "processing"
-                              ? "bg-amber-100 text-amber-800"
+                              ? "bg-blue-100 text-blue-800"
                               : order.status === "pending"
-                                ? "bg-yellow-100 text-yellow-800"
+                                ? "bg-amber-100 text-amber-800"
                                 : "bg-red-100 text-red-800"
                       }`}
                     >

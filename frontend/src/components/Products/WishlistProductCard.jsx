@@ -4,7 +4,8 @@ import { FaStar, FaStarHalfAlt, FaRegStar, FaHeart, FaRegHeart, FaFire, FaCrown,
 import { BsLightningChargeFill } from 'react-icons/bs';
 import { MdLocalOffer, MdVerified } from 'react-icons/md';
 import { IoTimeOutline } from 'react-icons/io5';
-import { toast } from 'react-toastify';
+// Replace react-toastify with custom toast
+import { useToast } from '../../context/ToastContext';
 import Button from '../core/Button';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../../context/CartContext';
@@ -19,6 +20,8 @@ const WishlistProductCard = memo(({ productId, product: initialProduct }) => {
   const { user } = useAuth();
   const { getProduct } = useProduct();
   const { wishlist, removeItemFromWishlist, loading } = useContext(WishlistContext);
+  const { success, error, info } = useToast(); // Add custom toast hooks
+  
   const [product, setProduct] = useState(initialProduct);
   const [loadingProduct, setLoadingProduct] = useState(!initialProduct);
   const [addToCartStatus, setAddToCartStatus] = useState({
@@ -40,14 +43,14 @@ const WishlistProductCard = memo(({ productId, product: initialProduct }) => {
           setProduct(fetchedProduct);
         } catch (error) {
           console.error('Failed to fetch product:', error);
-          toast.error('Failed to load product details');
+          error('Failed to load product details');
         } finally {
           setLoadingProduct(false);
         }
       };
       fetchProduct();
     }
-  }, [productId, initialProduct, getProduct]);
+  }, [productId, initialProduct, getProduct, error]);
 
   useEffect(() => {
     if (product?._id) {
@@ -293,16 +296,13 @@ const WishlistProductCard = memo(({ productId, product: initialProduct }) => {
     e.stopPropagation();
     
     if (!user) {
-      toast.info('Please login to add items to cart', {
-        position: "top-center",
-        autoClose: 3000,
-      });
+      info('Please login to add items to cart');
       navigate('/login', { state: { from: window.location.pathname } });
       return;
     }
 
     if (stockInfo.hasVariants) {
-      toast.info('Please select options on the product page');
+      info('Please select options on the product page');
       navigate(`/product/${product._id}`);
       return;
     }
@@ -314,7 +314,7 @@ const WishlistProductCard = memo(({ productId, product: initialProduct }) => {
       const result = await addItemToCart(product._id, variantOptions, 1);
       
       if (result.success) {
-        toast.success(result.message || `${product.title} added to cart!`);
+        success(result.message || `${product.title} added to cart!`);
         setAddToCartStatus({ loading: false, success: true, error: null });
         
         setTimeout(() => {
@@ -325,7 +325,7 @@ const WishlistProductCard = memo(({ productId, product: initialProduct }) => {
       }
     } catch (err) {
       console.error('Add to cart error:', err);
-      toast.error(err.message || 'Failed to add to cart');
+      error(err.message || 'Failed to add to cart');
       setAddToCartStatus({
         loading: false,
         success: false,
@@ -344,9 +344,9 @@ const WishlistProductCard = memo(({ productId, product: initialProduct }) => {
     
     try {
       await removeItemFromWishlist(product._id);
-      toast.success(`${product.title} removed from wishlist!`);
+      success(`${product.title} removed from wishlist!`);
     } catch (err) {
-      toast.error(err.message || 'Failed to update wishlist');
+      error(err.message || 'Failed to update wishlist');
     }
   };
 
@@ -652,13 +652,15 @@ WishlistProductCard.propTypes = {
             stock: PropTypes.number,
           })
         ),
-        sizeOptions: PropTypes({
-          size: PropTypes.string,
-          price: PropTypes.number,
-          discountPrice: PropTypes.number,
-          displayPrice: PropTypes.number,
-          stock: PropTypes.number,
-        })
+        sizeOptions: PropTypes.arrayOf(
+          PropTypes.shape({
+            size: PropTypes.string,
+            price: PropTypes.number,
+            discountPrice: PropTypes.number,
+            displayPrice: PropTypes.number,
+            stock: PropTypes.number,
+          })
+        ),
       })
     ),
   }),

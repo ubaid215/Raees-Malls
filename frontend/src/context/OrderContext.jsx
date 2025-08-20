@@ -14,7 +14,7 @@ import {
   getProductRevenue
 } from '../services/orderService';
 import socketService from '../services/socketService';
-import { toast } from 'react-toastify';
+import { useToast } from './ToastContext';
 
 export const OrderContext = createContext();
 
@@ -28,6 +28,7 @@ export const OrderProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   const [revenueStats, setRevenueStats] = useState(null);
   const [productStats, setProductStats] = useState([]);
+  const { success: toastSuccess, error: toastError, warning: toastWarn, info: toastInfo } = useToast();
 
   // Add these refs for preventing multiple fetches
   const lastAdminFetch = useRef(0);
@@ -441,7 +442,7 @@ export const OrderProvider = ({ children }) => {
         fetchProductStats(10, '', '', true);
         
         // Show toast notification
-        toast.success(`New order received: ${data.order?.orderId}`, {
+        toastSuccess(`New order received: ${data.order?.orderId}`, {
           position: "top-right",
           autoClose: 5000,
         });
@@ -493,7 +494,7 @@ export const OrderProvider = ({ children }) => {
           ));
           
           // Show user notification
-          toast.info(`Order ${updatedOrder.orderId} status updated to: ${updatedOrder.status}`, {
+          toastInfo(`Order ${updatedOrder.orderId} status updated to: ${updatedOrder.status}`, {
             position: "top-right",
             autoClose: 4000,
           });
@@ -537,7 +538,7 @@ export const OrderProvider = ({ children }) => {
     } else {
       const errorMessage = err.response?.data?.message || err.message || 'An error occurred while processing the request';
       setError(errorMessage);
-      toast.error(errorMessage, { position: "top-right", autoClose: 5000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 5000 });
       throw err;
     }
   };
@@ -551,7 +552,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = validationErrors.join(', ');
       setError(errorMessage);
       setLoading(false);
-      toast.error(errorMessage, { position: "top-right", autoClose: 5000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 5000 });
       throw new Error(errorMessage);
     }
 
@@ -565,7 +566,7 @@ export const OrderProvider = ({ children }) => {
       });
 
       console.log('Order placed successfully:', order);
-      toast.success('Order placed successfully!', { position: "top-right", autoClose: 3000 });
+      toastSuccess('Order placed successfully!', { position: "top-right", autoClose: 3000 });
       
       // Clear cache and force refresh
       clearAllOrdersCache();
@@ -592,7 +593,7 @@ export const OrderProvider = ({ children }) => {
     if (!isAdmin) {
       const errorMessage = 'Unauthorized: Only admins can update order status';
       setError(errorMessage);
-      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
       throw new Error(errorMessage);
     }
     
@@ -604,7 +605,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid status value';
       setError(errorMessage);
       setLoading(false);
-      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
       throw new Error(errorMessage);
     }
     
@@ -612,14 +613,14 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid order ID';
       setError(errorMessage);
       setLoading(false);
-      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
     try {
       const order = await updateOrderStatus(orderId, status);
       console.log('Order status updated:', order);
-      toast.success(`Order status updated to: ${status}`, { position: "top-right", autoClose: 3000 });
+      toastSuccess(`Order status updated to: ${status}`, { position: "top-right", autoClose: 3000 });
       
       // Clear cache and force refresh
       clearAllOrdersCache();
@@ -639,7 +640,7 @@ export const OrderProvider = ({ children }) => {
     if (!isRegularUser) {
       const errorMessage = 'Unauthorized: Only users can cancel their own orders';
       setError(errorMessage);
-      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
       throw new Error(errorMessage);
     }
     
@@ -650,7 +651,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid order ID';
       setError(errorMessage);
       setLoading(false);
-      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
@@ -661,7 +662,7 @@ export const OrderProvider = ({ children }) => {
       // Clear cache and force refresh
       clearUserOrdersCache();
       await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
-      toast.success('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
+      toastSuccess('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
       return order;
     } catch (err) {
       console.error('Cancel order error:', {
@@ -681,7 +682,7 @@ export const OrderProvider = ({ children }) => {
     if (!isAdmin && !isRegularUser) {
       const errorMessage = 'Unauthorized: Please log in to download invoices';
       setError(errorMessage);
-      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
       throw new Error(errorMessage);
     }
     
@@ -692,7 +693,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid order ID';
       setError(errorMessage);
       setLoading(false);
-      toast.error(errorMessage, { position: "top-right", autoClose: 3000 });
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
@@ -707,7 +708,7 @@ export const OrderProvider = ({ children }) => {
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
       
-      toast.success('Invoice downloaded successfully', { position: "top-right", autoClose: 3000 });
+      toastSuccess('Invoice downloaded successfully', { position: "top-right", autoClose: 3000 });
       return response;
     } catch (err) {
       await handleOrderError(err, isRegularUser || isAdmin, () => downloadOrderInvoice(orderId));
