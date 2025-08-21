@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
 import { createReview, getReviews } from '../services/reviewService';
 import socketService from '../services/socketService';
+import { useToast } from './ToastContext';
 
 // Debounce utility
 const debounce = (func, delay) => {
@@ -15,22 +16,35 @@ export const ReviewContext = createContext();
 
 export const ReviewProvider = ({ children }) => {
   const [reviews, setReviews] = useState([]);
+  const [reviewData, setReviewData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const toast = useToast();
 
-  // Debounced fetchReviews
+  // Debounced fetchReviews - now returns the full response
   const fetchReviews = useCallback(debounce(async (productId, page = 1, limit = 10, sort = 'recent', filter = 'all') => {
     setLoading(true);
     setError('');
     try {
-      const reviewData = await getReviews(productId, page, limit, sort, filter);
-      setReviews(reviewData.reviews);
+      console.log('Fetching reviews for productId:', productId);
+      const response = await getReviews(productId, page, limit, sort, filter);
+      console.log('Review service response:', response);
+      
+      // Set both individual reviews and full response data
+      setReviews(response.reviews || []);
+      setReviewData(response);
+      
+      return response; // Return the full response
     } catch (err) {
-      setError(err.message);
+      console.error('Error in fetchReviews:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to fetch reviews';
+      setError(errorMessage);
+      toast.error(errorMessage);
+      throw err; // Re-throw so calling code can handle it
     } finally {
       setLoading(false);
     }
-  }, 300), []);
+  }, 300), [toast]);
 
   useEffect(() => {
     const userId = localStorage.getItem('userId');
@@ -52,11 +66,15 @@ export const ReviewProvider = ({ children }) => {
     setError('');
     try {
       const review = await createReview(productId, orderId, rating, comment);
+      // Refresh reviews after adding
       await fetchReviews(productId);
+      toast.success('Review submitted successfully');
       return review;
     } catch (err) {
-      setError(err.message);
-      throw err;
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to submit review';
+      setError(errorMessage);
+      toast.error(errorMessage);
+      throw new Error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -64,6 +82,7 @@ export const ReviewProvider = ({ children }) => {
 
   const value = {
     reviews,
+    reviewData, // Add full review data to context
     loading,
     error,
     fetchReviews,

@@ -830,7 +830,7 @@ exports.downloadInvoice = async (req, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
 
     const doc = new PDFDocument({
-      margin: 50,
+      margin: 30, // Reduced margin
       size: 'A4',
       info: {
         Title: `Invoice-${order.orderId}`,
@@ -862,107 +862,101 @@ exports.downloadInvoice = async (req, res, next) => {
     const qrCodeDataURL = await generateQR(JSON.stringify(qrData), {
       errorCorrectionLevel: 'H',
       margin: 1,
-      scale: 4
+      scale: 3 // Reduced scale
     });
 
     const qrCodeBuffer = Buffer.from(qrCodeDataURL.split(',')[1], 'base64');
 
     // ==============================
-    // SCALE CALCULATION
+    // COMPACT HEADER (60px height)
     // ==============================
-    const usableHeight = doc.page.height - 100; // A4 - margins
-    const baseItemHeight = 30; // each row height
-    const headerHeight = 420;  // header + details + address
-    const summaryHeight = 250; // summary + payment + footer
-    const neededHeight = headerHeight + (order.items.length * baseItemHeight) + summaryHeight;
+    doc.rect(30, 30, doc.page.width - 60, 60).fill('white').stroke(primaryColor).lineWidth(1);
+    
+    // Company name and QR code on same line
+    doc.fillColor(darkRed).fontSize(16).font('Helvetica-Bold')
+      .text('Raees Malls', 40, 45);
+    
+    doc.fillColor(secondaryColor).fontSize(8).font('Helvetica')
+      .text('Masjid Bazar Opposite Jamia Masjid Jaranwala | Phone: 0300-6530063', 40, 62)
+      .text('raeesmalls1@gmail.com', 40, 75);
 
-    let scaleFactor = usableHeight / neededHeight;
-    if (scaleFactor > 1) scaleFactor = 1; // only shrink, don’t enlarge
-
-    doc.save();
-    doc.scale(scaleFactor, scaleFactor);
-    doc.translate(0, 0);
+    // Smaller QR code
+    doc.image(qrCodeBuffer, doc.page.width - 90, 35, { width: 50, height: 50 });
 
     // ==============================
-    // HEADER
+    // INVOICE TITLE BAR (25px height)
     // ==============================
-    doc.rect(50, 50, doc.page.width - 100, 120).fill('white').stroke(primaryColor).lineWidth(2);
-    doc.fillColor(darkRed).fontSize(24).font('Helvetica-Bold')
-      .text('Raees Malls', 70, 80);
-    doc.fillColor(secondaryColor).fontSize(10).font('Helvetica')
-      .text('Masjid Bazar Opposite Jamia Masjid Jaranwala', 70, 110)
-      .text('Head Office, Opposite Ayesha Masjid Motor Market Jhang Road Faisalabad', 70, 125)
-      .text('Phone: 0300-6530063', 70, 140)
-      .text('Email: raeesmalls1@gmail.com', 70, 155);
+    const titleY = 100;
+    doc.rect(30, titleY, doc.page.width - 60, 25).fill(primaryColor);
+    doc.fillColor('white').fontSize(14).font('Helvetica-Bold')
+      .text('INVOICE', 0, titleY + 7, { align: 'center' });
 
-    doc.image(qrCodeBuffer, doc.page.width - 170, 70, { width: 80, height: 80 });
-    doc.fillColor(secondaryColor).fontSize(8)
-      .text('Scan to view order', doc.page.width - 170, 155, { width: 80, align: 'center' });
+    // ==============================
+    // INVOICE & CUSTOMER DETAILS (50px height)
+    // ==============================
+    const detailsY = 135;
+    const boxWidth = (doc.page.width - 70) / 2;
+    
+    // Invoice Details Box
+    doc.rect(30, detailsY, boxWidth, 50).stroke(primaryColor).fillColor(lightRed).fill();
+    doc.fillColor(darkRed).fontSize(10).font('Helvetica-Bold')
+      .text('Invoice Details', 35, detailsY + 5);
+    doc.fillColor('#374151').fontSize(8).font('Helvetica')
+      .text(`Invoice #: ${order.orderId}`, 35, detailsY + 18)
+      .text(`Date: ${order.createdAt.toLocaleDateString()}`, 35, detailsY + 30)
+      .text(`Status: ${order.status.charAt(0).toUpperCase() + order.status.slice(1)}`, 35, detailsY + 42);
 
-    // Invoice Title
-    doc.moveDown(2);
-    const invoiceY = doc.y + 20;
-    doc.rect(50, invoiceY, doc.page.width - 100, 40).fill(primaryColor);
-    doc.fillColor('white').fontSize(18).font('Helvetica-Bold')
-      .text('INVOICE', 0, invoiceY + 12, { align: 'center' });
+    // Customer Details Box
+    const customerBoxX = 40 + boxWidth;
+    doc.rect(customerBoxX, detailsY, boxWidth, 50).stroke(primaryColor).fillColor('white').fill();
+    doc.fillColor(darkRed).fontSize(10).font('Helvetica-Bold')
+      .text('Customer Details', customerBoxX + 5, detailsY + 5);
+    doc.fillColor('#374151').fontSize(8).font('Helvetica')
+      .text(`Name: ${order.userId.name}`, customerBoxX + 5, detailsY + 18)
+      .text(`Email: ${order.userId.email}`, customerBoxX + 5, detailsY + 30);
 
-    // Invoice Details
-    doc.rect(50, invoiceY + 50, (doc.page.width - 100) / 2 - 10, 80).stroke(primaryColor).fillColor(lightRed).fill();
-    doc.fillColor(darkRed).fontSize(12).font('Helvetica-Bold')
-      .text('Invoice Details', 60, invoiceY + 65);
-    doc.fillColor('#374151').fontSize(10).font('Helvetica')
-      .text(`Invoice #: ${order.orderId}`, 60, invoiceY + 85)
-      .text(`Date: ${order.createdAt.toLocaleDateString()}`, 60, invoiceY + 100)
-      .text(`Status: ${order.status.charAt(0).toUpperCase() + order.status.slice(1)}`, 60, invoiceY + 115);
-
-    // Customer Details
-    const customerBoxX = 50 + (doc.page.width - 100) / 2 + 10;
-    doc.rect(customerBoxX, invoiceY + 50, (doc.page.width - 100) / 2 - 10, 80).stroke(primaryColor).fillColor('white').fill();
-    doc.fillColor(darkRed).fontSize(12).font('Helvetica-Bold')
-      .text('Customer Details', customerBoxX + 10, invoiceY + 65);
-    doc.fillColor('#374151').fontSize(10).font('Helvetica')
-      .text(`Name: ${order.userId.name}`, customerBoxX + 10, invoiceY + 85)
-      .text(`Email: ${order.userId.email}`, customerBoxX + 10, invoiceY + 100);
-
-    // Shipping
-    const shippingY = invoiceY + 150;
-    doc.fillColor(primaryColor).fontSize(14).font('Helvetica-Bold')
-      .text('Shipping Address', 50, shippingY);
-    doc.rect(50, shippingY + 20, doc.page.width - 100, 80).stroke(primaryColor).fillColor('white').fill();
-    doc.fillColor('#374151').fontSize(10).font('Helvetica')
-      .text(`${order.shippingAddress.fullName}`, 60, shippingY + 35)
-      .text(`${order.shippingAddress.addressLine1}`, 60, shippingY + 50);
-
+    // ==============================
+    // COMPACT SHIPPING ADDRESS (40px height)
+    // ==============================
+    const shippingY = 195;
+    doc.fillColor(primaryColor).fontSize(10).font('Helvetica-Bold')
+      .text('Shipping Address', 30, shippingY);
+    doc.rect(30, shippingY + 15, doc.page.width - 60, 40).stroke(primaryColor).fillColor('white').fill();
+    
+    let addressText = `${order.shippingAddress.fullName}, ${order.shippingAddress.addressLine1}`;
     if (order.shippingAddress.addressLine2) {
-      doc.text(`${order.shippingAddress.addressLine2}`, 60, shippingY + 65);
+      addressText += `, ${order.shippingAddress.addressLine2}`;
     }
-
-    doc.text(`${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode}`, 60, shippingY + 80)
-      .text(`${order.shippingAddress.country}`, 60, shippingY + 95)
-      .text(`Phone: ${order.shippingAddress.phone}`, 60, shippingY + 110);
+    addressText += `, ${order.shippingAddress.city}, ${order.shippingAddress.state} ${order.shippingAddress.postalCode}`;
+    
+    doc.fillColor('#374151').fontSize(8).font('Helvetica')
+      .text(addressText, 35, shippingY + 22, { width: doc.page.width - 70 })
+      .text(`Phone: ${order.shippingAddress.phone}`, 35, shippingY + 40);
 
     // ==============================
-    // ITEMS TABLE
+    // COMPACT ITEMS TABLE
     // ==============================
-    const tableY = shippingY + 150;
-    doc.fillColor(primaryColor).fontSize(14).font('Helvetica-Bold')
-      .text('Order Items', 50, tableY);
+    const tableY = 255;
+    doc.fillColor(primaryColor).fontSize(10).font('Helvetica-Bold')
+      .text('Order Items', 30, tableY);
 
-    doc.rect(50, tableY + 25, doc.page.width - 100, 25).fill(primaryColor);
-    doc.fillColor('white').fontSize(10).font('Helvetica-Bold')
-      .text('Item Description', 60, tableY + 35)
-      .text('Price', 300, tableY + 35, { width: 70, align: 'right' })
-      .text('Qty', 380, tableY + 35, { width: 40, align: 'right' })
-      .text('Total', 430, tableY + 35, { width: 70, align: 'right' });
+    // Table header (20px height)
+    doc.rect(30, tableY + 15, doc.page.width - 60, 20).fill(primaryColor);
+    doc.fillColor('white').fontSize(9).font('Helvetica-Bold')
+      .text('Item', 35, tableY + 22)
+      .text('Price', 280, tableY + 22, { width: 60, align: 'right' })
+      .text('Qty', 350, tableY + 22, { width: 30, align: 'right' })
+      .text('Total', 390, tableY + 22, { width: 60, align: 'right' });
 
-    let currentY = tableY + 55;
+    let currentY = tableY + 40;
     doc.fillColor('#374151').font('Helvetica');
 
+    // Compact item rows (20px each)
     order.items.forEach((item, index) => {
       if (index % 2 === 0) {
-        doc.rect(50, currentY - 5, doc.page.width - 100, 25).fill(lightRed).stroke(primaryColor);
+        doc.rect(30, currentY - 2, doc.page.width - 60, 20).fill(lightRed).stroke(primaryColor);
       } else {
-        doc.rect(50, currentY - 5, doc.page.width - 100, 25).fill('white').stroke(primaryColor);
+        doc.rect(30, currentY - 2, doc.page.width - 60, 20).fill('white').stroke(primaryColor);
       }
 
       const variantInfo = extractVariantInfo(item);
@@ -974,73 +968,78 @@ exports.downloadInvoice = async (req, res, next) => {
 
       const itemDetails = calculateItemDetails(item);
 
-      doc.fillColor(darkRed).fontSize(9).font('Helvetica-Bold')
-        .text(`${item.itemName}`, 60, currentY, { width: 230 });
-
+      // Compact item display
+      let itemDisplayText = item.itemName;
       if (variantText) {
-        doc.fillColor('#6b7280').fontSize(8).font('Helvetica')
-          .text(`${variantText}`, 60, currentY + 12, { width: 230 });
+        itemDisplayText += ` (${variantText})`;
       }
 
-      doc.fillColor('#374151').fontSize(9).font('Helvetica')
-        .text(`PKR ${itemDetails.finalUnitPrice.toFixed(2)}`, 300, currentY, { width: 70, align: 'right' })
-        .text(itemDetails.quantity.toString(), 380, currentY, { width: 40, align: 'right' })
-        .text(`PKR ${itemDetails.itemTotal.toFixed(2)}`, 430, currentY, { width: 70, align: 'right' });
+      doc.fillColor('#374151').fontSize(8).font('Helvetica')
+        .text(itemDisplayText, 35, currentY + 5, { width: 240 })
+        .text(`PKR ${itemDetails.finalUnitPrice.toFixed(2)}`, 280, currentY + 5, { width: 60, align: 'right' })
+        .text(itemDetails.quantity.toString(), 350, currentY + 5, { width: 30, align: 'right' })
+        .text(`PKR ${itemDetails.itemTotal.toFixed(2)}`, 390, currentY + 5, { width: 60, align: 'right' });
 
-      currentY += 30;
+      currentY += 22;
     });
 
     // ==============================
-    // SUMMARY
+    // COMPACT SUMMARY (80px height)
     // ==============================
-    const summaryY = currentY + 20;
-    const summaryBoxWidth = 200;
-    const summaryBoxX = doc.page.width - 50 - summaryBoxWidth;
+    const summaryY = currentY + 10;
+    const summaryBoxWidth = 180;
+    const summaryBoxX = doc.page.width - 30 - summaryBoxWidth;
 
-    doc.rect(summaryBoxX, summaryY, summaryBoxWidth, 100).fill('white').stroke(primaryColor).lineWidth(2);
-    doc.fillColor('#374151').fontSize(10).font('Helvetica')
-      .text(`Subtotal:`, summaryBoxX + 10, summaryY + 15)
-      .text(`PKR ${order.subtotal.toFixed(2)}`, summaryBoxX + 10, summaryY + 15, { width: summaryBoxWidth - 20, align: 'right' });
+    let summaryHeight = 60;
+    if (order.discountAmount && order.discountAmount > 0) {
+      summaryHeight += 15;
+    }
 
-    let summaryLineY = summaryY + 35;
+    doc.rect(summaryBoxX, summaryY, summaryBoxWidth, summaryHeight).fill('white').stroke(primaryColor).lineWidth(1);
+    
+    doc.fillColor('#374151').fontSize(9).font('Helvetica')
+      .text(`Subtotal:`, summaryBoxX + 8, summaryY + 8)
+      .text(`PKR ${order.subtotal.toFixed(2)}`, summaryBoxX + 8, summaryY + 8, { width: summaryBoxWidth - 16, align: 'right' });
+
+    let summaryLineY = summaryY + 23;
 
     if (order.discountAmount && order.discountAmount > 0) {
       const discountCode = order.discountId?.code || 'DISCOUNT';
       doc.fillColor(accentColor)
-        .text(`Discount (${discountCode}):`, summaryBoxX + 10, summaryLineY)
-        .text(`-PKR ${order.discountAmount.toFixed(2)}`, summaryBoxX + 10, summaryLineY, { width: summaryBoxWidth - 20, align: 'right' });
-      summaryLineY += 20;
+        .text(`Discount (${discountCode}):`, summaryBoxX + 8, summaryLineY)
+        .text(`-PKR ${order.discountAmount.toFixed(2)}`, summaryBoxX + 8, summaryLineY, { width: summaryBoxWidth - 16, align: 'right' });
+      summaryLineY += 15;
     }
 
     doc.fillColor('#374151')
-      .text(`Shipping:`, summaryBoxX + 10, summaryLineY)
-      .text(`PKR ${order.totalShippingCost.toFixed(2)}`, summaryBoxX + 10, summaryLineY, { width: summaryBoxWidth - 20, align: 'right' });
+      .text(`Shipping:`, summaryBoxX + 8, summaryLineY)
+      .text(`PKR ${order.totalShippingCost.toFixed(2)}`, summaryBoxX + 8, summaryLineY, { width: summaryBoxWidth - 16, align: 'right' });
 
-    doc.rect(summaryBoxX, summaryLineY + 25, summaryBoxWidth, 25).fill(primaryColor);
-    doc.fillColor('white').fontSize(12).font('Helvetica-Bold')
-      .text('Total:', summaryBoxX + 10, summaryLineY + 32)
-      .text(`PKR ${order.totalAmount.toFixed(2)}`, summaryBoxX + 10, summaryLineY + 32, { width: summaryBoxWidth - 20, align: 'right' });
+    // Total line
+    doc.rect(summaryBoxX, summaryLineY + 15, summaryBoxWidth, 20).fill(primaryColor);
+    doc.fillColor('white').fontSize(10).font('Helvetica-Bold')
+      .text('Total:', summaryBoxX + 8, summaryLineY + 20)
+      .text(`PKR ${order.totalAmount.toFixed(2)}`, summaryBoxX + 8, summaryLineY + 20, { width: summaryBoxWidth - 16, align: 'right' });
 
-    // Payment Info
-    const paymentY = summaryY + 120;
-    doc.rect(50, paymentY, doc.page.width - 100, 50).fill(lightRed).stroke(primaryColor).lineWidth(2);
-    doc.fillColor(darkRed).fontSize(12).font('Helvetica-Bold')
-      .text('Payment Information', 60, paymentY + 15);
-    doc.fillColor('#374151').fontSize(10).font('Helvetica')
-      .text(`Method: ${order.paymentMethod.split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}`, 60, paymentY + 35);
+    // ==============================
+    // COMPACT PAYMENT & FOOTER (40px height)
+    // ==============================
+    const paymentY = summaryY + summaryHeight + 10;
+    doc.rect(30, paymentY, doc.page.width - 60, 25).fill(lightRed).stroke(primaryColor).lineWidth(1);
+    doc.fillColor(darkRed).fontSize(9).font('Helvetica-Bold')
+      .text('Payment Method:', 35, paymentY + 5);
+    doc.fillColor('#374151').fontSize(8).font('Helvetica')
+      .text(`${order.paymentMethod.split('_').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}`, 110, paymentY + 5);
 
-    // Footer
-    const footerY = paymentY + 80;
-    doc.rect(50, footerY, doc.page.width - 100, 40).fill(darkRed);
-    doc.fillColor('white').fontSize(12).font('Helvetica-Bold')
-      .text('Thank you for your purchase!', 0, footerY + 15, { align: 'center' });
-    doc.fontSize(8).font('Helvetica')
-      .text('For questions about this invoice, contact us at raeesmalls1@gmail.com', 0, footerY + 30, { align: 'center' });
+    // Compact footer
+    const footerY = paymentY + 35;
+    doc.rect(30, footerY, doc.page.width - 60, 25).fill(darkRed);
+    doc.fillColor('white').fontSize(10).font('Helvetica-Bold')
+      .text('Thank you for your purchase!', 0, footerY + 8, { align: 'center' });
 
     // ==============================
     // FINALIZE
     // ==============================
-    doc.restore();
     doc.end();
 
     // Cleanup file after sending

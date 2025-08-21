@@ -25,13 +25,14 @@ const ProductImage = ({ image, alt, className, ...props }) => {
 
   const getImageUrl = (imageObj) => {
     if (!imageObj || !imageObj.url) return "/images/placeholder-product.png";
-    
+
     if (imageObj.url.startsWith("http")) {
       return imageObj.url;
     }
-    
+
     // Handle relative paths
-    const baseUrl = import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
+    const baseUrl =
+      import.meta.env.VITE_API_BASE_PROD_URL || "http://localhost:5000";
     return `${baseUrl}${imageObj.url}`;
   };
 
@@ -108,34 +109,34 @@ const Profile = () => {
   // Enhanced function to extract image from any product/variant structure
   const getItemImage = (item) => {
     if (!item) return null;
-    
+
     // Try to get image from the most specific source first
-    
+
     // 1. Check if we have a color variant with images
     if (item.colorVariant?.images?.[0]) {
       return item.colorVariant.images[0];
     }
-    
+
     // 2. Check if we have a storage variant with color images
     if (item.storageVariant?.color?.images?.[0]) {
       return item.storageVariant.color.images[0];
     }
-    
+
     // 3. Check if we have a size variant with color images
     if (item.sizeVariant?.color?.images?.[0]) {
       return item.sizeVariant.color.images[0];
     }
-    
+
     // 4. Check if we have a simple product with images
     if (item.simpleProduct?.images?.[0]) {
       return item.simpleProduct.images[0];
     }
-    
+
     // 5. Check if the product itself has images
     if (item.productId?.images?.[0]) {
       return item.productId.images[0];
     }
-    
+
     // 6. For storage options, check if there's a parent variant with images
     if (item.storageVariant && item.productId?.variants) {
       // Try to find any variant with images
@@ -144,7 +145,7 @@ const Profile = () => {
         if (variant.color?.images?.[0]) return variant.color.images[0];
       }
     }
-    
+
     // 7. For size options, similar approach
     if (item.sizeVariant && item.productId?.variants) {
       for (const variant of item.productId.variants) {
@@ -152,7 +153,7 @@ const Profile = () => {
         if (variant.color?.images?.[0]) return variant.color.images[0];
       }
     }
-    
+
     return null;
   };
 
@@ -241,22 +242,23 @@ const Profile = () => {
 
   const getVariantDetails = (item) => {
     if (!item) return null;
-    
+
     const variantInfo = {};
-    
-    switch(item.variantType) {
-      case 'color':
+
+    switch (item.variantType) {
+      case "color":
         if (item.colorVariant) {
           variantInfo.colorName = item.colorVariant.color?.name;
         }
         break;
-      case 'storage':
+      case "storage":
         if (item.storageVariant) {
           variantInfo.colorName = item.storageVariant.color?.name;
-          variantInfo.storageCapacity = item.storageVariant.storageOption?.capacity;
+          variantInfo.storageCapacity =
+            item.storageVariant.storageOption?.capacity;
         }
         break;
-      case 'size':
+      case "size":
         if (item.sizeVariant) {
           variantInfo.colorName = item.sizeVariant.color?.name;
           variantInfo.size = item.sizeVariant.sizeOption?.size;
@@ -265,11 +267,11 @@ const Profile = () => {
       default:
         break;
     }
-    
+
     return Object.entries(variantInfo)
       .filter(([_, value]) => value)
       .map(([key, value]) => `${key}: ${value}`)
-      .join(', ');
+      .join(", ");
   };
 
   useEffect(() => {
@@ -406,8 +408,12 @@ const Profile = () => {
     );
   };
 
-  const handleOpenReviewModal = (productId, orderId) => {
-    setSelectedReviewItem({ productId, orderId });
+  const handleOpenReviewModal = (productId, order) => {
+    setSelectedReviewItem({
+      productId,
+      orderId: order._id,
+      orderNumber: order.orderId,
+    });
     setIsReviewModalOpen(true);
   };
 
@@ -717,7 +723,7 @@ const Profile = () => {
                 >
                   Retry
                 </Button>
-            </div>
+              </div>
             ) : (
               <div className="space-y-3 sm:space-y-4">
                 {(() => {
@@ -740,7 +746,7 @@ const Profile = () => {
                             const itemDetails = getItemDetails(item);
                             const itemImage = getItemImage(item);
                             const variantDetails = getVariantDetails(item);
-                            
+
                             return (
                               <div
                                 key={index}
@@ -785,32 +791,43 @@ const Profile = () => {
                                   </p>
                                   {order.status === "delivered" &&
                                     !item.reviewed && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenReviewModal(
-                                            item.productId._id,
-                                            order.orderId
-                                          );
-                                        }}
-                                        className="mt-2 w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors animate-split-bounce"
-                                        title="Add Review"
-                                      >
-                                        <svg
-                                          className="w-4 h-4 sm:w-5 sm:h-5"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          viewBox="0 0 24 24"
-                                          xmlns="http://www.w3.org/2000/svg"
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleOpenReviewModal(
+                                              item.productId._id,
+                                              order
+                                            );
+                                          }}
+                                          className="w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors animate-split-bounce"
+                                          title="Add Review"
                                         >
-                                          <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth="2"
-                                            d="M12 4v16m8-8H4"
-                                          />
-                                        </svg>
-                                      </button>
+                                          <svg
+                                            className="w-4 h-4 sm:w-5 sm:h-5"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                          >
+                                            <path
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              strokeWidth="2"
+                                              d="M12 4v16m8-8H4"
+                                            />
+                                          </svg>
+                                        </button>
+
+                                        {/* Tagline with indicator */}
+                                        <span className="flex items-center text-sm text-blue-600 font-medium">
+                                          <span className="relative flex h-2 w-2 mr-1">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                                          </span>
+                                          Give review please
+                                        </span>
+                                      </div>
                                     )}
                                 </div>
                               </div>

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const reviewController = require('../controllers/reviewController');
-const { ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
+const { authenticateJWT, ensureAuthenticated, authorizeRoles } = require('../middleware/auth');
 const { 
   addReviewValidator, 
   getReviewsValidator, 
@@ -12,42 +12,44 @@ const {
   adminDeleteReviewValidator 
 } = require('../validation/reviewValidators');
 
-// Review routes (under /api/reviews)
-router.post('/',
-  ensureAuthenticated,
-  authorizeRoles('user'),
-  addReviewValidator,
-  reviewController.addReview
-);
-
+// Public routes - no authentication needed
 router.get('/:productId',
   getReviewsValidator,
   reviewController.getProductReviews
 );
 
+// Protected routes - require authentication
+router.post('/',
+  authenticateJWT, // Use JWT auth for API
+  authorizeRoles('user'),
+  addReviewValidator,
+  reviewController.addReview
+);
+
 router.put('/:reviewId',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('user'),
   updateReviewValidator,
   reviewController.updateReview
 );
 
 router.delete('/:reviewId',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('user'),
   deleteReviewValidator,
   reviewController.deleteReview
 );
 
 router.get('/user/:userId',
-  ensureAuthenticated,
+  authenticateJWT,
   authorizeRoles('user'),
   getUserReviewsValidator,
   reviewController.getUserReviews
 );
 
+// Admin routes - use session auth for CMS
 router.post('/flag/:reviewId',
-  ensureAuthenticated,
+  ensureAuthenticated, // Use session auth for admin panel
   authorizeRoles('admin'),
   flagReviewValidator,
   reviewController.flagReview

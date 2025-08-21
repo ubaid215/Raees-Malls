@@ -16,6 +16,7 @@ import { getProductById } from "../../services/productService";
 import { useCart } from "../../context/CartContext";
 import Button from "../core/Button";
 import LoadingSpinner from "../core/LoadingSpinner";
+import ProductReviews from "../../pages/ProductReviews";
 
 const SafeHTMLRenderer = ({ html, className = "" }) => {
   return (
@@ -1061,6 +1062,7 @@ const ProductDetails = () => {
           </div>
         </div>
       )}
+      <ProductReviews productId={product._id} />
     </div>
   );
 };

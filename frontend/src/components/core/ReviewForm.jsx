@@ -38,7 +38,7 @@ const ReviewForm = ({ productId, orderId, onSubmit, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-lg p-4 sm:p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">
           Write a Review

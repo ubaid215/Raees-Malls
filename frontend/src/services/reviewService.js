@@ -4,8 +4,10 @@ import api from './api';
 export const createReview = async (productId, orderId, rating, comment) => {
   try {
     const response = await api.post('/reviews', { productId, orderId, rating, comment });
-    return response.data.review;
+    // Handle both wrapped and unwrapped responses
+    return response.data?.data?.review || response.data?.review || response.data;
   } catch (error) {
+    console.error('Create review error:', error.response?.data || error);
     throw new Error(error.response?.data?.message || 'Failed to create review');
   }
 };
@@ -13,11 +15,24 @@ export const createReview = async (productId, orderId, rating, comment) => {
 // Get reviews for a product (public)
 export const getReviews = async (productId, page = 1, limit = 10, sort = 'recent', filter = 'all') => {
   try {
+    console.log('Service: Getting reviews for product:', productId);
+    console.log('Service: Params:', { page, limit, sort, filter });
+    
     const response = await api.get(`/reviews/${productId}`, { 
       params: { page, limit, sort, filter } 
     });
-    return response.data;
+    
+    console.log('Service: Raw API response:', response.data);
+    
+    // Handle both wrapped and unwrapped responses
+    // Your backend likely returns: { success: true, data: {...}, message: "..." }
+    const data = response.data?.data || response.data;
+    
+    console.log('Service: Processed data:', data);
+    
+    return data;
   } catch (error) {
+    console.error('Get reviews error:', error.response?.data || error);
     throw new Error(error.response?.data?.message || 'Failed to fetch reviews');
   }
 };
@@ -26,8 +41,9 @@ export const getReviews = async (productId, page = 1, limit = 10, sort = 'recent
 export const updateReview = async (reviewId, rating, comment) => {
   try {
     const response = await api.put(`/reviews/${reviewId}`, { rating, comment });
-    return response.data.review;
+    return response.data?.data?.review || response.data?.review || response.data;
   } catch (error) {
+    console.error('Update review error:', error.response?.data || error);
     throw new Error(error.response?.data?.message || 'Failed to update review');
   }
 };
@@ -38,6 +54,7 @@ export const deleteReview = async (reviewId) => {
     await api.delete(`/reviews/${reviewId}`);
     return true;
   } catch (error) {
+    console.error('Delete review error:', error.response?.data || error);
     throw new Error(error.response?.data?.message || 'Failed to delete review');
   }
 };
@@ -48,8 +65,10 @@ export const getUserReviews = async (userId, page = 1, limit = 10) => {
     const response = await api.get(`/reviews/user/${userId}`, { 
       params: { page, limit } 
     });
-    return response.data.reviews;
+    const data = response.data?.data || response.data;
+    return data.reviews || data;
   } catch (error) {
+    console.error('Get user reviews error:', error.response?.data || error);
     throw new Error(error.response?.data?.message || 'Failed to fetch user reviews');
   }
 };
@@ -58,8 +77,9 @@ export const getUserReviews = async (userId, page = 1, limit = 10) => {
 export const voteReview = async (reviewId, isHelpful) => {
   try {
     const response = await api.post(`/reviews/${reviewId}/${isHelpful ? 'helpful' : 'unhelpful'}`);
-    return response.data;
+    return response.data?.data || response.data;
   } catch (error) {
+    console.error('Vote review error:', error.response?.data || error);
     throw new Error(error.response?.data?.message || 'Failed to vote on review');
   }
 };
