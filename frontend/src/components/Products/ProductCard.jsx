@@ -24,9 +24,11 @@ import { useCart } from "../../context/CartContext";
 import { useAuth } from "../../context/AuthContext";
 import { useProduct } from "../../context/ProductContext";
 import { WishlistContext } from "../../context/WishlistContext";
+import { useReview } from "../../context/ReviewContext";
 import PropTypes from "prop-types";
 
 const ProductCard = memo(({ productId, product: initialProduct }) => {
+  const { getReviewsForProduct, fetchReviews } = useReview();
   const navigate = useNavigate();
   const { addItemToCart } = useCart();
   const { user } = useAuth();
@@ -50,6 +52,51 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     size: null,
   });
   const [showVariantSelector, setShowVariantSelector] = useState(false);
+
+// ✅ Fetch reviews once per productId
+useEffect(() => {
+  if (!product?._id) return;
+
+  let hasFetched = false;
+
+  if (!hasFetched) {
+    fetchReviews(product._id, 1, 10, 'recent', 'all');
+    hasFetched = true;
+  }
+
+  // cleanup ensures StrictMode double render won't refetch
+  return () => {
+    hasFetched = true;
+  };
+}, [product?._id]); 
+
+// ✅ Get the real-time reviews for this product
+const productReviews = getReviewsForProduct(product?._id) || {};
+
+// ✅ Unified rating data function
+const getRatingData = () => {
+  if (!product) return { rating: 0, reviewCount: 0, hasReviews: false };
+
+  // Prefer real-time data → fallback to product data → fallback to 0
+  const rating = productReviews?.averageRating 
+                  ?? product?.averageRating 
+                  ?? product?.rating 
+                  ?? 0;
+
+  const reviewCount = productReviews?.totalReviews 
+                      ?? product?.reviewCount 
+                      ?? product?.totalReviews 
+                      ?? 0;
+
+  return {
+    rating,
+    reviewCount,
+    hasReviews: reviewCount > 0,
+  };
+};
+
+  
+  
 
   useEffect(() => {
     if (productId && !initialProduct) {
@@ -314,16 +361,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     };
   };
 
-  const getRatingData = () => {
-    if (!product) return { rating: 0, reviewCount: 0, hasReviews: false };
-    const rating = product.averageRating || product.rating || 0;
-    const reviewCount = product.reviewCount || product.totalReviews || 0;
-    return {
-      rating: rating,
-      reviewCount: reviewCount,
-      hasReviews: reviewCount > 0,
-    };
-  };
+  
 
   const renderStars = (rating) => {
     const stars = [];

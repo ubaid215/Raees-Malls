@@ -15,20 +15,18 @@ export const createReview = async (productId, orderId, rating, comment) => {
 // Get reviews for a product (public)
 export const getReviews = async (productId, page = 1, limit = 10, sort = 'recent', filter = 'all') => {
   try {
-    console.log('Service: Getting reviews for product:', productId);
-    console.log('Service: Params:', { page, limit, sort, filter });
+    // console.log('Service: Getting reviews for product:', productId);
+    // console.log('Service: Params:', { page, limit, sort, filter });
     
     const response = await api.get(`/reviews/${productId}`, { 
       params: { page, limit, sort, filter } 
     });
     
-    console.log('Service: Raw API response:', response.data);
+    // console.log('Service: Raw API response:', response.data);
     
-    // Handle both wrapped and unwrapped responses
-    // Your backend likely returns: { success: true, data: {...}, message: "..." }
     const data = response.data?.data || response.data;
     
-    console.log('Service: Processed data:', data);
+    // console.log('Service: Processed data:', data);
     
     return data;
   } catch (error) {

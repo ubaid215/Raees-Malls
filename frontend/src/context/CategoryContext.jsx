@@ -54,7 +54,7 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
         clearedKeys.push(key);
       }
     }
-    console.log('Cleared cache keys:', clearedKeys);
+    // console.log('Cleared cache keys:', clearedKeys);
   }, [clearCache]);
 
   // Fetch categories
@@ -62,15 +62,6 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     setLoading(true);
     setError('');
     const cacheKey = `categories_${forcePublic ? 'public' : 'all'}_${page}_${limit}_${sort}`;
-    // Bypass cache for testing
-    // const cached = getCache(cacheKey);
-    // if (cached && Date.now() - cached.timestamp < 300000) {
-    //   setCategories(cached.data || []);
-    //   setParentCategories((cached.data || []).filter((cat) => !cat.parentId));
-    //   setLoading(false);
-    //   console.log('Fetched from cache:', cacheKey, cached.data);
-    //   return cached.data;
-    // }
     try {
       // console.log('Fetching categories from API:', { sort, page, limit, forcePublic });
       const data = await getCategories({ sort, page, limit, isPublic: forcePublic });
@@ -90,16 +81,16 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
 
   // Socket.IO event listeners
   useEffect(() => {
-    console.log('Setting up Socket.IO listeners');
+    // console.log('Setting up Socket.IO listeners');
     const handleCategoryCreated = ({ category }) => {
       // console.log('Received categoryCreated:', category);
       setCategories((prev) => {
         if (prev.some((cat) => cat._id === category._id)) {
-          console.log('Category already exists:', category._id);
+          // console.log('Category already exists:', category._id);
           return prev;
         }
         const updatedCategories = [...prev, category];
-        console.log('Updated categories:', updatedCategories.map(c => c._id));
+        // console.log('Updated categories:', updatedCategories.map(c => c._id));
         setParentCategories(updatedCategories.filter((cat) => !cat.parentId));
         clearRelatedCaches();
         toast.success(`New category added: ${category.name}`);
@@ -108,12 +99,12 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     };
 
     const handleCategoryUpdated = ({ category }) => {
-      console.log('Received categoryUpdated:', category);
+      // console.log('Received categoryUpdated:', category);
       setCategories((prev) => {
         const updatedCategories = prev.map((cat) =>
           cat._id === category._id ? { ...cat, ...category } : cat
         );
-        console.log('Updated categories:', updatedCategories.map(c => c._id));
+        // console.log('Updated categories:', updatedCategories.map(c => c._id));
         setParentCategories(updatedCategories.filter((cat) => !cat.parentId));
         clearRelatedCaches(category._id);
         toast.info(`Category updated: ${category.name}`);
@@ -125,13 +116,13 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     };
 
     const handleCategoryDeleted = ({ categoryIds }) => {
-      console.log('Received categoryDeleted:', categoryIds);
+      // console.log('Received categoryDeleted:', categoryIds);
       setCategories((prev) => {
         const updatedCategories = prev.filter(
           (cat) => !categoryIds.includes(cat._id.toString())
         );
-        console.log('Before deletion:', prev.map(c => c._id));
-        console.log('After deletion:', updatedCategories.map(c => c._id));
+        // console.log('Before deletion:', prev.map(c => c._id));
+        // console.log('After deletion:', updatedCategories.map(c => c._id));
         setParentCategories(updatedCategories.filter((cat) => !cat.parentId));
         clearRelatedCaches();
         toast.info('Category deleted');
@@ -147,7 +138,7 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     SocketService.on('categoryDeleted', handleCategoryDeleted);
 
     return () => {
-      console.log('Cleaning up Socket.IO listeners');
+      // console.log('Cleaning up Socket.IO listeners');
       SocketService.off('categoryCreated', handleCategoryCreated);
       SocketService.off('categoryUpdated', handleCategoryUpdated);
       SocketService.off('categoryDeleted', handleCategoryDeleted);
@@ -156,13 +147,13 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
 
   // Fetch categories on mount
   useEffect(() => {
-    console.log('Fetching initial categories');
+    // console.log('Fetching initial categories');
     fetchCategories({ forcePublic: isPublicDefault });
   }, [fetchCategories, isPublicDefault]);
 
   // Log categories changes for debugging
   useEffect(() => {
-    console.log('Categories state updated:', categories.map(c => ({ _id: c._id, name: c.name })));
+    // console.log('Categories state updated:', categories.map(c => ({ _id: c._id, name: c.name })));
   }, [categories]);
 
   // Other context functions
@@ -174,11 +165,11 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     if (cached && Date.now() - cached.timestamp < 300000) {
       setSelectedCategory(cached.data || null);
       setLoading(false);
-      console.log('Fetched category from cache:', cacheKey, cached.data);
+      // console.log('Fetched category from cache:', cacheKey, cached.data);
       return cached.data;
     }
     try {
-      console.log('Fetching category by ID:', id);
+      // console.log('Fetching category by ID:', id);
       const data = await getCategoryById(id);
       setSelectedCategory(data || null);
       setCache(cacheKey, data || null);
@@ -196,7 +187,7 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     setLoading(true);
     setError('');
     try {
-      console.log('Creating category:', categoryData);
+      // console.log('Creating category:', categoryData);
       const data = await createCategory(categoryData);
       clearRelatedCaches();
       setLoading(false);
@@ -213,7 +204,7 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     setLoading(true);
     setError('');
     try {
-      console.log('Updating category:', id, categoryData);
+      // console.log('Updating category:', id, categoryData);
       const data = await updateCategory(id, categoryData);
       clearRelatedCaches(id);
       setLoading(false);
@@ -230,7 +221,7 @@ export const CategoryProvider = ({ children, isPublicDefault = true }) => {
     setLoading(true);
     setError('');
     try {
-      console.log('Deleting category:', id);
+      // console.log('Deleting category:', id);
       await deleteCategory(id);
       clearRelatedCaches(id);
       setSelectedCategory(null);

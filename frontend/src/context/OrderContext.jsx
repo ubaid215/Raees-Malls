@@ -93,24 +93,20 @@ export const OrderProvider = ({ children }) => {
 
   // Improved cache management
   const clearAllOrdersCache = useCallback(() => {
-    console.log('Clearing all orders cache...');
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('orders_') || key.includes('_orders_') || key.startsWith('notifications_') || key.startsWith('stats_')) {
         localStorage.removeItem(key);
         localStorage.removeItem(`${key}_timestamp`);
-        console.log('Removed cache key:', key);
       }
     });
   }, []);
 
   const clearUserOrdersCache = useCallback(() => {
     if (user?._id) {
-      console.log('Clearing user orders cache for:', user._id);
       Object.keys(localStorage).forEach(key => {
         if (key.includes(`user_${user._id}`)) {
           localStorage.removeItem(key);
           localStorage.removeItem(`${key}_timestamp`);
-          console.log('Removed user cache key:', key);
         }
       });
     }
@@ -119,7 +115,6 @@ export const OrderProvider = ({ children }) => {
   // Enhanced socket reconnection logic
   const handleSocketReconnect = useCallback(() => {
     if (!socketService.getConnectionState()) {
-      console.log('Attempting socket reconnection...');
       const currentUserId = isAdmin ? admin?._id : user?._id;
       if (currentUserId) {
         socketService.connect(currentUserId, isAdmin ? 'admin' : 'user');
@@ -142,7 +137,7 @@ export const OrderProvider = ({ children }) => {
 
       if (cached && cacheValid) {
         try {
-          console.log('fetchUserOrders: Using cached orders');
+          // console.log('fetchUserOrders: Using cached orders');
           const { orders, pagination } = JSON.parse(cached);
           setOrders(orders || []);
           setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
@@ -158,11 +153,11 @@ export const OrderProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
-      console.log('fetchUserOrders: Fetching from API...', { page, limit, status });
+      // console.log('fetchUserOrders: Fetching from API...', { page, limit, status });
       const response = await getUserOrders(page, limit, status);
       const { orders = [], total = 0, page: currentPage = 1, limit: currentLimit = 10, totalPages = 1 } = response.data || {};
       
-      console.log('fetchUserOrders: API response:', { orders: orders.length, total });
+      // console.log('fetchUserOrders: API response:', { orders: orders.length, total });
       
       // Improved order filtering
       const filteredOrders = Array.isArray(orders) ? orders.filter(order => {
@@ -203,7 +198,7 @@ export const OrderProvider = ({ children }) => {
 
       if (cached && cacheValid) {
         try {
-          console.log('fetchAllOrders: Using cached orders');
+          // console.log('fetchAllOrders: Using cached orders');
           const { orders, pagination } = JSON.parse(cached);
           setOrders(orders || []);
           setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
@@ -219,11 +214,11 @@ export const OrderProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
-      console.log('fetchAllOrders: Fetching from API...', { page, limit, status, userId });
+      // console.log('fetchAllOrders: Fetching from API...', { page, limit, status, userId });
       const response = await getAllOrders(page, limit, status, userId);
       const { orders = [], total = 0, page: currentPage = 1, limit: currentLimit = 10, totalPages = 1 } = response.data || {};
       
-      console.log('fetchAllOrders: API response:', { orders: orders.length, total });
+      // console.log('fetchAllOrders: API response:', { orders: orders.length, total });
       
       // Improved order filtering
       const filteredOrders = Array.isArray(orders) ? orders.filter(order => {
@@ -381,7 +376,7 @@ export const OrderProvider = ({ children }) => {
     const currentUserId = isAdmin ? admin?._id : user?._id;
     if (!currentUserId) return;
 
-    console.log('OrderProvider: Setting up for role:', userRole, 'UserID:', currentUserId);
+    // console.log('OrderProvider: Setting up for role:', userRole, 'UserID:', currentUserId);
     initializationRef.current = true;
 
     const setupTimer = setTimeout(() => {
@@ -390,7 +385,7 @@ export const OrderProvider = ({ children }) => {
       const shouldFetch = !lastFetchTime || (now - lastFetchTime) > 30000;
 
       if (shouldFetch) {
-        console.log('OrderProvider: Fetching initial data');
+        // console.log('OrderProvider: Fetching initial data');
         
         if (isAdmin) {
           debouncedFetchAllOrders(1, 10, '', '', true);
@@ -417,7 +412,7 @@ export const OrderProvider = ({ children }) => {
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
             if (!socketService.getConnectionState()) {
-              console.log('Polling: Fetching orders due to socket disconnect');
+              // console.log('Polling: Fetching orders due to socket disconnect');
               debouncedFetchAllOrders(1, 10, '', '', true);
               fetchNotifications(5, true);
             }
@@ -429,12 +424,12 @@ export const OrderProvider = ({ children }) => {
       socketService.on('connect_error', handleSocketError);
       
       socketService.on('orderNotification', (notification) => {
-        console.log('Socket: Order notification received:', notification);
+        // console.log('Socket: Order notification received:', notification);
         setNotifications(prev => [notification, ...prev.slice(0, 4)]); // Keep latest 5
       });
 
       socketService.on('newOrder', (data) => {
-        console.log('Socket: New order received:', data);
+        // console.log('Socket: New order received:', data);
         clearAllOrdersCache();
         debouncedFetchAllOrders(1, 10, '', '', true);
         fetchNotifications(5, true);
@@ -449,7 +444,7 @@ export const OrderProvider = ({ children }) => {
       });
 
       socketService.on('orderStatusUpdated', (updatedOrder) => {
-        console.log('Socket: Order status updated:', updatedOrder);
+        // console.log('Socket: Order status updated:', updatedOrder);
         clearAllOrdersCache();
         debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
         
@@ -460,7 +455,7 @@ export const OrderProvider = ({ children }) => {
       });
 
       socketService.on('connect', () => {
-        console.log('Socket: Connected successfully');
+        // console.log('Socket: Connected successfully');
         if (pollingInterval) {
           clearInterval(pollingInterval);
           pollingInterval = null;
@@ -469,10 +464,10 @@ export const OrderProvider = ({ children }) => {
       });
 
       socketService.on('disconnect', () => {
-        console.log('Socket: Disconnected');
+        // console.log('Socket: Disconnected');
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
-            console.log('Polling: Fetching data due to socket disconnect');
+            // console.log('Polling: Fetching data due to socket disconnect');
             debouncedFetchAllOrders(1, 10, '', '', true);
             fetchNotifications(5, true);
           }, 15000);
@@ -483,7 +478,7 @@ export const OrderProvider = ({ children }) => {
       socketService.connect(currentUserId, 'user');
       
       socketService.on('orderStatusUpdated', (updatedOrder) => {
-        console.log('Socket: User order status updated:', updatedOrder);
+        // console.log('Socket: User order status updated:', updatedOrder);
         if (updatedOrder.userId === currentUserId) {
           clearUserOrdersCache();
           debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
@@ -503,7 +498,7 @@ export const OrderProvider = ({ children }) => {
     }
 
     return () => {
-      console.log('OrderProvider: Cleaning up...');
+      // console.log('OrderProvider: Cleaning up...');
       clearTimeout(setupTimer);
       socketService.off('orderNotification');
       socketService.off('newOrder');
@@ -565,7 +560,7 @@ export const OrderProvider = ({ children }) => {
         })),
       });
 
-      console.log('Order placed successfully:', order);
+      // console.log('Order placed successfully:', order);
       toastSuccess('Order placed successfully!', { position: "top-right", autoClose: 3000 });
       
       // Clear cache and force refresh
@@ -619,7 +614,7 @@ export const OrderProvider = ({ children }) => {
 
     try {
       const order = await updateOrderStatus(orderId, status);
-      console.log('Order status updated:', order);
+      // console.log('Order status updated:', order);
       toastSuccess(`Order status updated to: ${status}`, { position: "top-right", autoClose: 3000 });
       
       // Clear cache and force refresh
@@ -657,7 +652,7 @@ export const OrderProvider = ({ children }) => {
 
     try {
       const order = await apiCancelOrder(orderId);
-      console.log('Order cancelled:', order);
+      // console.log('Order cancelled:', order);
       
       // Clear cache and force refresh
       clearUserOrdersCache();
@@ -720,7 +715,7 @@ export const OrderProvider = ({ children }) => {
 
   // Enhanced force refresh function
   const forceRefreshOrders = useCallback(() => {
-    console.log('Force refreshing orders...');
+    // console.log('Force refreshing orders...');
     clearAllOrdersCache();
     if (isAdmin) {
       debouncedFetchAllOrders(1, 10, '', '', true);

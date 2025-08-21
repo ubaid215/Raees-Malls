@@ -54,22 +54,22 @@ const ProductDetails = () => {
   const getCleanVariant = (variant) => variant._doc || variant;
 
   // Debug logger
-  useEffect(() => {
-    if (product) {
-      console.log("CURRENT PRODUCT DATA:", {
-        product,
-        selectedColor,
-        selectedStorage,
-        selectedSize,
-        availableColors: allColors,
-        availableStorages,
-        availableSizes,
-        priceInfo,
-        baseProductStock: product.stock,
-        hasVariants: !!product.variants?.length,
-      });
-    }
-  }, [product, selectedColor, selectedStorage, selectedSize]);
+  // useEffect(() => {
+  //   if (product) {
+  //     console.log("CURRENT PRODUCT DATA:", {
+  //       product,
+  //       selectedColor,
+  //       selectedStorage,
+  //       selectedSize,
+  //       availableColors: allColors,
+  //       availableStorages,
+  //       availableSizes,
+  //       priceInfo,
+  //       baseProductStock: product.stock,
+  //       hasVariants: !!product.variants?.length,
+  //     });
+  //   }
+  // }, [product, selectedColor, selectedStorage, selectedSize]);
 
   // Countdown timer
   useEffect(() => {
@@ -126,10 +126,10 @@ const ProductDetails = () => {
   useEffect(() => {
     if (!product || !product.variants?.length) return;
 
-    console.log("Running auto-selection logic...", {
-      hasBaseStock,
-      currentSelections: { selectedColor, selectedStorage, selectedSize },
-    });
+    // console.log("Running auto-selection logic...", {
+    //   hasBaseStock,
+    //   currentSelections: { selectedColor, selectedStorage, selectedSize },
+    // });
 
     // If base product has no stock or we need to auto-select variants
     if (!hasBaseStock || !selectedColor) {
@@ -175,17 +175,17 @@ const ProductDetails = () => {
 
       // Set selections
       if (firstAvailableColor && !selectedColor) {
-        console.log("Auto-selecting color:", firstAvailableColor);
+        // console.log("Auto-selecting color:", firstAvailableColor);
         setSelectedColor(firstAvailableColor);
       }
 
       if (firstAvailableStorage && !selectedStorage) {
-        console.log("Auto-selecting storage:", firstAvailableStorage);
+        // console.log("Auto-selecting storage:", firstAvailableStorage);
         setSelectedStorage(firstAvailableStorage);
       }
 
       if (firstAvailableSize && !selectedSize) {
-        console.log("Auto-selecting size:", firstAvailableSize);
+        // console.log("Auto-selecting size:", firstAvailableSize);
         setSelectedSize(firstAvailableSize);
       }
     }
@@ -322,7 +322,7 @@ const ProductDetails = () => {
 
   // Handle color change
   const handleColorChange = (color) => {
-    console.log("Color change triggered:", color);
+    // console.log("Color change triggered:", color);
     setSelectedColor(color);
     setSelectedStorage(null);
     setSelectedSize(null);
@@ -338,7 +338,7 @@ const ProductDetails = () => {
       (v) => v.storageOptions?.filter((o) => o.stock > 0) || []
     )[0]?.capacity;
     if (firstStorage) {
-      console.log("Auto-selecting storage for new color:", firstStorage);
+      // console.log("Auto-selecting storage for new color:", firstStorage);
       setSelectedStorage(firstStorage);
     }
 
@@ -347,7 +347,7 @@ const ProductDetails = () => {
       (v) => v.sizeOptions?.filter((o) => o.stock > 0) || []
     )[0]?.size;
     if (firstSize) {
-      console.log("Auto-selecting size for new color:", firstSize);
+      // console.log("Auto-selecting size for new color:", firstSize);
       setSelectedSize(firstSize);
     }
   };
@@ -712,7 +712,7 @@ const ProductDetails = () => {
                     })}
                   </div>
                   <span className="text-gray-700 font-medium text-sm">
-                    {product.averageRating} ({product.numReviews || 0} reviews)
+                    {product.averageRating}
                   </span>
                 </div>
               )}

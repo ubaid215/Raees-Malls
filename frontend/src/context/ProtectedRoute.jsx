@@ -8,12 +8,12 @@ const ProtectedRoute = ({ children, roles = ['user'] }) => {
 
 
   if (loading) {
-    console.log('ProtectedRoute: Loading customer auth state');
+    // console.log('ProtectedRoute: Loading customer auth state');
     return <LoadingSpinner fullScreen />;
   }
 
   if (!isAuthenticated) {
-    console.log('ProtectedRoute: Not authenticated, redirecting to /login');
+    // console.log('ProtectedRoute: Not authenticated, redirecting to /login');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
@@ -24,7 +24,7 @@ const ProtectedRoute = ({ children, roles = ['user'] }) => {
     return <Navigate to={redirectPath} replace />;
   }
 
-  console.log('ProtectedRoute: Access granted');
+  // console.log('ProtectedRoute: Access granted');
   return children;
 };
 

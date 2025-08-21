@@ -51,7 +51,7 @@ export const WishlistProvider = ({ children }) => {
       try {
         const wishlistData = await getWishlist();
         if (!wishlistData) {
-          console.log('No wishlist data received, setting empty array');
+          // console.log('No wishlist data received, setting empty array');
           setWishlist([]);
           return;
         }
@@ -64,7 +64,7 @@ export const WishlistProvider = ({ children }) => {
         }
 
         if (wishlistData.length === 0) {
-          console.log('Wishlist is empty');
+          // console.log('Wishlist is empty');
           setWishlist([]);
           return;
         }

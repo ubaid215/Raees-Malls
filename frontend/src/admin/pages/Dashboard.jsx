@@ -9,7 +9,7 @@ import {
   FiCreditCard,
   FiBarChart2,
   FiActivity,
-  FiRefreshCw
+  FiRefreshCw,
 } from "react-icons/fi";
 import {
   LineChart,
@@ -59,18 +59,28 @@ const Dashboard = () => {
   // Helper function to calculate item price based on variant type - FIXED TYPO
   const calculateItemPrice = (item) => {
     if (!item) return 0;
-    
-    switch(item.variantType) {
-      case 'simple':
-        return item.simpleProduct?.discountPrice || item.simpleProduct?.price || 0;
-      case 'color':
-        return item.colorVariant?.discountPrice || item.colorVariant?.price || 0;
-      case 'storage':
-        return item.storageVariant?.storageOption?.discountPrice || 
-               item.storageVariant?.storageOption?.price || 0;
-      case 'size':
-        return item.sizeVariant?.sizeOption?.discountPrice || 
-               item.sizeVariant?.sizeOption?.price || 0;
+
+    switch (item.variantType) {
+      case "simple":
+        return (
+          item.simpleProduct?.discountPrice || item.simpleProduct?.price || 0
+        );
+      case "color":
+        return (
+          item.colorVariant?.discountPrice || item.colorVariant?.price || 0
+        );
+      case "storage":
+        return (
+          item.storageVariant?.storageOption?.discountPrice ||
+          item.storageVariant?.storageOption?.price ||
+          0
+        );
+      case "size":
+        return (
+          item.sizeVariant?.sizeOption?.discountPrice ||
+          item.sizeVariant?.sizeOption?.price ||
+          0
+        );
       default:
         return item.price || 0;
     }
@@ -81,38 +91,48 @@ const Dashboard = () => {
     let quantity = 0;
     let finalUnitPrice = calculateItemPrice(item);
     let variantDetails = null;
-    
-    switch(item.variantType) {
-      case 'simple':
+
+    switch (item.variantType) {
+      case "simple":
         quantity = item.simpleProduct?.quantity || item.quantity || 0;
         break;
-      case 'color':
+      case "color":
         quantity = item.colorVariant?.quantity || item.quantity || 0;
-        variantDetails = item.colorVariant?.color?.name ? `Color: ${item.colorVariant.color.name}` : null;
+        variantDetails = item.colorVariant?.color?.name
+          ? `Color: ${item.colorVariant.color.name}`
+          : null;
         break;
-      case 'storage':
+      case "storage":
         quantity = item.storageVariant?.quantity || item.quantity || 0;
         variantDetails = [
-          item.storageVariant?.color?.name && `Color: ${item.storageVariant.color.name}`,
-          item.storageVariant?.storageOption?.capacity && `Storage: ${item.storageVariant.storageOption.capacity}`
-        ].filter(Boolean).join(', ');
+          item.storageVariant?.color?.name &&
+            `Color: ${item.storageVariant.color.name}`,
+          item.storageVariant?.storageOption?.capacity &&
+            `Storage: ${item.storageVariant.storageOption.capacity}`,
+        ]
+          .filter(Boolean)
+          .join(", ");
         break;
-      case 'size':
+      case "size":
         quantity = item.sizeVariant?.quantity || item.quantity || 0;
         variantDetails = [
-          item.sizeVariant?.color?.name && `Color: ${item.sizeVariant.color.name}`,
-          item.sizeVariant?.sizeOption?.size && `Size: ${item.sizeVariant.sizeOption.size}`
-        ].filter(Boolean).join(', ');
+          item.sizeVariant?.color?.name &&
+            `Color: ${item.sizeVariant.color.name}`,
+          item.sizeVariant?.sizeOption?.size &&
+            `Size: ${item.sizeVariant.sizeOption.size}`,
+        ]
+          .filter(Boolean)
+          .join(", ");
         break;
       default:
         quantity = item.quantity || 0;
     }
-    
+
     return {
       quantity,
       finalUnitPrice,
       itemTotal: quantity * finalUnitPrice,
-      variantDetails
+      variantDetails,
     };
   };
 
@@ -200,19 +220,21 @@ const Dashboard = () => {
     const productSales = {};
     filteredOrders.forEach((order) => {
       order.items?.forEach((item) => {
-        const productName = item.productId?.title || item.productId?.name || "Unknown Product";
+        const productName =
+          item.productId?.title || item.productId?.name || "Unknown Product";
         const itemDetails = getItemDetails(item);
         productSales[productName] =
           (productSales[productName] || 0) + itemDetails.quantity;
       });
     });
 
-    const topSellingProduct = Object.keys(productSales).length > 0 
-      ? Object.keys(productSales).reduce(
-          (a, b) => (productSales[a] > productSales[b] ? a : b),
-          Object.keys(productSales)[0]
-        )
-      : "N/A";
+    const topSellingProduct =
+      Object.keys(productSales).length > 0
+        ? Object.keys(productSales).reduce(
+            (a, b) => (productSales[a] > productSales[b] ? a : b),
+            Object.keys(productSales)[0]
+          )
+        : "N/A";
 
     return {
       revenue,
@@ -246,10 +268,13 @@ const Dashboard = () => {
 
         // Calculate revenue with proper item pricing
         const revenue = dayOrders.reduce((sum, order) => {
-          return sum + (order.items || []).reduce((orderSum, item) => {
-            const itemDetails = getItemDetails(item);
-            return orderSum + itemDetails.itemTotal;
-          }, 0);
+          return (
+            sum +
+            (order.items || []).reduce((orderSum, item) => {
+              const itemDetails = getItemDetails(item);
+              return orderSum + itemDetails.itemTotal;
+            }, 0)
+          );
         }, 0);
 
         data.push({
@@ -276,10 +301,13 @@ const Dashboard = () => {
 
         // Calculate revenue with proper item pricing
         const revenue = weekOrders.reduce((sum, order) => {
-          return sum + (order.items || []).reduce((orderSum, item) => {
-            const itemDetails = getItemDetails(item);
-            return orderSum + itemDetails.itemTotal;
-          }, 0);
+          return (
+            sum +
+            (order.items || []).reduce((orderSum, item) => {
+              const itemDetails = getItemDetails(item);
+              return orderSum + itemDetails.itemTotal;
+            }, 0)
+          );
         }, 0);
 
         data.push({
@@ -300,10 +328,13 @@ const Dashboard = () => {
 
         // Calculate revenue with proper item pricing
         const revenue = monthOrders.reduce((sum, order) => {
-          return sum + (order.items || []).reduce((orderSum, item) => {
-            const itemDetails = getItemDetails(item);
-            return orderSum + itemDetails.itemTotal;
-          }, 0);
+          return (
+            sum +
+            (order.items || []).reduce((orderSum, item) => {
+              const itemDetails = getItemDetails(item);
+              return orderSum + itemDetails.itemTotal;
+            }, 0)
+          );
         }, 0);
 
         data.push({
@@ -329,7 +360,8 @@ const Dashboard = () => {
       ) {
         order.items?.forEach((item) => {
           const productId = item.productId?._id || item.productId;
-          const productName = item.productId?.title || item.productId?.name || "Unknown Product";
+          const productName =
+            item.productId?.title || item.productId?.name || "Unknown Product";
           const itemDetails = getItemDetails(item);
 
           if (!productStats[productId]) {
@@ -369,12 +401,12 @@ const Dashboard = () => {
     });
 
     const colors = {
-      pending: "#F59E0B",      // amber
-      processing: "#3B82F6",   // blue
-      shipped: "#8B5CF6",      // purple
-      delivered: "#10B981",    // green
-      cancelled: "#EF4444",    // red
-      refunded: "#6B7280",     // gray
+      pending: "#F59E0B", // amber
+      processing: "#3B82F6", // blue
+      shipped: "#8B5CF6", // purple
+      delivered: "#10B981", // green
+      cancelled: "#EF4444", // red
+      refunded: "#6B7280", // gray
     };
 
     return Object.entries(statusCount).map(([status, count]) => ({
@@ -468,7 +500,7 @@ const Dashboard = () => {
           }
         `}
       </style>
-      
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <h1 className="text-3xl font-bold text-gray-800">Dashboard Overview</h1>
         <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-4">
@@ -477,8 +509,10 @@ const Dashboard = () => {
             disabled={refreshing}
             className="flex items-center px-3 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors disabled:opacity-50"
           >
-            <FiRefreshCw className={`mr-2 ${refreshing ? 'refresh-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh Data'}
+            <FiRefreshCw
+              className={`mr-2 ${refreshing ? "refresh-spin" : ""}`}
+            />
+            {refreshing ? "Refreshing..." : "Refresh Data"}
           </button>
           <div className="flex items-center space-x-2">
             <label
@@ -534,107 +568,102 @@ const Dashboard = () => {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-8">
         <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-800">
+              <p className="text-xl font-bold text-gray-800 truncate">
                 {formatPrice(stats.revenue)}
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 {stats.orders} orders
               </p>
             </div>
-            <div className="p-3 rounded-full bg-white bg-opacity-50">
-              <FiDollarSign className="h-6 w-6 text-blue-600" />
+            <div className="p-2 rounded-full bg-white bg-opacity-50 flex-shrink-0 ml-2">
+              <FiDollarSign className="h-5 w-5 text-blue-600" />
             </div>
           </div>
         </Card>
 
         <Card className="bg-gradient-to-br from-green-50 to-green-100 cursor-pointer">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-600">Total Orders</p>
-              <p className="text-2xl font-bold text-gray-800">{stats.orders}</p>
+              <p className="text-xl font-bold text-gray-800">{stats.orders}</p>
               <p className="text-xs text-gray-500 mt-1">
                 {stats.customers} customers
               </p>
             </div>
-            <div className="p-3 rounded-full bg-white bg-opacity-50">
-              <FiShoppingBag className="h-6 w-6 text-green-600" />
+            <div className="p-2 rounded-full bg-white bg-opacity-50 flex-shrink-0 ml-2">
+              <FiShoppingBag className="h-5 w-5 text-green-600" />
             </div>
           </div>
         </Card>
 
         <Card className="bg-gradient-to-br from-purple-50 to-purple-100 cursor-pointer">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-600">Customers</p>
-              <p className="text-2xl font-bold text-gray-800">
+              <p className="text-xl font-bold text-gray-800">
                 {stats.customers}
               </p>
               <p className="text-xs text-gray-500 mt-1">
                 {stats.conversionRate.toFixed(1)}% conversion
               </p>
             </div>
-            <div className="p-3 rounded-full bg-white bg-opacity-50">
-              <FiUsers className="h-6 w-6 text-purple-600" />
+            <div className="p-2 rounded-full bg-white bg-opacity-50 flex-shrink-0 ml-2">
+              <FiUsers className="h-5 w-5 text-purple-600" />
             </div>
           </div>
         </Card>
 
         <Card className="bg-gradient-to-br from-amber-50 to-amber-100 cursor-pointer">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-600">Products Sold</p>
-              <p className="text-2xl font-bold text-gray-800">
+              <p className="text-xl font-bold text-gray-800">
                 {stats.products}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Unique products
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Unique products</p>
             </div>
-            <div className="p-3 rounded-full bg-white bg-opacity-50">
-              <FiPackage className="h-6 w-6 text-amber-600" />
+            <div className="p-2 rounded-full bg-white bg-opacity-50 flex-shrink-0 ml-2">
+              <FiPackage className="h-5 w-5 text-amber-600" />
             </div>
           </div>
         </Card>
 
         <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 cursor-pointer">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-gray-600">
                 Avg Order Value
               </p>
-              <p className="text-2xl font-bold text-gray-800">
+              <p className="text-xl font-bold text-gray-800">
                 {formatPrice(stats.averageOrderValue)}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Per order
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Per order</p>
             </div>
-            <div className="p-3 rounded-full bg-white bg-opacity-50">
-              <FiCreditCard className="h-6 w-6 text-indigo-600" />
+            <div className="p-2 rounded-full bg-white bg-opacity-50 flex-shrink-0 ml-2">
+              <FiCreditCard className="h-5 w-5 text-indigo-600" />
             </div>
           </div>
         </Card>
 
         <Card className="bg-gradient-to-br from-pink-50 to-pink-100 cursor-pointer">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">
-                Top Product
-              </p>
-              <p className="text-lg font-bold text-gray-800 truncate" title={stats.topSellingProduct}>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-gray-600">Top Product</p>
+              <p
+                className="text-base font-bold text-gray-800 truncate"
+                title={stats.topSellingProduct}
+              >
                 {stats.topSellingProduct}
               </p>
-              <p className="text-xs text-gray-500 mt-1 truncate">
-                Best seller
-              </p>
+              <p className="text-xs text-gray-500 mt-1">Best seller</p>
             </div>
-            <div className="p-3 rounded-full bg-white bg-opacity-50">
-              <FiActivity className="h-6 w-6 text-pink-600" />
+            <div className="p-2 rounded-full bg-white bg-opacity-50 flex-shrink-0 ml-2">
+              <FiActivity className="h-5 w-5 text-pink-600" />
             </div>
           </div>
         </Card>
@@ -882,7 +911,7 @@ const Dashboard = () => {
                   }}
                   labelStyle={{ fontWeight: 600, color: "#1f2937" }}
                   itemStyle={{ color: "#4b5563", fontSize: "14px" }}
-                  formatter={(value) => [`${value} orders`, 'Count']}
+                  formatter={(value) => [`${value} orders`, "Count"]}
                 />
                 <Legend
                   verticalAlign="bottom"
@@ -920,9 +949,7 @@ const Dashboard = () => {
             <h2 className="text-lg font-semibold text-gray-800">
               Top Products
             </h2>
-            <span className="text-sm text-gray-500">
-              {selectedMonth}
-            </span>
+            <span className="text-sm text-gray-500">{selectedMonth}</span>
           </div>
           {loading && !topProducts.length ? (
             <div className="text-center text-gray-600 text-sm py-8">
@@ -946,7 +973,10 @@ const Dashboard = () => {
                       </span>
                     </div>
                     <div className="max-w-xs">
-                      <h3 className="font-medium text-gray-800 truncate" title={product.name}>
+                      <h3
+                        className="font-medium text-gray-800 truncate"
+                        title={product.name}
+                      >
                         {product.name}
                       </h3>
                       <p className="text-sm text-gray-500">
@@ -971,9 +1001,7 @@ const Dashboard = () => {
             <h2 className="text-lg font-semibold text-gray-800">
               Recent Orders
             </h2>
-            <span className="text-sm text-gray-500">
-              Latest 5 orders
-            </span>
+            <span className="text-sm text-gray-500">Latest 5 orders</span>
           </div>
           {loading && !orders.length ? (
             <div className="text-center text-gray-600 text-sm py-8">
@@ -991,10 +1019,16 @@ const Dashboard = () => {
                   className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   <div className="max-w-xs">
-                    <p className="font-medium text-gray-800 truncate" title={order.id}>
+                    <p
+                      className="font-medium text-gray-800 truncate"
+                      title={order.id}
+                    >
                       {order.id}
                     </p>
-                    <p className="text-sm text-gray-600 truncate" title={order.customer}>
+                    <p
+                      className="text-sm text-gray-600 truncate"
+                      title={order.customer}
+                    >
                       {order.customer}
                     </p>
                     <p className="text-xs text-gray-500">{order.date}</p>

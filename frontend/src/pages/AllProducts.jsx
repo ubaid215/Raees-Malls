@@ -150,21 +150,21 @@ function AllProducts() {
             throw new Error('Invalid response from fetchProducts');
           }
 
-          console.log('DEBUG: AllProducts - Fetched Products:', {
-            productsCount: result.products.length,
-            totalPages: result.totalPages,
-            totalItems: result.totalItems,
-            stockSummary: result.products.map(p => ({
-              id: p._id,
-              title: p.title,
-              inStock: isInStock(p),
-              baseStock: p.stock,
-              variantStock: p.variants?.map(v => ({
-                storage: v.storageOptions?.map(o => o.stock) || [],
-                size: v.sizeOptions?.map(o => o.stock) || [],
-              })),
-            })),
-          });
+          // console.log('DEBUG: AllProducts - Fetched Products:', {
+          //   productsCount: result.products.length,
+          //   totalPages: result.totalPages,
+          //   totalItems: result.totalItems,
+          //   stockSummary: result.products.map(p => ({
+          //     id: p._id,
+          //     title: p.title,
+          //     inStock: isInStock(p),
+          //     baseStock: p.stock,
+          //     variantStock: p.variants?.map(v => ({
+          //       storage: v.storageOptions?.map(o => o.stock) || [],
+          //       size: v.sizeOptions?.map(o => o.stock) || [],
+          //     })),
+          //   })),
+          // });
 
           setPagination(prev => ({
             ...prev,
@@ -221,16 +221,16 @@ function AllProducts() {
   // Socket.IO integration with optimistic updates
   useEffect(() => {
     const handleProductCreated = data => {
-      console.log('DEBUG: AllProducts - Socket Product Created:', {
-        productId: data.product._id,
-        title: data.product.title,
-        inStock: isInStock(data.product),
-        baseStock: data.product.stock,
-        variantStock: data.product.variants?.map(v => ({
-          storage: v.storageOptions?.map(o => o.stock) || [],
-          size: v.sizeOptions?.map(o => o.stock) || [],
-        })),
-      });
+      // console.log('DEBUG: AllProducts - Socket Product Created:', {
+      //   productId: data.product._id,
+      //   title: data.product.title,
+      //   inStock: isInStock(data.product),
+      //   baseStock: data.product.stock,
+      //   variantStock: data.product.variants?.map(v => ({
+      //     storage: v.storageOptions?.map(o => o.stock) || [],
+      //     size: v.sizeOptions?.map(o => o.stock) || [],
+      //   })),
+      // });
       
       // Optimistically update if the product belongs to current category
       if (selectedCategory === 'all' || data.product.categoryId === selectedCategory) {
@@ -239,16 +239,16 @@ function AllProducts() {
     };
 
     const handleProductUpdated = data => {
-      console.log('DEBUG: AllProducts - Socket Product Updated:', {
-        productId: data.product._id,
-        title: data.product.title,
-        inStock: isInStock(data.product),
-        baseStock: data.product.stock,
-        variantStock: data.product.variants?.map(v => ({
-          storage: v.storageOptions?.map(o => o.stock) || [],
-          size: v.sizeOptions?.map(o => o.stock) || [],
-        })),
-      });
+      // console.log('DEBUG: AllProducts - Socket Product Updated:', {
+      //   productId: data.product._id,
+      //   title: data.product.title,
+      //   inStock: isInStock(data.product),
+      //   baseStock: data.product.stock,
+      //   variantStock: data.product.variants?.map(v => ({
+      //     storage: v.storageOptions?.map(o => o.stock) || [],
+      //     size: v.sizeOptions?.map(o => o.stock) || [],
+      //   })),
+      // });
       
       // Immediate update if the product belongs to current category
       if (selectedCategory === 'all' || data.product.categoryId === selectedCategory) {
@@ -257,23 +257,23 @@ function AllProducts() {
     };
 
     const handleProductDeleted = data => {
-      console.log('DEBUG: AllProducts - Socket Product Deleted:', {
-        productId: data.productId,
-      });
+      // console.log('DEBUG: AllProducts - Socket Product Deleted:', {
+      //   productId: data.productId,
+      // });
       
       // Optimistically remove the product from the list
       immediateFetchProducts();
     };
 
     const handleCategoryUpdated = ({ category }) => {
-      console.log('DEBUG: AllProducts - Socket Category Updated:', { categoryId: category._id });
+      // console.log('DEBUG: AllProducts - Socket Category Updated:', { categoryId: category._id });
       if (selectedCategory !== 'all' && category._id === selectedCategory) {
         immediateFetchProducts();
       }
     };
 
     const handleCategoryDeleted = ({ categoryIds }) => {
-      console.log('DEBUG: AllProducts - Socket Category Deleted:', { categoryIds });
+      // console.log('DEBUG: AllProducts - Socket Category Deleted:', { categoryIds });
       if (categoryIds.includes(selectedCategory)) {
         setSelectedCategory('all');
       }
@@ -346,7 +346,7 @@ function AllProducts() {
   useEffect(() => {
     const handleClickOutside = event => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        console.log('DEBUG: AllProducts - Clicked Outside Dropdown:', { target: event.target });
+        // console.log('DEBUG: AllProducts - Clicked Outside Dropdown:', { target: event.target });
         setIsCategoryDropdownOpen(false);
       }
     };
@@ -378,20 +378,20 @@ function AllProducts() {
       },
     }));
 
-    console.log('DEBUG: AllProducts - Memoized Products:', {
-      productsCount: normalizedProducts.length,
-      stockSummary: normalizedProducts.map(p => ({
-        id: p._id,
-        title: p.title,
-        inStock: isInStock(p),
-        baseStock: p.stock,
-        displayPrice: p.displayPrice,
-        variantStock: p.variants?.map(v => ({
-          storage: v.storageOptions?.map(o => o.stock) || [],
-          size: v.sizeOptions?.map(o => o.stock) || [],
-        })),
-      })),
-    });
+    // console.log('DEBUG: AllProducts - Memoized Products:', {
+    //   productsCount: normalizedProducts.length,
+    //   stockSummary: normalizedProducts.map(p => ({
+    //     id: p._id,
+    //     title: p.title,
+    //     inStock: isInStock(p),
+    //     baseStock: p.stock,
+    //     displayPrice: p.displayPrice,
+    //     variantStock: p.variants?.map(v => ({
+    //       storage: v.storageOptions?.map(o => o.stock) || [],
+    //       size: v.sizeOptions?.map(o => o.stock) || [],
+    //     })),
+    //   })),
+    // });
 
     return normalizedProducts;
   }, [products, categoryLookup]);

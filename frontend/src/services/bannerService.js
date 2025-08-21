@@ -32,7 +32,7 @@ const bannerSchema = yup.object().shape({
 export const getBanners = async () => {
   try {
     const response = await api.get('/banners/active');
-    console.log('GetBanners response:', response.data);
+    // console.log('GetBanners response:', response.data);
     if (!response.data.success || !Array.isArray(response.data.data.banners)) {
       throw new Error('Invalid response: Missing or invalid banners data');
     }
@@ -102,14 +102,14 @@ export const updateBanner = async (id, bannerData, image, videos = []) => {
       formData.append(key, value);
     });
     if (image) {
-      console.log('Image to upload:', { name: image.name, type: image.type, size: image.size });
+      // console.log('Image to upload:', { name: image.name, type: image.type, size: image.size });
       formData.append('image', image);
     } else {
       console.log('No image provided');
     }
     if (videos.length > 0) {
       videos.forEach((video, index) => {
-        console.log(`Video ${index + 1} to upload:`, { name: video.name, type: video.type, size: video.size });
+        // console.log(`Video ${index + 1} to upload:`, { name: video.name, type: video.type, size: video.size });
         formData.append('videos', video);
       });
     } else {
@@ -117,10 +117,10 @@ export const updateBanner = async (id, bannerData, image, videos = []) => {
     }
     // Debug FormData content
     for (let [key, value] of formData.entries()) {
-      console.log(`FormData entry: ${key}=${value instanceof File ? value.name : value}`);
+      // console.log(`FormData entry: ${key}=${value instanceof File ? value.name : value}`);
     }
     const response = await api.put(`/admin/banners/${id}`, formData, { isMultipart: true });
-    console.log('UpdateBanner response:', response.data);
+    // console.log('UpdateBanner response:', response.data);
     if (!response.data.success || !response.data.data.banner) {
       throw new Error('Invalid response: Missing banner data');
     }
@@ -148,7 +148,7 @@ export const updateBanner = async (id, bannerData, image, videos = []) => {
 export const deleteBanner = async (id) => {
   try {
     const response = await api.delete(`/admin/banners/${id}`);
-    console.log('DeleteBanner response:', response.data);
+    // console.log('DeleteBanner response:', response.data);
     if (!response.data.success) {
       throw new Error('Invalid response: Deletion failed');
     }
