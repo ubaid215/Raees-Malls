@@ -128,10 +128,6 @@ function FeaturedProducts() {
 
   return (
     <section aria-label="Featured Products" className="w-full px-4 sm:px-6 my-6 sm:my-8 pb-5">
-      <Helmet>
-        <title>Featured Products | Raees Malls</title>
-        <meta name="description" content="Explore our handpicked selection of featured products with exclusive discounts and limited stock." />
-      </Helmet>
 
       <div className="flex sm:flex-row flex-col items-start sm:items-center justify-between mb-4 sm:mb-6">
         <h1 className="text-xl sm:text-2xl md:text-3xl font-semibold">Featured Products</h1>

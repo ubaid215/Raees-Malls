@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
-import { Helmet } from 'react-helmet';
 import { ArrowRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { debounce } from 'lodash';
@@ -361,10 +360,6 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
 
   return (
     <section className="relative w-full px-4 py-8 rounded-lg shadow-sm" aria-live="polite">
-      <Helmet>
-        <title>{title || 'Products'} | Raees Malls</title>
-        <meta name="description" content={`Explore our ${title?.toLowerCase() || 'products'} with exclusive deals and limited stock.`} />
-      </Helmet>
 
       <div className="flex justify-between items-center mb-6 px-4">
         {title && <h2 className="text-2xl font-bold text-gray-800">{title}</h2>}

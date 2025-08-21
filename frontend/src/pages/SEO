@@ -1,0 +1,69 @@
+Homepage SEO
+
+import { Helmet } from 'react-helmet';
+
+ <Helmet>
+        <title>Raees Malls - Premium Mobile Phones, Covers & Electronics | Best Deals Online</title>
+        <meta name="description" content="Shop premium mobile phones, stylish covers, and electronics at Raees Malls. Discover featured products with exclusive deals, fast delivery across Pakistan. Best prices guaranteed!" />
+        <meta name="keywords" content="mobile phones, mobile covers, electronics, smartphones, phone cases, online shopping Pakistan, Raees Malls, best deals, premium products" />
+        
+        {/* Open Graph / Facebook */}
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="Raees Malls - Premium Mobile Phones, Covers & Electronics" />
+        <meta property="og:description" content="Shop premium mobile phones, stylish covers, and electronics at Raees Malls. Best deals with fast delivery across Pakistan." />
+        <meta property="og:url" content="https://raeesmalls.com" />
+        <meta property="og:site_name" content="Raees Malls" />
+        <meta property="og:image" content="https://raeesmalls.com/images/og-image.jpg" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:locale" content="en_US" />
+        
+        {/* Twitter */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Raees Malls - Premium Mobile Phones, Covers & Electronics" />
+        <meta name="twitter:description" content="Shop premium mobile phones, stylish covers, and electronics. Best deals with fast delivery across Pakistan." />
+        <meta name="twitter:image" content="https://raeesmalls.com/images/twitter-image.jpg" />
+        
+        {/* Additional SEO tags */}
+        <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+        <meta name="author" content="Raees Malls" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="theme-color" content="#DC2626" />
+        <link rel="canonical" href="https://raeesmalls.com" />
+        
+        {/* Structured Data */}
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "Raees Malls",
+            "description": "Premium mobile phones, covers and electronics online store in Pakistan",
+            "url": "https://raeesmalls.com",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": "https://raeesmalls.com/products?search={search_term_string}",
+              "query-input": "required name=search_term_string"
+            }
+          })}
+        </script>
+        
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "name": "Raees Malls",
+            "description": "Leading online retailer of mobile phones and electronics in Pakistan",
+            "url": "https://raeesmalls.com",
+            "logo": "https://raeesmalls.com/images/logo.png",
+            "contactPoint": {
+              "@type": "ContactPoint",
+              "telephone": "+92-300-6530063",
+              "contactType": "Customer Service",
+              "availableLanguage": ["English", "Urdu"]
+            },
+            "sameAs": [
+              "https://wa.me/923006530063"
+            ]
+          })}
+        </script>
+      </Helmet>

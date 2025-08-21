@@ -17,7 +17,7 @@ import {
 import { BsLightningChargeFill } from "react-icons/bs";
 import { MdLocalOffer, MdVerified } from "react-icons/md";
 import { IoTimeOutline } from "react-icons/io5";
-import { useToast } from "../../context/ToastContext"; 
+import { useToast } from "../../context/ToastContext";
 import Button from "../core/Button";
 import { useNavigate } from "react-router-dom";
 import { useCart } from "../../context/CartContext";
@@ -33,7 +33,8 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const { addItemToCart } = useCart();
   const { user } = useAuth();
   const { getProduct } = useProduct();
-  const { wishlist, addItemToWishlist, removeItemFromWishlist, loading } = useContext(WishlistContext);
+  const { wishlist, addItemToWishlist, removeItemFromWishlist, loading } =
+    useContext(WishlistContext);
   const [product, setProduct] = useState(initialProduct);
   const [loadingProduct, setLoadingProduct] = useState(!initialProduct);
   const [addToCartStatus, setAddToCartStatus] = useState({
@@ -45,7 +46,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState(null);
-   const { success, error, info } = useToast();
+  const { success, error, info } = useToast();
   const [selectedOptions, setSelectedOptions] = useState({
     variantColor: null,
     storageCapacity: null,
@@ -53,57 +54,58 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   });
   const [showVariantSelector, setShowVariantSelector] = useState(false);
 
-// ✅ Fetch reviews once per productId
-useEffect(() => {
-  if (!product?._id) return;
+  // ✅ Fetch reviews once per productId
+  useEffect(() => {
+    if (!product?._id) return;
 
-  let hasFetched = false;
+    let hasFetched = false;
 
-  if (!hasFetched) {
-    fetchReviews(product._id, 1, 10, 'recent', 'all');
-    hasFetched = true;
-  }
+    if (!hasFetched) {
+      fetchReviews(product._id, 1, 10, "recent", "all");
+      hasFetched = true;
+    }
 
-  // cleanup ensures StrictMode double render won't refetch
-  return () => {
-    hasFetched = true;
+    // cleanup ensures StrictMode double render won't refetch
+    return () => {
+      hasFetched = true;
+    };
+  }, [product?._id]);
+
+  // ✅ Get the real-time reviews for this product
+  const productReviews = getReviewsForProduct(product?._id) || {};
+
+  // ✅ Unified rating data function
+  const getRatingData = () => {
+    if (!product) return { rating: 0, reviewCount: 0, hasReviews: false };
+
+    // Prefer real-time data → fallback to product data → fallback to 0
+    const rating =
+      productReviews?.averageRating ??
+      product?.averageRating ??
+      product?.rating ??
+      0;
+
+    const reviewCount =
+      productReviews?.totalReviews ??
+      product?.reviewCount ??
+      product?.totalReviews ??
+      0;
+
+    return {
+      rating,
+      reviewCount,
+      hasReviews: reviewCount > 0,
+    };
   };
-}, [product?._id]); 
-
-// ✅ Get the real-time reviews for this product
-const productReviews = getReviewsForProduct(product?._id) || {};
-
-// ✅ Unified rating data function
-const getRatingData = () => {
-  if (!product) return { rating: 0, reviewCount: 0, hasReviews: false };
-
-  // Prefer real-time data → fallback to product data → fallback to 0
-  const rating = productReviews?.averageRating 
-                  ?? product?.averageRating 
-                  ?? product?.rating 
-                  ?? 0;
-
-  const reviewCount = productReviews?.totalReviews 
-                      ?? product?.reviewCount 
-                      ?? product?.totalReviews 
-                      ?? 0;
-
-  return {
-    rating,
-    reviewCount,
-    hasReviews: reviewCount > 0,
-  };
-};
-
-  
-  
 
   useEffect(() => {
     if (productId && !initialProduct) {
       const fetchProduct = async () => {
         try {
           setLoadingProduct(true);
-          const fetchedProduct = await getProduct(productId, { skipCache: false });
+          const fetchedProduct = await getProduct(productId, {
+            skipCache: false,
+          });
           setProduct(fetchedProduct);
         } catch (error) {
           console.error("Failed to fetch product:", error);
@@ -200,7 +202,11 @@ const getRatingData = () => {
       let firstAvailableOption = null;
 
       for (const variant of product.variants) {
-        if (variant.stock > 0 && !variant.storageOptions?.length && !variant.sizeOptions?.length) {
+        if (
+          variant.stock > 0 &&
+          !variant.storageOptions?.length &&
+          !variant.sizeOptions?.length
+        ) {
           totalStock += variant.stock;
           availableOptions++;
           if (!firstAvailableVariant) {
@@ -315,40 +321,46 @@ const getRatingData = () => {
     if (color.hex) return { backgroundColor: color.hex };
     if (color.code) return { backgroundColor: color.code };
     if (color.value) return { backgroundColor: color.value };
-    
+
     // Fallback to common color names
     const colorMap = {
-      'black': '#000000',
-      'white': '#ffffff',
-      'red': '#ef4444',
-      'blue': '#3b82f6',
-      'green': '#10b981',
-      'yellow': '#f59e0b',
-      'purple': '#8b5cf6',
-      'pink': '#ec4899',
-      'gray': '#6b7280',
-      'grey': '#6b7280',
-      'brown': '#92400e',
-      'orange': '#f97316',
-      'navy': '#1e3a8a',
-      'silver': '#94a3b8',
-      'gold': '#fbbf24'
+      black: "#000000",
+      white: "#ffffff",
+      red: "#ef4444",
+      blue: "#3b82f6",
+      green: "#10b981",
+      yellow: "#f59e0b",
+      purple: "#8b5cf6",
+      pink: "#ec4899",
+      gray: "#6b7280",
+      grey: "#6b7280",
+      brown: "#92400e",
+      orange: "#f97316",
+      navy: "#1e3a8a",
+      silver: "#94a3b8",
+      gold: "#fbbf24",
     };
-    
+
     const colorName = color.name?.toLowerCase();
     if (colorName && colorMap[colorName]) {
       return { backgroundColor: colorMap[colorName] };
     }
-    
+
     // Last resort - try to use the name as a CSS color
-    return { backgroundColor: colorName || '#cccccc' };
+    return { backgroundColor: colorName || "#cccccc" };
   };
 
   const getPriceInfo = () => {
     const currentPrice = getCurrentPrice();
-    const hasDiscount = currentPrice.discountPrice && currentPrice.discountPrice < currentPrice.price;
+    const hasDiscount =
+      currentPrice.discountPrice &&
+      currentPrice.discountPrice < currentPrice.price;
     const discountPercentage = hasDiscount
-      ? Math.round(((currentPrice.price - currentPrice.discountPrice) / currentPrice.price) * 100)
+      ? Math.round(
+          ((currentPrice.price - currentPrice.discountPrice) /
+            currentPrice.price) *
+            100
+        )
       : 0;
 
     return {
@@ -360,8 +372,6 @@ const getRatingData = () => {
       stock: currentPrice.stock,
     };
   };
-
-  
 
   const renderStars = (rating) => {
     const stars = [];
@@ -384,61 +394,70 @@ const getRatingData = () => {
   const getAvailableColors = () => {
     if (!product?.variants) return [];
     return product.variants
-      .filter(variant => variant.stock > 0 || variant.storageOptions?.some(opt => opt.stock > 0) || variant.sizeOptions?.some(opt => opt.stock > 0))
-      .map(variant => variant.color)
+      .filter(
+        (variant) =>
+          variant.stock > 0 ||
+          variant.storageOptions?.some((opt) => opt.stock > 0) ||
+          variant.sizeOptions?.some((opt) => opt.stock > 0)
+      )
+      .map((variant) => variant.color)
       .filter(Boolean);
   };
 
   const getAvailableStorageOptions = () => {
     if (!selectedVariant?.storageOptions) return [];
-    return selectedVariant.storageOptions.filter(opt => opt.stock > 0);
+    return selectedVariant.storageOptions.filter((opt) => opt.stock > 0);
   };
 
   const getAvailableSizeOptions = () => {
     if (!selectedVariant?.sizeOptions) return [];
-    return selectedVariant.sizeOptions.filter(opt => opt.stock > 0);
+    return selectedVariant.sizeOptions.filter((opt) => opt.stock > 0);
   };
 
   const handleVariantChange = (type, value) => {
-    // console.log('handleVariantChange called:', { type, value }); 
-    
-    if (type === 'color') {
-      const newVariant = product.variants.find(v => v.color?.name === value);
-      // console.log('Found variant:', newVariant); 
-      
+    // console.log('handleVariantChange called:', { type, value });
+
+    if (type === "color") {
+      const newVariant = product.variants.find((v) => v.color?.name === value);
+      // console.log('Found variant:', newVariant);
+
       if (newVariant) {
         setSelectedVariant(newVariant);
-        
+
         const newOptions = {
           variantColor: value,
           storageCapacity: null,
           size: null,
         };
-        
+
         // Auto-select first available option based on variant structure
         if (newVariant.storageOptions?.length > 0) {
-          const firstAvailableStorage = newVariant.storageOptions.find(opt => opt.stock > 0);
+          const firstAvailableStorage = newVariant.storageOptions.find(
+            (opt) => opt.stock > 0
+          );
           if (firstAvailableStorage) {
             newOptions.storageCapacity = firstAvailableStorage.capacity;
           }
         } else if (newVariant.sizeOptions?.length > 0) {
-          const firstAvailableSize = newVariant.sizeOptions.find(opt => opt.stock > 0);
+          const firstAvailableSize = newVariant.sizeOptions.find(
+            (opt) => opt.stock > 0
+          );
           if (firstAvailableSize) {
             newOptions.size = firstAvailableSize.size;
           }
         }
         // If no sub-options, the variant itself should have stock
-        
+
         setSelectedOptions(newOptions);
-        // console.log('Updated selectedOptions:', newOptions); 
+        // console.log('Updated selectedOptions:', newOptions);
       }
     } else {
-      setSelectedOptions(prev => {
+      setSelectedOptions((prev) => {
         const updated = {
           ...prev,
-          [type === 'storage' ? 'storageCapacity' : 'size']: value,
+          [type === "storage" ? "storageCapacity" : "size"]: value,
         };
-        // console.log('Updated selectedOptions for', type, ':', updated); 
+        // console.log('Updated selectedOptions for', type, ':', updated);
         return updated;
       });
     }
@@ -480,13 +499,17 @@ const getRatingData = () => {
   const availableSizeOptions = getAvailableSizeOptions();
 
   const handleCardClick = (e) => {
-    if (e.target.tagName === "BUTTON" || e.target.closest("button") || e.target.tagName === "A") {
+    if (
+      e.target.tagName === "BUTTON" ||
+      e.target.closest("button") ||
+      e.target.tagName === "A"
+    ) {
       return;
     }
     navigate(`/product/${product._id}`);
   };
 
-   const handleAddToCartClick = async (e) => {
+  const handleAddToCartClick = async (e) => {
     e.stopPropagation();
     if (!user) {
       info("Please login to add items to cart");
@@ -589,8 +612,11 @@ const getRatingData = () => {
   };
 
   const renderVariantSelector = () => {
-    const hasVariants = availableColors.length > 0 || availableStorageOptions.length > 0 || availableSizeOptions.length > 0;
-    
+    const hasVariants =
+      availableColors.length > 0 ||
+      availableStorageOptions.length > 0 ||
+      availableSizeOptions.length > 0;
+
     if (!hasVariants) return null;
 
     return (
@@ -601,25 +627,25 @@ const getRatingData = () => {
             <FaPalette className="text-xs text-gray-500" />
             <div className="flex gap-1 flex-wrap">
               {availableColors.slice(0, 4).map((color, index) => {
-                // console.log('Rendering color:', color); 
+                // console.log('Rendering color:', color);
                 return (
                   <button
                     key={color.name || index}
                     onClick={(e) => {
                       e.stopPropagation();
-                      // console.log('Color clicked:', color.name); 
-                      handleVariantChange('color', color.name);
+                      // console.log('Color clicked:', color.name);
+                      handleVariantChange("color", color.name);
                     }}
                     className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 transition-all relative ${
                       selectedOptions.variantColor === color.name
-                        ? 'border-red-500 scale-110 shadow-md'
-                        : 'border-gray-300 hover:border-gray-400'
+                        ? "border-red-500 scale-110 shadow-md"
+                        : "border-gray-300 hover:border-gray-400"
                     }`}
                     style={getColorStyle(color)}
                     title={color.name}
                   >
                     {/* White border for light colors */}
-                    {color.name?.toLowerCase() === 'white' && (
+                    {color.name?.toLowerCase() === "white" && (
                       <div className="absolute inset-0 rounded-full border border-gray-200 opacity-30" />
                     )}
                     {/* Selection indicator */}
@@ -632,7 +658,9 @@ const getRatingData = () => {
                 );
               })}
               {availableColors.length > 4 && (
-                <span className="text-xs text-gray-500 self-center">+{availableColors.length - 4}</span>
+                <span className="text-xs text-gray-500 self-center">
+                  +{availableColors.length - 4}
+                </span>
               )}
             </div>
           </div>
@@ -648,23 +676,25 @@ const getRatingData = () => {
                   key={storage.capacity}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleVariantChange('storage', storage.capacity);
+                    handleVariantChange("storage", storage.capacity);
                   }}
                   className={`px-1.5 py-0.5 text-xs rounded border transition-all ${
                     selectedOptions.storageCapacity === storage.capacity
-                      ? 'border-red-500 bg-red-50 text-red-700 font-semibold'
-                      : storage.stock > 0 
-                        ? 'border-gray-300 hover:border-gray-400 text-gray-600'
-                        : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                      ? "border-red-500 bg-red-50 text-red-700 font-semibold"
+                      : storage.stock > 0
+                        ? "border-gray-300 hover:border-gray-400 text-gray-600"
+                        : "border-gray-200 text-gray-400 cursor-not-allowed"
                   }`}
                   disabled={storage.stock <= 0}
-                  title={`${storage.capacity} - ${storage.stock > 0 ? `${storage.stock} available` : 'Out of stock'}`}
+                  title={`${storage.capacity} - ${storage.stock > 0 ? `${storage.stock} available` : "Out of stock"}`}
                 >
                   {storage.capacity}
                 </button>
               ))}
               {availableStorageOptions.length > 3 && (
-                <span className="text-xs text-gray-500 self-center">+{availableStorageOptions.length - 3}</span>
+                <span className="text-xs text-gray-500 self-center">
+                  +{availableStorageOptions.length - 3}
+                </span>
               )}
             </div>
           </div>
@@ -680,23 +710,25 @@ const getRatingData = () => {
                   key={size.size}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleVariantChange('size', size.size);
+                    handleVariantChange("size", size.size);
                   }}
                   className={`px-1.5 py-0.5 text-xs rounded border transition-all ${
                     selectedOptions.size === size.size
-                      ? 'border-red-500 bg-red-50 text-red-700 font-semibold'
+                      ? "border-red-500 bg-red-50 text-red-700 font-semibold"
                       : size.stock > 0
-                        ? 'border-gray-300 hover:border-gray-400 text-gray-600'
-                        : 'border-gray-200 text-gray-400 cursor-not-allowed'
+                        ? "border-gray-300 hover:border-gray-400 text-gray-600"
+                        : "border-gray-200 text-gray-400 cursor-not-allowed"
                   }`}
                   disabled={size.stock <= 0}
-                  title={`Size ${size.size} - ${size.stock > 0 ? `${size.stock} available` : 'Out of stock'}`}
+                  title={`Size ${size.size} - ${size.stock > 0 ? `${size.stock} available` : "Out of stock"}`}
                 >
                   {size.size}
                 </button>
               ))}
               {availableSizeOptions.length > 4 && (
-                <span className="text-xs text-gray-500 self-center">+{availableSizeOptions.length - 4}</span>
+                <span className="text-xs text-gray-500 self-center">
+                  +{availableSizeOptions.length - 4}
+                </span>
               )}
             </div>
           </div>
@@ -741,7 +773,7 @@ const getRatingData = () => {
           onError={handleMediaError}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-        
+
         {/* Top badges */}
         <div className="absolute top-1 sm:top-2 left-1 sm:left-2 flex flex-col gap-1 z-10">
           <div className="flex flex-wrap gap-1">
@@ -776,7 +808,10 @@ const getRatingData = () => {
         </div>
 
         {/* Top right actions */}
-        <div className="absolute top-1 sm:top-2 right-1 sm:right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        <div
+          className="absolute top-1 sm:top-2 right-1 sm:right-2 flex flex-col gap-1 
+  opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-300"
+        >
           <button
             onClick={handleWishlistClick}
             className="p-1 sm:p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
@@ -793,6 +828,7 @@ const getRatingData = () => {
               <FaRegHeart className="text-gray-600 text-xs sm:text-sm hover:text-red-600 transition-colors" />
             )}
           </button>
+
           <button
             onClick={handleQuickView}
             className="p-1 sm:p-1.5 rounded-full bg-white/90 hover:bg-white transition-colors shadow backdrop-blur-sm"
@@ -825,7 +861,7 @@ const getRatingData = () => {
           <h2 className="text-xs sm:text-sm font-bold text-gray-800 hover:text-red-600 line-clamp-2 leading-tight transition-colors">
             {product.title}
           </h2>
-          
+
           {/* Rating and category in one row on mobile */}
           <div className="flex items-center justify-between gap-2">
             {ratingInfo.hasReviews ? (
@@ -842,15 +878,19 @@ const getRatingData = () => {
               </div>
             ) : (
               <div className="flex items-center gap-1 text-xs text-gray-500">
-                <div className="flex items-center gap-0.5">{renderStars(0).slice(0, 3)}</div>
+                <div className="flex items-center gap-0.5">
+                  {renderStars(0).slice(0, 3)}
+                </div>
                 <span className="hidden sm:inline">No reviews</span>
               </div>
             )}
-            
+
             {product.categoryId?.name && (
               <div className="flex items-center gap-1 text-xs text-gray-500">
                 <MdVerified className="text-green-500 text-xs" />
-                <span className="text-gray-600 hidden sm:inline">{product.categoryId.name}</span>
+                <span className="text-gray-600 hidden sm:inline">
+                  {product.categoryId.name}
+                </span>
               </div>
             )}
           </div>

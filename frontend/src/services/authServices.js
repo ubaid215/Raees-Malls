@@ -131,7 +131,7 @@ export const googleLogin = async (authCode = null) => {
   try {
     const baseUrl = getBaseUrl();
     if (authCode) {
-      console.log('GoogleLogin: Processing auth code', authCode);
+      // console.log('GoogleLogin: Processing auth code', authCode);
       const response = await api.post('/auth/google/callback', {
         code: authCode,
         redirect_uri: window.location.origin
@@ -146,7 +146,7 @@ export const googleLogin = async (authCode = null) => {
       return user;
     } else {
       const redirectUrl = `${baseUrl}/api/auth/google?redirect_uri=${encodeURIComponent(window.location.origin)}`;
-      console.log('GoogleLogin: Redirecting to', redirectUrl);
+      // console.log('GoogleLogin: Redirecting to', redirectUrl);
       window.location.href = redirectUrl;
       return null;
     }
@@ -171,7 +171,7 @@ export const handleGoogleRedirect = async () => {
   }
 
   if (code) {
-    console.log('Google redirect detected with auth code');
+    // console.log('Google redirect detected with auth code');
     // Clean the URL to remove the code
     window.history.replaceState({}, document.title, window.location.pathname);
     return await googleLogin(code);
@@ -188,7 +188,7 @@ export const register = async (name, email, password) => {
     );
 
     const response = await api.post('/auth/register', userData);
-    console.log('Register response:', response.data);
+    // console.log('Register response:', response.data);
     const { success, data } = response.data;
 
     const accessToken = data?.token;
@@ -283,7 +283,7 @@ export const logout = async () => {
 export const getMe = async () => {
   try {
     const response = await api.get('/auth/me');
-    console.log('GetMe response:', response.data);
+    // console.log('GetMe response:', response.data);
     const { success, data } = response.data;
 
     if (!success || !data?.user) {
@@ -324,7 +324,7 @@ export const updateUser = async (userData) => {
     });
 
     const response = await api.put('/auth/update-profile', validatedData);
-    console.log('Update user response:', response.data);
+    // console.log('Update user response:', response.data);
     const { success, data } = response.data;
 
     if (!success || !data?.user) {
