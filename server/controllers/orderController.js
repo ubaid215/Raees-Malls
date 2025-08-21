@@ -109,7 +109,7 @@ exports.placeOrder = async (req, res, next) => {
     }
 
     const { items, shippingAddress, discountCode, saveAddress, paymentMethod = 'cash_on_delivery' } = req.body;
-    console.log(`[ORDER] Payload received`, { itemsCount: items?.length, paymentMethod, discountCode });
+    console.log(`[ORDER] Payload received`, { itemsCount: items?.length, paymentMethod, discountCode, saveAddress });
 
     if (!items || items.length === 0) {
       console.warn(`[ORDER] Empty items in order | userId=${userId}`);
@@ -342,7 +342,6 @@ exports.placeOrder = async (req, res, next) => {
           };
           break;
 
-
         default:
           console.error(`[ORDER] Invalid variant type`, { variantType, productId: product._id });
           throw new ApiError(400, 'Invalid variant type');
@@ -398,10 +397,66 @@ exports.placeOrder = async (req, res, next) => {
     await order.save();
     console.log(`[ORDER] Order saved successfully`, { orderId: order.orderId, userId });
 
-    // --- Save address ---
+    // --- IMPROVED Address Saving Logic ---
     if (saveAddress) {
-      console.log(`[ORDER] Saving address for user`, { userId });
-      await User.findByIdAndUpdate(userId, { $addToSet: { addresses: { ...shippingAddress } } });
+      console.log(`[ORDER] Processing address save request`, { userId });
+      
+      const user = await User.findById(userId);
+      if (!user) {
+        console.warn(`[ORDER] User not found for address saving`, { userId });
+      } else {
+        // Check if address already exists (case-insensitive comparison)
+        const addressExists = user.addresses?.some(addr => {
+          const normalize = (str) => str ? str.toLowerCase().trim() : '';
+          return (
+            normalize(addr.fullName) === normalize(shippingAddress.fullName) &&
+            normalize(addr.addressLine1) === normalize(shippingAddress.addressLine1) &&
+            normalize(addr.city) === normalize(shippingAddress.city) &&
+            normalize(addr.state) === normalize(shippingAddress.state) &&
+            normalize(addr.postalCode) === normalize(shippingAddress.postalCode) &&
+            normalize(addr.country) === normalize(shippingAddress.country) &&
+            addr.phone?.replace(/\s/g, '') === shippingAddress.phone?.replace(/\s/g, '')
+          );
+        });
+
+        if (addressExists) {
+          console.log(`[ORDER] Address already exists, skipping save`, { userId });
+        } else {
+          console.log(`[ORDER] Saving new address`, { userId, addressData: shippingAddress });
+          
+          // Prepare address with proper structure
+          const newAddress = {
+            fullName: shippingAddress.fullName.trim(),
+            addressLine1: shippingAddress.addressLine1.trim(),
+            addressLine2: shippingAddress.addressLine2?.trim() || '',
+            city: shippingAddress.city.trim(),
+            state: shippingAddress.state.trim(),
+            postalCode: shippingAddress.postalCode.trim(),
+            country: shippingAddress.country.trim(),
+            phone: shippingAddress.phone.trim(),
+            isDefault: user.addresses?.length === 0 // Set as default if it's the first address
+          };
+
+          // If this is the first address, set it as default
+          // If user has no default address, set this as default
+          const hasDefaultAddress = user.addresses?.some(addr => addr.isDefault);
+          if (!hasDefaultAddress) {
+            newAddress.isDefault = true;
+          }
+
+          try {
+            await User.findByIdAndUpdate(
+              userId, 
+              { $addToSet: { addresses: newAddress } },
+              { new: true }
+            );
+            console.log(`[ORDER] Address saved successfully`, { userId, isDefault: newAddress.isDefault });
+          } catch (addressError) {
+            console.error(`[ORDER] Failed to save address`, { userId, error: addressError.message });
+            // Don't fail the entire order if address saving fails
+          }
+        }
+      }
     }
 
     // --- Stock Update ---
