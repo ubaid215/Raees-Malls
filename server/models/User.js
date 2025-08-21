@@ -44,15 +44,15 @@ const userSchema = new mongoose.Schema({
   },
   addresses: [
     {
-      fullName: { type: String, required: true, trim: true }, // Added for CheckoutPage compatibility
-      street: { type: String, required: true, trim: true },
-      addressLine2: { type: String, trim: true }, // Optional, from addressLine2
+      fullName: { type: String, required: true, trim: true },
+      addressLine1: { type: String, required: true, trim: true }, // Changed from 'street'
+      addressLine2: { type: String, trim: true }, // Optional second line
       city: { type: String, required: true, trim: true },
       state: { type: String, required: true, trim: true },
-      zip: { type: String, required: true, trim: true },
+      postalCode: { type: String, required: true, trim: true }, // Changed from 'zip'
       country: { type: String, required: true, trim: true },
-      phone: { type: String, required: true, trim: true }, // Added for phone
-      isDefault: { type: Boolean, default: false } // Flag for default address
+      phone: { type: String, required: true, trim: true },
+      isDefault: { type: Boolean, default: false }
     },
   ],
   createdAt: {

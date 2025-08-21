@@ -299,10 +299,19 @@ const downloadInvoiceValidator = [
   validate
 ];
 
+const cancelOrderValidator = [
+  param('orderId')
+    .isString()
+    .matches(/^ORD-[A-F0-9]{8}$/i)
+    .withMessage('Invalid order ID format. Must be like ORD-XXXXXXXX'),
+  validate
+];
+
 module.exports = {
   placeOrderValidator,
   updateOrderStatusValidator,
   getOrdersValidator,
   downloadInvoiceValidator,
+  cancelOrderValidator,
   validate
 };

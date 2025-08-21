@@ -7,6 +7,7 @@ const {
   updateOrderStatusValidator,
   getOrdersValidator,
   downloadInvoiceValidator,
+  cancelOrderValidator
 } = require('../validation/orderValidators');
 
 // User routes (under /api/orders)
@@ -30,9 +31,10 @@ router.put(
   '/:orderId/cancel',
   authenticateJWT,
   authorizeRoles('user'),
-  updateOrderStatusValidator,
+  cancelOrderValidator,
   orderController.cancelOrder
 );
+
 
 // Notification routes (public access for toast notifications)
 router.get(

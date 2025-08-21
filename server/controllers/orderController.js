@@ -108,24 +108,71 @@ exports.placeOrder = async (req, res, next) => {
       throw new ApiError(401, 'User not authenticated');
     }
 
-    const { items, shippingAddress, discountCode, saveAddress, paymentMethod = 'cash_on_delivery' } = req.body;
-    console.log(`[ORDER] Payload received`, { itemsCount: items?.length, paymentMethod, discountCode, saveAddress });
+    // Extract all possible parameters from request body
+    const {
+      items,
+      shippingAddress,
+      useExistingAddress = false, // New field to indicate using existing address
+      existingAddressId, // ID of existing address to use
+      discountCode,
+      saveAddress,
+      paymentMethod = 'cash_on_delivery'
+    } = req.body;
+
+    console.log(`[ORDER] Raw request body:`, JSON.stringify(req.body, null, 2));
+    console.log(`[ORDER] Parsed payload:`, {
+      itemsCount: items?.length,
+      paymentMethod,
+      discountCode,
+      saveAddress,
+      useExistingAddress,
+      existingAddressId,
+      shippingAddress
+    });
 
     if (!items || items.length === 0) {
       console.warn(`[ORDER] Empty items in order | userId=${userId}`);
       throw new ApiError(400, 'Order must contain at least one item');
     }
 
-    if (!shippingAddress || typeof shippingAddress !== 'object') {
-      console.warn(`[ORDER] Invalid shipping address | userId=${userId}`);
-      throw new ApiError(400, 'Shipping address is required');
-    }
+    let finalShippingAddress = shippingAddress;
 
-    const requiredAddressFields = ['fullName', 'addressLine1', 'city', 'state', 'postalCode', 'country', 'phone'];
-    const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
-    if (missingFields.length > 0) {
-      console.warn(`[ORDER] Missing shipping fields`, { missingFields });
-      throw new ApiError(400, `Missing required shipping fields: ${missingFields.join(', ')}`);
+    // If user wants to use an existing address
+    if (useExistingAddress && existingAddressId) {
+      console.log(`[ORDER] Using existing address`, { existingAddressId });
+
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new ApiError(404, 'User not found');
+      }
+
+      const existingAddress = user.addresses.id(existingAddressId);
+      if (!existingAddress) {
+        throw new ApiError(404, 'Address not found in user profile');
+      }
+
+      // Convert Mongoose subdocument to plain object
+      finalShippingAddress = existingAddress.toObject();
+      console.log(`[ORDER] Using existing address`, finalShippingAddress);
+    }
+    // Validate shipping address if not using existing one
+    else if (!useExistingAddress) {
+      if (!shippingAddress || typeof shippingAddress !== 'object') {
+        console.warn(`[ORDER] Invalid shipping address | userId=${userId}`);
+        throw new ApiError(400, 'Shipping address is required');
+      }
+
+      const requiredAddressFields = ['fullName', 'addressLine1', 'city', 'state', 'postalCode', 'country', 'phone'];
+      const missingFields = requiredAddressFields.filter(field => !shippingAddress[field]);
+      if (missingFields.length > 0) {
+        console.warn(`[ORDER] Missing shipping fields`, { missingFields });
+        throw new ApiError(400, `Missing required shipping fields: ${missingFields.join(', ')}`);
+      }
+
+      // Set finalShippingAddress to the provided address
+      finalShippingAddress = shippingAddress;
+    } else {
+      throw new ApiError(400, 'Existing address ID is required when useExistingAddress is true');
     }
 
     let subtotal = 0;
@@ -391,65 +438,78 @@ exports.placeOrder = async (req, res, next) => {
       totalAmount: subtotal + totalShippingCost - discountAmount,
       paymentMethod,
       status: 'pending',
-      shippingAddress
+      shippingAddress: finalShippingAddress
     });
 
     await order.save();
     console.log(`[ORDER] Order saved successfully`, { orderId: order.orderId, userId });
 
     // --- IMPROVED Address Saving Logic ---
-    if (saveAddress) {
+    if (saveAddress && !useExistingAddress) {
       console.log(`[ORDER] Processing address save request`, { userId });
-      
+
       const user = await User.findById(userId);
       if (!user) {
         console.warn(`[ORDER] User not found for address saving`, { userId });
       } else {
-        // Check if address already exists (case-insensitive comparison)
-        const addressExists = user.addresses?.some(addr => {
-          const normalize = (str) => str ? str.toLowerCase().trim() : '';
+        // Normalize addresses for comparison
+        const normalizeAddress = (addr) => {
+          return {
+            fullName: addr.fullName?.toLowerCase().trim().replace(/\s+/g, ' '),
+            addressLine1: addr.addressLine1?.toLowerCase().trim().replace(/\s+/g, ' '),
+            addressLine2: addr.addressLine2?.toLowerCase().trim().replace(/\s+/g, ' ') || '',
+            city: addr.city?.toLowerCase().trim(),
+            state: addr.state?.toLowerCase().trim(),
+            postalCode: addr.postalCode?.toLowerCase().trim().replace(/\s+/g, ''),
+            country: addr.country?.toLowerCase().trim(),
+            phone: addr.phone?.replace(/\D/g, '') // Remove non-digit characters
+          };
+        };
+
+        const newAddressNormalized = normalizeAddress(finalShippingAddress);
+
+        // Check if address already exists
+        const addressExists = user.addresses.some(addr => {
+          const existingAddrNormalized = normalizeAddress(addr);
           return (
-            normalize(addr.fullName) === normalize(shippingAddress.fullName) &&
-            normalize(addr.addressLine1) === normalize(shippingAddress.addressLine1) &&
-            normalize(addr.city) === normalize(shippingAddress.city) &&
-            normalize(addr.state) === normalize(shippingAddress.state) &&
-            normalize(addr.postalCode) === normalize(shippingAddress.postalCode) &&
-            normalize(addr.country) === normalize(shippingAddress.country) &&
-            addr.phone?.replace(/\s/g, '') === shippingAddress.phone?.replace(/\s/g, '')
+            existingAddrNormalized.fullName === newAddressNormalized.fullName &&
+            existingAddrNormalized.addressLine1 === newAddressNormalized.addressLine1 &&
+            existingAddrNormalized.city === newAddressNormalized.city &&
+            existingAddrNormalized.state === newAddressNormalized.state &&
+            existingAddrNormalized.postalCode === newAddressNormalized.postalCode &&
+            existingAddrNormalized.country === newAddressNormalized.country &&
+            existingAddrNormalized.phone === newAddressNormalized.phone
           );
         });
 
         if (addressExists) {
           console.log(`[ORDER] Address already exists, skipping save`, { userId });
         } else {
-          console.log(`[ORDER] Saving new address`, { userId, addressData: shippingAddress });
-          
+          console.log(`[ORDER] Saving new address`, { userId });
+
           // Prepare address with proper structure
           const newAddress = {
-            fullName: shippingAddress.fullName.trim(),
-            addressLine1: shippingAddress.addressLine1.trim(),
-            addressLine2: shippingAddress.addressLine2?.trim() || '',
-            city: shippingAddress.city.trim(),
-            state: shippingAddress.state.trim(),
-            postalCode: shippingAddress.postalCode.trim(),
-            country: shippingAddress.country.trim(),
-            phone: shippingAddress.phone.trim(),
-            isDefault: user.addresses?.length === 0 // Set as default if it's the first address
+            fullName: finalShippingAddress.fullName.trim(),
+            addressLine1: finalShippingAddress.addressLine1.trim(),
+            addressLine2: finalShippingAddress.addressLine2?.trim() || '',
+            city: finalShippingAddress.city.trim(),
+            state: finalShippingAddress.state.trim(),
+            postalCode: finalShippingAddress.postalCode.trim(),
+            country: finalShippingAddress.country.trim(),
+            phone: finalShippingAddress.phone.trim(),
+            isDefault: user.addresses.length === 0 // Set as default if it's the first address
           };
 
-          // If this is the first address, set it as default
           // If user has no default address, set this as default
-          const hasDefaultAddress = user.addresses?.some(addr => addr.isDefault);
+          const hasDefaultAddress = user.addresses.some(addr => addr.isDefault);
           if (!hasDefaultAddress) {
             newAddress.isDefault = true;
           }
 
           try {
-            await User.findByIdAndUpdate(
-              userId, 
-              { $addToSet: { addresses: newAddress } },
-              { new: true }
-            );
+            // Use push instead of addToSet for better control
+            user.addresses.push(newAddress);
+            await user.save();
             console.log(`[ORDER] Address saved successfully`, { userId, isDefault: newAddress.isDefault });
           } catch (addressError) {
             console.error(`[ORDER] Failed to save address`, { userId, error: addressError.message });
@@ -559,9 +619,9 @@ exports.getRevenueStats = async (req, res, next) => {
   try {
     const { period = 'month', startDate, endDate } = req.query;
 
-    let matchStage = {};
-    let groupStage = {};
-    let sortStage = { _id: 1 };
+    let matchStage = {
+      status: 'delivered' 
+    };
 
     // Date filtering
     if (startDate && endDate) {
@@ -572,6 +632,9 @@ exports.getRevenueStats = async (req, res, next) => {
     }
 
     // Grouping by time period
+    let groupStage;
+    let sortStage = { _id: 1 };
+
     switch (period) {
       case 'day':
         groupStage = {
@@ -635,7 +698,10 @@ exports.getProductRevenue = async (req, res, next) => {
   try {
     const { limit = 10, startDate, endDate } = req.query;
 
-    const matchStage = {};
+    const matchStage = {
+      status: 'delivered'
+    };
+
     if (startDate && endDate) {
       matchStage.createdAt = {
         $gte: new Date(startDate),
@@ -645,6 +711,17 @@ exports.getProductRevenue = async (req, res, next) => {
 
     const productStats = await Order.aggregate([
       { $match: matchStage },
+      {
+        $project: {
+          items: {
+            $filter: {
+              input: "$items",
+              as: "item",
+              cond: { $eq: ["$status", "delivered"] }
+            }
+          }
+        }
+      },
       { $unwind: "$items" },
       {
         $group: {
@@ -655,23 +732,15 @@ exports.getProductRevenue = async (req, res, next) => {
               $multiply: [
                 "$items.quantity",
                 {
-                  $cond: [
-                    { $eq: ["$items.variantType", "simple"] },
-                    "$items.simpleProduct.price",
-                    {
-                      $cond: [
-                        { $eq: ["$items.variantType", "color"] },
-                        "$items.colorVariant.price",
-                        {
-                          $cond: [
-                            { $eq: ["$items.variantType", "storage"] },
-                            "$items.storageVariant.storageOption.price",
-                            "$items.sizeVariant.sizeOption.price"
-                          ]
-                        }
-                      ]
-                    }
-                  ]
+                  $switch: {
+                    branches: [
+                      { case: { $eq: ["$items.variantType", "simple"] }, then: "$items.simpleProduct.price" },
+                      { case: { $eq: ["$items.variantType", "color"] }, then: "$items.colorVariant.price" },
+                      { case: { $eq: ["$items.variantType", "storage"] }, then: "$items.storageVariant.storageOption.price" },
+                      { case: { $eq: ["$items.variantType", "size"] }, then: "$items.sizeVariant.sizeOption.price" }
+                    ],
+                    default: 0
+                  }
                 }
               ]
             }
@@ -707,6 +776,7 @@ exports.getProductRevenue = async (req, res, next) => {
     next(error);
   }
 };
+
 
 exports.getUserOrders = async (req, res, next) => {
   try {
@@ -828,37 +898,48 @@ exports.cancelOrder = async (req, res, next) => {
     for (const item of order.items) {
       const product = await Product.findById(item.productId);
       if (!product) {
-        throw new ApiError(404, `Product not found: ${item.productId}`);
+        console.warn(`Product not found for item ${item.productId}, skipping stock update`);
+        continue; // skip this item instead of failing
       }
+
       if (item.variantId) {
         const variant = product.variants.id(item.variantId);
         if (!variant) {
-          throw new ApiError(404, `Variant not found for product: ${product.title}`);
+          console.warn(`Variant ${item.variantId} not found for product ${product.title}, skipping variant stock update`);
+        } else {
+          // Safely increment variant stock
+          variant.stock = (Number(variant.stock) || 0) + Number(item.quantity || 0);
         }
-        variant.stock += item.quantity;
       } else {
-        product.stock += item.quantity;
+        // Safely increment product stock
+        product.stock = (Number(product.stock) || 0) + Number(item.quantity || 0);
       }
+
       await product.save();
     }
 
     order.status = 'cancelled';
     await order.save();
 
+    // Populate order for real-time notifications
     const io = req.app.get('socketio');
     const populatedOrder = await Order.findById(order._id)
       .populate('userId', 'name email')
       .populate('items.productId', 'title brand sku shippingCost images variants')
       .populate('discountId', 'code value type');
 
+    // Emit events
     io.to(`user_${userId}`).emit('orderStatusUpdated', populatedOrder);
     io.to('adminRoom').emit('orderStatusUpdated', populatedOrder);
 
     ApiResponse.success(res, 200, 'Order cancelled successfully', { order: populatedOrder });
+
   } catch (error) {
+    console.error('Cancel order error:', error);
     next(error);
   }
 };
+
 
 exports.downloadInvoice = async (req, res, next) => {
   try {
@@ -922,20 +1003,32 @@ exports.downloadInvoice = async (req, res, next) => {
     // ==============================
     // SHIPPER / CONSIGNEE
     // ==============================
-    doc.rect(15, 90, 130, 50).stroke();
+    const shipperBoxHeight = 60;
+    const consigneeBoxHeight = 60;
+
+    // Shipper
+    doc.rect(15, 90, 130, shipperBoxHeight).stroke();
     doc.fontSize(8).font("Helvetica-Bold").text("SHIPPER", 20, 95);
     doc.fontSize(7).font("Helvetica").text("Raees Malls", 20, 110);
 
-    doc.rect(160, 90, 120, 50).stroke();
+    // Consignee
+    doc.rect(160, 90, 120, consigneeBoxHeight).stroke();
     doc.fontSize(8).font("Helvetica-Bold").text("CONSIGNEE", 165, 95);
-    doc.fontSize(7).font("Helvetica")
-      .text(order.shippingAddress.fullName, 165, 110)
-      .text(order.shippingAddress.addressLine1, 165, 120, { width: 110 });
 
-    // ✅ Add phone number
+    let yConsignee = 110; // starting y position inside box
+    doc.fontSize(7).font("Helvetica")
+      .text(order.shippingAddress.fullName, 165, yConsignee, { width: 110 });
+
+    yConsignee += doc.heightOfString(order.shippingAddress.fullName, { width: 110 }) + 2;
+
+    doc.text(order.shippingAddress.addressLine1, 165, yConsignee, { width: 110 });
+    yConsignee += doc.heightOfString(order.shippingAddress.addressLine1, { width: 110 }) + 2;
+
+    // ✅ Add phone number after address
     if (order.shippingAddress.phone) {
-      doc.text(`Ph: ${order.shippingAddress.phone}`, 165, 132, { width: 110 });
+      doc.text(`Ph: ${order.shippingAddress.phone}`, 165, yConsignee, { width: 110 });
     }
+
 
     // ==============================
     // ORDER DETAILS

@@ -632,46 +632,44 @@ export const OrderProvider = ({ children }) => {
   };
 
   const cancelUserOrder = async (orderId) => {
-    if (!isRegularUser) {
-      const errorMessage = 'Unauthorized: Only users can cancel their own orders';
-      setError(errorMessage);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
-      throw new Error(errorMessage);
-    }
-    
-    setLoading(true);
-    setError('');
-    
-    if (!orderId || typeof orderId !== 'string') {
-      const errorMessage = 'Invalid order ID';
-      setError(errorMessage);
-      setLoading(false);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
-      throw new Error(errorMessage);
-    }
+  if (!isRegularUser) {
+    const errorMessage = 'Unauthorized: Only users can cancel their own orders';
+    setError(errorMessage);
+    toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+    throw new Error(errorMessage);
+  }
 
-    try {
-      const order = await apiCancelOrder(orderId);
-      // console.log('Order cancelled:', order);
-      
-      // Clear cache and force refresh
-      clearUserOrdersCache();
-      await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
-      toastSuccess('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
-      return order;
-    } catch (err) {
-      console.error('Cancel order error:', {
-        orderId,
-        message: err.message,
-        status: err.response?.status,
-        data: err.response?.data,
-      });
-      await handleOrderError(err, isRegularUser, () => cancelUserOrder(orderId));
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  setError('');
+
+  if (!orderId || typeof orderId !== 'string') {
+    const errorMessage = 'Invalid order ID';
+    setError(errorMessage);
+    setLoading(false);
+    toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+    throw new Error(errorMessage);
+  }
+
+  try {
+    const order = await apiCancelOrder(orderId); // ✅ now sends status
+    clearUserOrdersCache();
+    await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
+    toastSuccess('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
+    return order;
+  } catch (err) {
+    console.error('Cancel order error:', {
+      orderId,
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    });
+    await handleOrderError(err, isRegularUser, () => cancelUserOrder(orderId));
+    throw err;
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const downloadOrderInvoice = async (orderId) => {
     if (!isAdmin && !isRegularUser) {
