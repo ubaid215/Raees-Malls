@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { debounce } from 'lodash';
 import { ProductContext } from '../../context/ProductContext';
+import { CategoryContext } from '../../context/CategoryContext'; // Add CategoryContext import
 import ProductCard from './ProductCard';
 import Button from '../core/Button';
 import LoadingSpinner from '../core/LoadingSpinner';
@@ -12,10 +13,12 @@ import { toast } from 'react-toastify';
 
 function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
   const { products, loading, error, fetchProducts } = useContext(ProductContext);
+  const { categories } = useContext(CategoryContext); // Get categories from context
   const [localProducts, setLocalProducts] = useState([]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [hasInitialized, setHasInitialized] = useState(false);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [childCategoryIds, setChildCategoryIds] = useState([]); // State for child category IDs
   
   const navigate = useNavigate();
   const location = useLocation();
@@ -29,6 +32,32 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     `${isFeatured ? 'featured' : 'regular'}-${categoryId || 'all'}`, 
     [isFeatured, categoryId]
   );
+
+  // Find all child category IDs for the given parent category
+  useEffect(() => {
+    if (categoryId && categories.length > 0) {
+      const findChildCategoryIds = (parentId) => {
+        const children = categories.filter(cat => 
+          cat.parentId === parentId || 
+          cat.parent === parentId || 
+          cat.parentCategory === parentId
+        );
+        
+        let allChildrenIds = [...children.map(child => child._id)];
+        
+        // Recursively find children of children
+        children.forEach(child => {
+          const grandChildrenIds = findChildCategoryIds(child._id);
+          allChildrenIds = [...allChildrenIds, ...grandChildrenIds];
+        });
+        
+        return allChildrenIds;
+      };
+      
+      const childIds = findChildCategoryIds(categoryId);
+      setChildCategoryIds([categoryId, ...childIds]); // Include the parent category ID as well
+    }
+  }, [categoryId, categories]);
 
   // Log component mounts for debugging
   useEffect(() => {
@@ -51,8 +80,12 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
 
     const filteredProducts = products.filter(product => {
       const featuredMatch = isFeatured ? product.isFeatured : !product.isFeatured;
+      
+      // Check if product belongs to any of the child categories
       const categoryMatch = categoryId ? 
-        (product.categoryId?._id === categoryId || product.categoryId === categoryId) : true;
+        (childCategoryIds.includes(product.categoryId?._id) || 
+         childCategoryIds.includes(product.categoryId)) : true;
+      
       const stockMatch = product.stock > 0;
       return featuredMatch && categoryMatch && stockMatch;
     });
@@ -75,7 +108,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
     return processedProducts
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
       .slice(0, 16);
-  }, [products, isFeatured, categoryId]);
+  }, [products, isFeatured, categoryId, childCategoryIds]);
 
   // Optimized fetch products with deduplication
   const handleFetchProducts = useCallback(
@@ -84,8 +117,16 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         page: 1,
         limit: 50,
         sort: '-createdAt',
-        ...(categoryId ? { categoryId } : {}),
       };
+
+      // If we have child categories, we need to fetch all products and filter them
+      // because the API might not support multiple category IDs in one request
+      if (childCategoryIds.length > 0) {
+        // We'll fetch all products and filter them in the memoizedProducts function
+        params.limit = 100; // Increase limit to get more products for filtering
+      } else if (categoryId) {
+        params.categoryId = categoryId;
+      }
 
       const paramsKey = JSON.stringify(params);
       
@@ -128,7 +169,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         fetchInProgressRef.current = false;
       }
     }, 500),
-    [fetchProducts, categoryId, componentKey]
+    [fetchProducts, categoryId, componentKey, childCategoryIds]
   );
 
   // Single initialization effect
@@ -243,8 +284,8 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         (!isFeatured && !productData?.isFeatured)
       ) && (
         !categoryId || 
-        productData?.categoryId === categoryId || 
-        productData?.categoryId?._id === categoryId
+        childCategoryIds.includes(productData?.categoryId) || 
+        childCategoryIds.includes(productData?.categoryId?._id)
       );
 
       if (productMatches) {
@@ -276,7 +317,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
         }
       }
     };
-  }, [handleFetchProducts, isFeatured, categoryId, componentKey, isSocketConnected]);
+  }, [handleFetchProducts, isFeatured, categoryId, componentKey, isSocketConnected, childCategoryIds]);
 
   // Handle window resize with debouncing
   useEffect(() => {
@@ -348,6 +389,7 @@ function ProductRowSlider({ title, isFeatured = false, categoryId = '' }) {
               <p>Filtered products: {localProducts.length}</p>
               <p>Looking for: {isFeatured ? 'Featured' : 'Regular'} products</p>
               <p>Category: {categoryId || 'All'}</p>
+              <p>Child categories: {childCategoryIds.length}</p>
               <p>Component key: {componentKey}</p>
               <p>Has initialized: {hasInitialized.toString()}</p>
               <p>Fetch in progress: {fetchInProgressRef.current.toString()}</p>
