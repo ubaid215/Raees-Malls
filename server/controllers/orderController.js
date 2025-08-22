@@ -615,12 +615,16 @@ exports.getRecentOrderNotifications = async (req, res, next) => {
   }
 };
 
+// =========================
+// GET REVENUE STATS
+// =========================
 exports.getRevenueStats = async (req, res, next) => {
   try {
     const { period = 'month', startDate, endDate } = req.query;
 
+    // Match only valid orders
     let matchStage = {
-      status: 'delivered' 
+      status: { $nin: ["cancelled", "refunded"] } // ✅ exclude cancelled & refunded
     };
 
     // Date filtering
@@ -630,6 +634,8 @@ exports.getRevenueStats = async (req, res, next) => {
         $lte: new Date(endDate)
       };
     }
+
+    console.log("[getRevenueStats] matchStage:", matchStage);
 
     // Grouping by time period
     let groupStage;
@@ -685,21 +691,29 @@ exports.getRevenueStats = async (req, res, next) => {
       { $sort: sortStage }
     ]);
 
+    console.log("[getRevenueStats] aggregation result:", stats);
+
     ApiResponse.success(res, 200, 'Revenue stats retrieved', {
       period,
       stats
     });
   } catch (error) {
+    console.error("[getRevenueStats] error:", error);
     next(error);
   }
 };
 
+
+
+// =========================
+// GET PRODUCT REVENUE
+// =========================
 exports.getProductRevenue = async (req, res, next) => {
   try {
     const { limit = 10, startDate, endDate } = req.query;
 
     const matchStage = {
-      status: 'delivered'
+      status: { $nin: ["cancelled", "refunded"] } // ✅ exclude cancelled/refunded orders
     };
 
     if (startDate && endDate) {
@@ -709,6 +723,8 @@ exports.getProductRevenue = async (req, res, next) => {
       };
     }
 
+    console.log("[getProductRevenue] matchStage:", matchStage);
+
     const productStats = await Order.aggregate([
       { $match: matchStage },
       {
@@ -717,7 +733,7 @@ exports.getProductRevenue = async (req, res, next) => {
             $filter: {
               input: "$items",
               as: "item",
-              cond: { $eq: ["$status", "delivered"] }
+              cond: { $eq: ["$$item.status", "delivered"] } // ✅ FIXED to check item-level status
             }
           }
         }
@@ -769,13 +785,17 @@ exports.getProductRevenue = async (req, res, next) => {
       }
     ]);
 
+    console.log("[getProductRevenue] aggregation result:", productStats);
+
     ApiResponse.success(res, 200, 'Product revenue stats retrieved', {
       products: productStats
     });
   } catch (error) {
+    console.error("[getProductRevenue] error:", error);
     next(error);
   }
 };
+
 
 
 exports.getUserOrders = async (req, res, next) => {
