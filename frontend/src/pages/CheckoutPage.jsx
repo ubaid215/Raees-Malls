@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { FiCheckCircle } from "react-icons/fi";
+import { FiCheckCircle, FiClock, FiLock } from "react-icons/fi";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
 import { useLocation } from "react-router-dom";
 import Button from "../components/core/Button";
 import Input from "../components/core/Input";
+import PaymentAnnouncementBanner from "../components/core/PaymentAnnouncementBanner";
 import { useCart } from "../context/CartContext";
 import { useOrder } from "../context/OrderContext";
 import { useAuth } from "../context/AuthContext";
@@ -28,6 +29,10 @@ const CheckoutPage = () => {
   const [orderCounts, setOrderCounts] = useState({}); // Track order counts for variants
   const [useExistingAddress, setUseExistingAddress] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState("");
+  
+  // Payment gateway integration flag - set to false to disable ordering
+  const [paymentGatewayActive, setPaymentGatewayActive] = useState(false); // to enable order system make it true
+  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
 
   // Use passed cart data or fallback to context
   const effectiveCartItems = cartState?.cartItems || contextCartItems;
@@ -304,97 +309,86 @@ const CheckoutPage = () => {
     };
   }, [effectiveTotalPrice, effectiveShippingCost, effectiveCartItems]);
 
- const onSubmit = async (data) => {
-  if (effectiveCartItems.length === 0) {
-    toast.error("Your cart is empty. Please add items to proceed.");
-    return;
-  }
-
-  setIsSubmitting(true);
-
-  try {
-    // Prepare order items with proper variant handling
-    const items = effectiveCartItems.map(mapCartItemToOrderItem);
-
-    // Prepare order data based on address selection
-    const orderData = {
-      items,
-      paymentMethod: "cash_on_delivery",
-      orderNotes: data.orderNotes?.trim() || "",
-      totalShippingCost: shipping,
-      subtotal,
-      total
-    };
-
-    // FIX: Add proper handling for existing addresses
-    if (useExistingAddress && selectedAddressId) {
-      // Use existing address - send both flags
-      orderData.useExistingAddress = true;
-      orderData.existingAddressId = selectedAddressId;
-      
-      // Also include the shipping address for validation/fallback
-      orderData.shippingAddress = {
-        fullName: data.fullName.trim(),
-        addressLine1: data.addressLine1.trim(),
-        addressLine2: data.addressLine2?.trim() || "",
-        city: data.city.trim(),
-        state: data.state.trim(),
-        postalCode: data.postalCode.trim(),
-        country: data.country.trim(),
-        phone: data.phone.trim(),
-        email: data.email.trim()
-      };
-    } else {
-      // Use manual address entry
-      orderData.useExistingAddress = false;
-      orderData.shippingAddress = {
-        fullName: data.fullName.trim(),
-        addressLine1: data.addressLine1.trim(),
-        addressLine2: data.addressLine2?.trim() || "",
-        city: data.city.trim(),
-        state: data.state.trim(),
-        postalCode: data.postalCode.trim(),
-        country: data.country.trim(),
-        phone: data.phone.trim(),
-        email: data.email.trim()
-      };
-      orderData.saveAddress = Boolean(data.saveAddress);
+  // Modified onSubmit to handle disabled state
+  const onSubmit = async (data) => {
+    // Check if payment gateway is active
+    if (!paymentGatewayActive) {
+      setShowComingSoonModal(true);
+      return;
     }
 
-    // Add billing address if different from shipping
-    if (!billingSameAsShipping) {
-      orderData.billingAddress = {
-        fullName: data.billingFullName?.trim() || data.fullName.trim(),
-        addressLine1: data.billingAddressLine1?.trim() || data.addressLine1.trim(),
-        addressLine2: data.billingAddressLine2?.trim() || data.addressLine2?.trim() || "",
-        city: data.billingCity?.trim() || data.city.trim(),
-        state: data.billingState?.trim() || data.state.trim(),
-        postalCode: data.billingPostalCode?.trim() || data.postalCode.trim(),
-        country: data.billingCountry?.trim() || data.country.trim(),
-        phone: data.billingPhone?.trim() || data.phone.trim()
-      };
+    if (effectiveCartItems.length === 0) {
+      toast.error("Your cart is empty. Please add items to proceed.");
+      return;
     }
 
-    // Log the complete order data being sent to the backend
-    // console.log("Submitting order to backend:", {
-    //   timestamp: new Date().toISOString(),
-    //   orderData: JSON.stringify(orderData, null, 2),
-    //   userId: user?._id || "unknown",
-    //   cartItemsCount: effectiveCartItems.length,
-    //   totalAmount: total,
-    //   useExistingAddress: orderData.useExistingAddress,
-    //   existingAddressId: orderData.existingAddressId
-    // });
+    setIsSubmitting(true);
 
-    // Place the order
-    const order = await placeNewOrder(orderData);
+    try {
+      // Prepare order items with proper variant handling
+      const items = effectiveCartItems.map(mapCartItemToOrderItem);
 
-      // Log successful order response
-      // console.log("Order placement successful:", {
-      //   timestamp: new Date().toISOString(),
-      //   orderId: order.orderId,
-      //   response: JSON.stringify(order, null, 2)
-      // });
+      // Prepare order data based on address selection
+      const orderData = {
+        items,
+        paymentMethod: "cash_on_delivery",
+        orderNotes: data.orderNotes?.trim() || "",
+        totalShippingCost: shipping,
+        subtotal,
+        total
+      };
+
+      // FIX: Add proper handling for existing addresses
+      if (useExistingAddress && selectedAddressId) {
+        // Use existing address - send both flags
+        orderData.useExistingAddress = true;
+        orderData.existingAddressId = selectedAddressId;
+        
+        // Also include the shipping address for validation/fallback
+        orderData.shippingAddress = {
+          fullName: data.fullName.trim(),
+          addressLine1: data.addressLine1.trim(),
+          addressLine2: data.addressLine2?.trim() || "",
+          city: data.city.trim(),
+          state: data.state.trim(),
+          postalCode: data.postalCode.trim(),
+          country: data.country.trim(),
+          phone: data.phone.trim(),
+          email: data.email.trim()
+        };
+      } else {
+        // Use manual address entry
+        orderData.useExistingAddress = false;
+        orderData.shippingAddress = {
+          fullName: data.fullName.trim(),
+          addressLine1: data.addressLine1.trim(),
+          addressLine2: data.addressLine2?.trim() || "",
+          city: data.city.trim(),
+          state: data.state.trim(),
+          postalCode: data.postalCode.trim(),
+          country: data.country.trim(),
+          phone: data.phone.trim(),
+          email: data.email.trim()
+        };
+        orderData.saveAddress = Boolean(data.saveAddress);
+      }
+
+      // Add billing address if different from shipping
+      if (!billingSameAsShipping) {
+        orderData.billingAddress = {
+          fullName: data.billingFullName?.trim() || data.fullName.trim(),
+          addressLine1: data.billingAddressLine1?.trim() || data.addressLine1.trim(),
+          addressLine2: data.billingAddressLine2?.trim() || data.addressLine2?.trim() || "",
+          city: data.billingCity?.trim() || data.city.trim(),
+          state: data.billingState?.trim() || data.state.trim(),
+          postalCode: data.billingPostalCode?.trim() || data.postalCode.trim(),
+          country: data.billingCountry?.trim() || data.country.trim(),
+          phone: data.billingPhone?.trim() || data.phone.trim()
+        };
+      }
+
+      // Place the order
+      const order = await placeNewOrder(orderData);
 
       // Handle successful order
       setOrderDetails({
@@ -450,6 +444,50 @@ const CheckoutPage = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // Coming Soon Modal Component
+  const ComingSoonModal = () => {
+    if (!showComingSoonModal) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+          <div className="text-center">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 mb-4">
+              <FiClock className="h-6 w-6 text-blue-600" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              Payment Gateway Integration in Progress
+            </h3>
+            <p className="text-sm text-gray-500 mb-6">
+              We're currently working with our banking partners to integrate secure online payment options. 
+              Order placement will be available once the integration is complete.
+            </p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-center gap-2 text-sm text-blue-600 bg-blue-50 rounded-lg p-3">
+                <FiLock className="h-4 w-4" />
+                <span>Secure payment options coming soon</span>
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => setShowComingSoonModal(false)}
+                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-md text-sm"
+                >
+                  Continue Browsing
+                </Button>
+                <Button
+                  onClick={() => navigate("/products")}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-md text-sm"
+                >
+                  Shop More
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (orderSuccess && orderDetails) {
@@ -522,6 +560,9 @@ const CheckoutPage = () => {
           Checkout
         </h1>
 
+        {/* Payment Gateway Announcement Banner */}
+        <PaymentAnnouncementBanner />
+
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="flex-1">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" id="checkout-form">
@@ -542,6 +583,7 @@ const CheckoutPage = () => {
                   })}
                   type="email"
                   error={errors.email?.message}
+                  disabled={!paymentGatewayActive}
                 />
               </div>
 
@@ -563,6 +605,7 @@ const CheckoutPage = () => {
                             checked={selectedAddressId === address._id.toString()}
                             onChange={(e) => handleAddressSelection(e.target.value)}
                             className="mt-1 text-red-600 focus:ring-red-500"
+                            disabled={!paymentGatewayActive}
                           />
                           <div className="flex-1">
                             <div className="font-medium text-gray-900">
@@ -598,6 +641,7 @@ const CheckoutPage = () => {
                           checked={!useExistingAddress}
                           onChange={(e) => handleAddressSelection(e.target.value)}
                           className="text-red-600 focus:ring-red-500"
+                          disabled={!paymentGatewayActive}
                         />
                         <span className="font-medium text-gray-900">
                           Use a new address
@@ -626,6 +670,7 @@ const CheckoutPage = () => {
                         },
                       })}
                       error={errors.fullName?.message}
+                      disabled={!paymentGatewayActive}
                     />
 
                     <Input
@@ -640,6 +685,7 @@ const CheckoutPage = () => {
                       type="tel"
                       placeholder="e.g. +92 3001234567"
                       error={errors.phone?.message}
+                      disabled={!paymentGatewayActive}
                     />
 
                     <Input
@@ -652,6 +698,7 @@ const CheckoutPage = () => {
                         },
                       })}
                       error={errors.addressLine1?.message}
+                      disabled={!paymentGatewayActive}
                     />
 
                     <Input
@@ -662,6 +709,7 @@ const CheckoutPage = () => {
                           message: "Cannot exceed 200 characters",
                         },
                       })}
+                      disabled={!paymentGatewayActive}
                     />
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -675,6 +723,7 @@ const CheckoutPage = () => {
                           },
                         })}
                         error={errors.city?.message}
+                        disabled={!paymentGatewayActive}
                       />
 
                       <Input
@@ -687,6 +736,7 @@ const CheckoutPage = () => {
                           },
                         })}
                         error={errors.state?.message}
+                        disabled={!paymentGatewayActive}
                       />
 
                       <Input
@@ -699,6 +749,7 @@ const CheckoutPage = () => {
                           },
                         })}
                         error={errors.postalCode?.message}
+                        disabled={!paymentGatewayActive}
                       />
                     </div>
 
@@ -709,6 +760,7 @@ const CheckoutPage = () => {
                       <select
                         {...register("country", { required: "Country is required" })}
                         className="w-full border border-gray-300 rounded-md p-2 text-sm"
+                        disabled={!paymentGatewayActive}
                       >
                         <option value="Pakistan">Pakistan</option>
                       </select>
@@ -720,6 +772,7 @@ const CheckoutPage = () => {
                           type="checkbox"
                           {...register("saveAddress")}
                           className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                          disabled={!paymentGatewayActive}
                         />
                         <span className="ml-2 text-sm text-gray-600">
                           Save this address for future orders
@@ -741,6 +794,7 @@ const CheckoutPage = () => {
                       type="checkbox"
                       {...register("billingSameAsShipping")}
                       className="rounded border-gray-300 text-red-600 focus:ring-red-500"
+                      disabled={!paymentGatewayActive}
                     />
                     <span className="ml-2 text-sm text-gray-600">
                       Same as shipping address
