@@ -3,7 +3,6 @@ const router = express.Router();
 const discountController = require('../controllers/discountController');
 const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
 const { createDiscountValidator, discountIdValidator, getDiscountsValidator, applyDiscountValidator } = require('../validation/discountValidators');
-const { apiLimiter } = require('../middleware/rateLimiter');
 
 // Admin routes (under /api/admin/discounts)
 router.post(
@@ -48,6 +47,6 @@ router.delete(
 );
 
 // Public route (under /api/discounts)
-router.post('/apply', apiLimiter, applyDiscountValidator, discountController.applyDiscount);
+router.post('/apply',  applyDiscountValidator, discountController.applyDiscount);
 
 module.exports = router;

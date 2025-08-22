@@ -5,26 +5,25 @@ const { authenticateJWT, authorizeRoles } = require('../middleware/auth');
 const { loginValidator, changePasswordValidator } = require('../validation/authValidators');
 const { authLimiter } = require('../middleware/rateLimiter');
 
-// Admin authentication routes
 router.post('/login',
-  authLimiter,
+  authLimiter, // KEEP this - prevents brute force
   loginValidator,
   adminAuthController.login
 );
 
+// These routes are protected by JWT/auth - don't need rate limiting
 router.post('/logout',
-  authenticateJWT, // Use JWT for stateless logout
+  authenticateJWT,
   authorizeRoles('admin'),
   adminAuthController.logout
 );
 
 router.get('/session',
-  // Keep session-based auth for CMS compatibility
   (req, res, next) => {
     if (req.isAuthenticated()) {
       return next();
     }
-    return authenticateJWT(req, res, next); // Fallback to JWT
+    return authenticateJWT(req, res, next);
   },
   authorizeRoles('admin'),
   adminAuthController.getSessionUser
@@ -44,10 +43,9 @@ router.get('/verify-token',
 );
 
 router.post('/refresh-token',
-  adminAuthController.refreshToken // No JWT/auth check here, as it validates the refresh token
+  adminAuthController.refreshToken
 );
 
-// Protected admin routes
 router.get('/dashboard',
   authenticateJWT,
   authorizeRoles('admin'),
@@ -55,7 +53,7 @@ router.get('/dashboard',
     const ApiResponse = require('../utils/apiResponse');
     ApiResponse.success(res, 200, 'Admin dashboard accessed', {
       user: req.user,
-      dashboardData: {} // Add actual dashboard data here
+      dashboardData: {}
     });
   }
 );
