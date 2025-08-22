@@ -357,7 +357,6 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
       TitaniumGrey : "#545b62",
       CoralGold : "#D27D56",
       NeoTitanium : "#878681",
-      WildernessGreen : "#575950",
       Lightblue : "#ADD8E6",
       SliverWhite : "#DADBDD",
       seagreen : "#2E8B57",
