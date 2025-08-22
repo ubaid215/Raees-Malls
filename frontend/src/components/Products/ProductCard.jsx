@@ -317,60 +317,147 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   };
 
   const getColorStyle = (color) => {
-    // Handle different color formats
-    if (color.hex) return { backgroundColor: color.hex };
-    if (color.code) return { backgroundColor: color.code };
-    if (color.value) return { backgroundColor: color.value };
+  // Handle different color formats
+  if (color.hex) return { backgroundColor: color.hex };
+  if (color.code) return { backgroundColor: color.code };
+  if (color.value) return { backgroundColor: color.value };
 
-    // Fallback to common color names
-    const colorMap = {
-      black: "#000000",
-      white: "#ffffff",
-      red: "#ef4444",
-      blue: "#3b82f6",
-      green: "#10b981",
-      yellow: "#f59e0b",
-      purple: "#8b5cf6",
-      pink: "#ec4899",
-      gray: "#6b7280",
-      grey: "#6b7280",
-      brown: "#92400e",
-      orange: "#f97316",
-      navy: "#1e3a8a",
-      silver: "#94a3b8",
-      gold: "#fbbf24",
-      GlitterWhite: "#E6E8FA",
-      StartrailBlack:"#1B212A",
-      MagicSkinGreen :"#348d2c",
-      MarbleBlack : "#08140c",
-      WildernessGreen : "#314528",
-      MidnightBlack : "#0A0A0A",
-      SageGreen : "#B2AC88",
-      StarryBlue : "#4F5E7E",
-      DreamyPurple : "#b66a9f",
-      JadeGreen : "#00BB77",
-      TitaniumGold : "#EEE600",
-      SandyGold : "#A38B46",
-      OceanBlue : "#005EB8",
-      LakeGreen : "#547D78",
-      SleekGreen : "#4A9E24",
-      TitaniumGrey : "#545b62",
-      CoralGold : "#D27D56",
-      NeoTitanium : "#878681",
-      Lightblue : "#ADD8E6",
-      SliverWhite : "#DADBDD",
-      seagreen : "#2E8B57",
-      
-    };
-
-    const colorName = color.name?.toLowerCase();
-    if (colorName && colorMap[colorName]) {
-      return { backgroundColor: colorMap[colorName] };
-    }
-
-    // Last resort - try to use the name as a CSS color
-    return { backgroundColor: colorName || "#cccccc" };
+  // Expanded color mapping with more comprehensive coverage
+  const colorMap = {
+    black: "#000000",
+    white: "#ffffff",
+    red: "#ef4444",
+    blue: "#3b82f6",
+    green: "#10b981",
+    yellow: "#f59e0b",
+    purple: "#8b5cf6",
+    pink: "#ec4899",
+    gray: "#6b7280",
+    grey: "#6b7280",
+    brown: "#92400e",
+    orange: "#f97316",
+    navy: "#1e3a8a",
+    silver: "#94a3b8",
+    gold: "#fbbf24",
+    glitterwhite: "#E6E8FA", // Glitter White
+    startrailblack: "#1B212A", // Startrail Black
+    magicskingreen: "#348d2c", // Magic Skin Green
+    marbleblack: "#08140c", // Marble Black
+    wildernessgreen: "#314528", // Wilderness Green
+    midnightblack: "#0A0A0A", // Midnight Black
+    sagegreen: "#B2AC88", // Sage Green
+    starryblue: "#4F5E7E", // Starry Blue
+    dreamypurple: "#b66a9f", // Dreamy Purple
+    jadegreen: "#00BB77", // Jade Green
+    titaniumgold: "#EEE600", // Titanium Gold
+    sandygold: "#A38B46", // Sandy Gold
+    oceanblue: "#005EB8", // Ocean Blue
+    lakegreen: "#547D78", // Lake Green
+    sleekgreen: "#4A9E24", // Sleek Green
+    titaniumgrey: "#545b62", // Titanium Grey
+    coralgold: "#D27D56", // Coral Gold
+    neotitanium: "#878681", // Neo Titanium
+    lightblue: "#ADD8E6", // Light blue
+    sliverwhite: "#DADBDD", // Sliver White
+    seagreen: "#2E8B57", // Sea green
+    
+    // Additional common colors that might be missing
+    rose: "#f43f5e",
+    emerald: "#059669",
+    cyan: "#06b6d4",
+    indigo: "#6366f1",
+    violet: "#8b5cf6",
+    fuchsia: "#d946ef",
+    lime: "#65a30d",
+    amber: "#f59e0b",
+    teal: "#0d9488",
+    sky: "#0ea5e9",
+    slate: "#64748b",
+    zinc: "#71717a",
+    neutral: "#737373",
+    stone: "#78716c",
+    
+    // Metal finishes
+    copper: "#b87333",
+    bronze: "#cd7f32",
+    platinum: "#e5e4e2",
+    
+    // Pastels
+    lightpink: "#ffb6c1",
+    lightgreen: "#90ee90",
+    lightyellow: "#ffffe0",
+    lightcyan: "#e0ffff",
+    lavender: "#e6e6fa",
+    peach: "#ffdab9",
+    mint: "#98fb98",
+    
+    // Dark variants
+    darkred: "#8b0000",
+    darkblue: "#00008b",
+    darkgreen: "#006400",
+    darkpurple: "#483d8b",
+    charcoal: "#36454f",
+    
+    // Transparent/Clear (fallback to light gray)
+    clear: "#f3f4f6",
+    transparent: "#f3f4f6",
   };
+
+  // Normalize the color name - remove spaces, convert to lowercase
+  const normalizedColorName = color.name
+    ?.toLowerCase()
+    ?.replace(/\s+/g, '')
+    ?.replace(/[^a-z0-9]/g, ''); // Remove special characters
+
+  console.log('Color processing:', { 
+    original: color.name, 
+    normalized: normalizedColorName,
+    found: colorMap[normalizedColorName] || 'NOT FOUND' 
+  });
+
+  // Check if we have a mapping for this color
+  if (normalizedColorName && colorMap[normalizedColorName]) {
+    return { backgroundColor: colorMap[normalizedColorName] };
+  }
+
+  // Try CSS named colors as fallback
+  try {
+    const testElement = document.createElement('div');
+    testElement.style.backgroundColor = color.name;
+    if (testElement.style.backgroundColor) {
+      return { backgroundColor: color.name };
+    }
+  } catch (e) {
+    // CSS color test failed
+  }
+
+  // Enhanced hex color detection
+  const hexPattern = /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/;
+  if (color.name && hexPattern.test(color.name)) {
+    return { backgroundColor: color.name };
+  }
+
+  // RGB/RGBA pattern detection
+  const rgbPattern = /^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(,\s*[\d.]+)?\s*\)$/;
+  if (color.name && rgbPattern.test(color.name)) {
+    return { backgroundColor: color.name };
+  }
+
+  // HSL pattern detection
+  const hslPattern = /^hsla?\(\s*\d+\s*,\s*\d+%\s*,\s*\d+%\s*(,\s*[\d.]+)?\s*\)$/;
+  if (color.name && hslPattern.test(color.name)) {
+    return { backgroundColor: color.name };
+  }
+
+  // Final fallback - use a gradient or pattern to indicate unknown color
+  console.warn('Unknown color, using fallback:', color);
+  return { 
+    backgroundColor: '#e5e7eb', // Light gray fallback
+    background: 'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
+    backgroundSize: '8px 8px',
+    backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px'
+  };
+};
 
   const getPriceInfo = () => {
     const currentPrice = getCurrentPrice();
