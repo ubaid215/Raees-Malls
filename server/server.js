@@ -14,10 +14,18 @@ const { authLimiter} = require('./middleware/rateLimiter');
 const http = require('http');
 const { Server } = require('socket.io');
 
+
+
+// Import models for sitemap
+const Product = require('./models/Product'); 
+const Category = require('./models/Category'); 
+
+
 // Initialize Express app
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
+
 
 
 // Environment Configuration
@@ -73,11 +81,14 @@ const corsOptions = {
 };
 
 
+
 // Comment it when update on live site
 // app.use(cors(corsOptions));
 
+
 app.use(express.json({ limit: '200mb' }));
-app.use(express.urlencoded({ extended: true, limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb'}));
+
 
 
 app.use(cookieParser());
@@ -123,6 +134,7 @@ require('./config/passport')(passport);
 
 
 
+
 // Socket.IO setup
 const io = new Server(server, {
   cors: {
@@ -155,6 +167,76 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
   });
 });
+
+
+
+// ========================================
+// XML SITEMAP ROUTE - ADD THIS SECTION
+// ========================================
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    // Fetch all products and categories from MongoDB
+    const products = await Product.find({}).select('_id updatedAt createdAt');
+    const categories = await Category.find({}).select('slug updatedAt');
+    
+    let sitemap = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`;
+
+    // Static pages with priorities
+    const staticPages = [
+      { url: 'https://www.raeesmalls.com/', priority: '1.0', changefreq: 'daily' },
+      { url: 'https://www.raeesmalls.com/products', priority: '0.9', changefreq: 'daily' },
+      { url: 'https://www.raeesmalls.com/all-categories', priority: '0.8', changefreq: 'weekly' },
+      { url: 'https://www.raeesmalls.com/about', priority: '0.5', changefreq: 'monthly' },
+      { url: 'https://www.raeesmalls.com/contact', priority: '0.5', changefreq: 'monthly' },
+      { url: 'https://www.raeesmalls.com/return-policy', priority: '0.3', changefreq: 'yearly' },
+      { url: 'https://www.raeesmalls.com/privacy-policy', priority: '0.3', changefreq: 'yearly' }
+    ];
+
+    staticPages.forEach(page => {
+      sitemap += `
+  <url>
+    <loc>${page.url}</loc>
+    <changefreq>${page.changefreq}</changefreq>
+    <priority>${page.priority}</priority>
+  </url>`;
+    });
+
+    // Add individual product pages using _id
+    products.forEach(product => {
+      const lastmod = product.updatedAt || product.createdAt;
+      sitemap += `
+  <url>
+    <loc>https://www.raeesmalls.com/product/${product._id}</loc>
+    <lastmod>${lastmod.toISOString()}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`;
+    });
+
+    // Add category filter pages using slug
+    categories.forEach(category => {
+      sitemap += `
+  <url>
+    <loc>https://www.raeesmalls.com/products?category=${category.slug}</loc>
+    <lastmod>${category.updatedAt.toISOString()}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>`;
+    });
+
+    sitemap += `
+</urlset>`;
+    
+    res.set('Content-Type', 'text/xml');
+    res.send(sitemap);
+    
+  } catch (error) {
+    console.error('Sitemap generation error:', error);
+    res.status(500).send('Error generating sitemap');
+  }
+});
+
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -261,5 +343,6 @@ server.listen(PORT, () => {
   ==========================================
   `);
 });
+
 
 module.exports = app;

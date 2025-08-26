@@ -1,0 +1,32 @@
+User-agent: *
+Allow: /
+
+# Block admin and sensitive areas
+Disallow: /api/
+Disallow: /admin/
+Disallow: /login/
+Disallow: /register/
+Disallow: /cart/
+Disallow: /checkout/
+Disallow: /profile/
+Disallow: /wishlist/
+Disallow: /order-confirmation/
+
+# Block search results and filters to avoid duplicate content
+Disallow: /products?*
+Disallow: /search?*
+
+# Allow important pages
+Allow: /products
+Allow: /product/
+Allow: /all-categories
+Allow: /about
+Allow: /contact
+Allow: /return-policy
+Allow: /privacy-policy
+
+# Sitemap location
+Sitemap: https://www.raeesmalls.com/sitemap.xml
+
+# Crawl delay (optional - be nice to small servers)
+Crawl-delay: 1
