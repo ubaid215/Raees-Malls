@@ -1,4 +1,4 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import LoadingSpinner from '../components/core/LoadingSpinner';
@@ -40,6 +40,39 @@ const WarrantyTerms = lazy(() => import('../pages/WarrantyTerms'));
 
 const AppRouter = () => {
   const location = useLocation();
+
+  // GTM Page View Tracking for SPA Route Changes
+  useEffect(() => {
+    // Initialize dataLayer if it doesn't exist
+    window.dataLayer = window.dataLayer || [];
+    
+    // Push page view event to dataLayer
+    window.dataLayer.push({
+      event: 'page_view',
+      page_location: window.location.href,
+      page_path: location.pathname,
+      page_title: document.title,
+      page_search: location.search,
+      page_hash: location.hash
+    });
+
+    // Additional tracking for GA4 (if gtag is available)
+    if (window.gtag) {
+      window.gtag('config', 'GA_MEASUREMENT_ID', {
+        page_path: location.pathname,
+        page_title: document.title,
+        page_location: window.location.href
+      });
+    }
+
+    // Console log for debugging (remove in production)
+    console.log('GTM Page View Tracked:', {
+      path: location.pathname,
+      title: document.title,
+      url: window.location.href
+    });
+
+  }, [location]);
 
   return (
     <Suspense fallback={<LoadingSpinner fullScreen />}>
