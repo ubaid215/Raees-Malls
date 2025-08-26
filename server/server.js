@@ -156,10 +156,16 @@ io.on('connection', (socket) => {
 });
 
 // ========================================
-// XML SITEMAP ROUTE - ADD THIS SECTION
+// XML SITEMAP ROUTE - FIXED VERSION
 // ========================================
 app.get('/sitemap.xml', async (req, res) => {
   try {
+    // Set proper headers FIRST
+    res.set({
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600' // Cache for 1 hour
+    });
+
     // Fetch all products and categories from MongoDB
     const products = await Product.find({}).select('_id updatedAt createdAt');
     const categories = await Category.find({}).select('slug updatedAt');
@@ -184,6 +190,7 @@ app.get('/sitemap.xml', async (req, res) => {
     <loc>${page.url}</loc>
     <changefreq>${page.changefreq}</changefreq>
     <priority>${page.priority}</priority>
+    <lastmod>${new Date().toISOString()}</lastmod>
   </url>`;
     });
 
@@ -201,10 +208,11 @@ app.get('/sitemap.xml', async (req, res) => {
 
     // Add category filter pages using slug
     categories.forEach(category => {
+      const lastmod = category.updatedAt || new Date();
       sitemap += `
   <url>
-    <loc>https://www.raeesmalls.com/products?category=${category.slug}</loc>
-    <lastmod>${category.updatedAt.toISOString()}</lastmod>
+    <loc>https://www.raeesmalls.com/products?category=${encodeURIComponent(category.slug)}</loc>
+    <lastmod>${lastmod.toISOString()}</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>`;
@@ -213,12 +221,12 @@ app.get('/sitemap.xml', async (req, res) => {
     sitemap += `
 </urlset>`;
     
-    res.set('Content-Type', 'text/xml');
-    res.send(sitemap);
+    // Send the XML response
+    res.status(200).send(sitemap);
     
   } catch (error) {
     console.error('Sitemap generation error:', error);
-    res.status(500).send('Error generating sitemap');
+    res.status(500).set('Content-Type', 'text/plain').send('Error generating sitemap');
   }
 });
 
