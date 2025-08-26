@@ -14,14 +14,19 @@ const { authLimiter} = require('./middleware/rateLimiter');
 const http = require('http');
 const { Server } = require('socket.io');
 
+
+
 // Import models for sitemap
 const Product = require('./models/Product'); 
 const Category = require('./models/Category'); 
+
 
 // Initialize Express app
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
+
+
 
 // Environment Configuration
 const isProduction = process.env.NODE_ENV === 'production';
@@ -75,11 +80,16 @@ const corsOptions = {
   exposedHeaders: ['Set-Cookie']
 };
 
+
+
 // Comment it when update on live site
-app.use(cors(corsOptions));
+// app.use(cors(corsOptions));
+
 
 app.use(express.json({ limit: '200mb' }));
-app.use(express.urlencoded({ extended: true, limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb'}));
+
+
 
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -122,6 +132,9 @@ app.use(passport.initialize());
 app.use(passport.session());
 require('./config/passport')(passport);
 
+
+
+
 // Socket.IO setup
 const io = new Server(server, {
   cors: {
@@ -154,6 +167,8 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
   });
 });
+
+
 
 // ========================================
 // XML SITEMAP ROUTE - FIXED VERSION
@@ -229,6 +244,7 @@ app.get('/sitemap.xml', async (req, res) => {
     res.status(500).set('Content-Type', 'text/plain').send('Error generating sitemap');
   }
 });
+
 
 // Routes
 const authRoutes = require('./routes/authRoutes');
@@ -335,5 +351,6 @@ server.listen(PORT, () => {
   ==========================================
   `);
 });
+
 
 module.exports = app;
