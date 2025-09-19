@@ -373,7 +373,7 @@ Sent via Raees Malls Contact Form`;
                     Address
                   </h3>
                   <p className="text-gray-600">
-                    <span className="font-semibold italic text-red-600">
+                    {/* <span className="font-semibold italic text-red-600">
                       Head Office
                     </span>{" "}
                     <br />
@@ -382,13 +382,13 @@ Sent via Raees Malls Contact Form`;
                     </span>
                     <br />
                     Opposite Ayesha Masjid Motor Market Jhang Road Faisalabad{" "}
-                    <hr /> <br />
-                    <span className="font-semibold italic text-red-600">
+                    <hr /> <br /> */}
+                    {/* <span className="font-semibold italic text-red-600">
                       Sub Office
-                    </span>
-                    <br />
+                    </span> */}
+                    {/* <br /> */}
                     <span className="text-xl font-mono font-bold">
-                      Raees Mobiles
+                      Raees Malls
                     </span>
                     <br />
                     Masjid Bazar Opposite Jamia Masjid Jaranwala <hr />
