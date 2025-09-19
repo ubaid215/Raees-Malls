@@ -11,7 +11,7 @@ const getStorage = (folder) => new CloudinaryStorage({
     resource_type: file.fieldname.includes('Videos') ? 'video' : 'image',
     allowed_formats: file.fieldname.includes('Videos')
       ? ['mp4', 'webm', 'mov'] 
-      : ['jpg', 'jpeg', 'png', 'webp'],
+      : ['jpg', 'jpeg', 'png', 'webp', 'avif'],
     public_id: `${file.fieldname}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${file.originalname.split('.')[0]}`
   })
 });
@@ -19,14 +19,14 @@ const getStorage = (folder) => new CloudinaryStorage({
 // File filter for images
 const fileFilter = (req, file, cb) => {
   console.log('File filter - Fieldname:', file.fieldname, 'MIME:', file.mimetype);
-  const filetypes = /jpeg|jpg|png|webp/;
+  const filetypes = /jpeg|jpg|png|webp|avif/;
   const mimetype = filetypes.test(file.mimetype.toLowerCase());
   const extname = filetypes.test(file.originalname.split('.').pop().toLowerCase());
 
   if (mimetype && extname) {
     return cb(null, true);
   }
-  cb(new ApiError(400, `Only JPEG, JPG, PNG, and WebP images are allowed (Field: ${file.fieldname}, MIME: ${file.mimetype})`));
+  cb(new ApiError(400, `Only JPEG, JPG, PNG, WebP and AVIF images are allowed (Field: ${file.fieldname}, MIME: ${file.mimetype})`));
 };
 
 // File filter for videos
