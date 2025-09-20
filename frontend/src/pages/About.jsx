@@ -534,7 +534,7 @@ const About = () => {
                 scrolling="no"
                 marginHeight="0"
                 marginWidth="0"
-                src="https://maps.google.com/maps?q=Masjid+Bazar+Opposite+Jamia+Masjid+Jaranwala&output=embed"
+                src="https://www.google.com/maps/embed?pb=!1m17!1m12!1m3!1d3407.811925670957!2d73.4178714756042!3d31.33656677429863!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m2!1m1!2zMzHCsDIwJzExLjYiTiA3M8KwMjUnMTMuNiJF!5e0!3m2!1sen!2s!4v1758381662689!5m2!1sen!2s"
               ></iframe>
             </motion.div>
           </motion.div>

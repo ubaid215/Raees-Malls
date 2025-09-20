@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
@@ -11,6 +11,7 @@ import {
   FaChevronUp,
   FaFire,
   FaPercentage,
+  FaSearchPlus,
 } from "react-icons/fa";
 import { getProductById } from "../../services/productService";
 import { useCart } from "../../context/CartContext";
@@ -24,6 +25,92 @@ const SafeHTMLRenderer = ({ html, className = "" }) => {
       className={`prose prose-sm max-w-none ${className}`}
       dangerouslySetInnerHTML={{ __html: html }}
     />
+  );
+};
+
+// Image Magnifier Component
+const ImageMagnifier = ({
+  src,
+  alt,
+  className = "",
+  zoomLevel = 2.5,
+  magnifierSize = 180,
+  zoomPosition = "right",
+}) => {
+  const [showMagnifier, setShowMagnifier] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  const imgRef = useRef(null);
+
+  const handleMouseEnter = () => {
+    setShowMagnifier(true);
+  };
+
+  const handleMouseLeave = () => {
+    setShowMagnifier(false);
+  };
+
+  const handleMouseMove = (e) => {
+    const elem = imgRef.current;
+    if (!elem) return;
+
+    const { top, left, width, height } = elem.getBoundingClientRect();
+    
+    // Calculate cursor position relative to the image
+    const x = ((e.clientX - left) / width) * 100;
+    const y = ((e.clientY - top) / height) * 100;
+    
+    // Ensure the position stays within the image bounds
+    const boundedX = Math.max(0, Math.min(100, x));
+    const boundedY = Math.max(0, Math.min(100, y));
+    
+    setCursorPosition({ x: boundedX, y: boundedY });
+  };
+
+  return (
+    <div className="relative">
+      <img
+        ref={imgRef}
+        src={src}
+        alt={alt}
+        className={`${className} ${showMagnifier ? "cursor-zoom-in" : ""}`}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onMouseMove={handleMouseMove}
+        onError={(e) => {
+          e.target.src = "/images/placeholder-product.png";
+          e.target.onerror = null;
+        }}
+      />
+      
+      {showMagnifier && (
+        <div
+          className="absolute hidden md:block border-2 border-white rounded-full pointer-events-none overflow-hidden shadow-lg"
+          style={{
+            left: `${cursorPosition.x}%`,
+            top: `${cursorPosition.y}%`,
+            width: `${magnifierSize}px`,
+            height: `${magnifierSize}px`,
+            transform: "translate(-50%, -50%)",
+            zIndex: 10,
+          }}
+        >
+          <div
+            className="w-full h-full"
+            style={{
+              backgroundImage: `url(${src})`,
+              backgroundSize: `${zoomLevel * 100}%`,
+              backgroundPosition: `${cursorPosition.x}% ${cursorPosition.y}%`,
+              backgroundRepeat: 'no-repeat',
+            }}
+          />
+        </div>
+      )}
+      
+      {/* Zoom indicator */}
+      <div className={`absolute bottom-3 right-3 bg-black/50 text-white p-2 rounded-full pointer-events-none transition-opacity duration-300 ${showMagnifier ? 'opacity-100' : 'opacity-0'}`}>
+        <FaSearchPlus size={14} />
+      </div>
+    </div>
   );
 };
 
@@ -52,24 +139,6 @@ const ProductDetails = () => {
 
   // Helper to extract clean variant data (handles Mongoose docs)
   const getCleanVariant = (variant) => variant._doc || variant;
-
-  // Debug logger
-  // useEffect(() => {
-  //   if (product) {
-  //     console.log("CURRENT PRODUCT DATA:", {
-  //       product,
-  //       selectedColor,
-  //       selectedStorage,
-  //       selectedSize,
-  //       availableColors: allColors,
-  //       availableStorages,
-  //       availableSizes,
-  //       priceInfo,
-  //       baseProductStock: product.stock,
-  //       hasVariants: !!product.variants?.length,
-  //     });
-  //   }
-  // }, [product, selectedColor, selectedStorage, selectedSize]);
 
   // Countdown timer
   useEffect(() => {
@@ -126,11 +195,6 @@ const ProductDetails = () => {
   useEffect(() => {
     if (!product || !product.variants?.length) return;
 
-    // console.log("Running auto-selection logic...", {
-    //   hasBaseStock,
-    //   currentSelections: { selectedColor, selectedStorage, selectedSize },
-    // });
-
     // If base product has no stock or we need to auto-select variants
     if (!hasBaseStock || !selectedColor) {
       const variants = product.variants.map(getCleanVariant);
@@ -175,17 +239,14 @@ const ProductDetails = () => {
 
       // Set selections
       if (firstAvailableColor && !selectedColor) {
-        // console.log("Auto-selecting color:", firstAvailableColor);
         setSelectedColor(firstAvailableColor);
       }
 
       if (firstAvailableStorage && !selectedStorage) {
-        // console.log("Auto-selecting storage:", firstAvailableStorage);
         setSelectedStorage(firstAvailableStorage);
       }
 
       if (firstAvailableSize && !selectedSize) {
-        // console.log("Auto-selecting size:", firstAvailableSize);
         setSelectedSize(firstAvailableSize);
       }
     }
@@ -322,7 +383,6 @@ const ProductDetails = () => {
 
   // Handle color change
   const handleColorChange = (color) => {
-    // console.log("Color change triggered:", color);
     setSelectedColor(color);
     setSelectedStorage(null);
     setSelectedSize(null);
@@ -338,7 +398,6 @@ const ProductDetails = () => {
       (v) => v.storageOptions?.filter((o) => o.stock > 0) || []
     )[0]?.capacity;
     if (firstStorage) {
-      // console.log("Auto-selecting storage for new color:", firstStorage);
       setSelectedStorage(firstStorage);
     }
 
@@ -347,7 +406,6 @@ const ProductDetails = () => {
       (v) => v.sizeOptions?.filter((o) => o.stock > 0) || []
     )[0]?.size;
     if (firstSize) {
-      // console.log("Auto-selecting size for new color:", firstSize);
       setSelectedSize(firstSize);
     }
   };
@@ -507,15 +565,61 @@ const ProductDetails = () => {
     navigate("/checkout");
   };
 
-  const handleShare = () => {
-    if (navigator.share) {
-      navigator.share({
-        title: product.title,
-        url: window.location.href,
-      });
-    } else {
-      navigator.clipboard.writeText(window.location.href);
-      toast.success("Product link copied to clipboard!");
+  const handleShare = async () => {
+    try {
+      // Check if the Web Share API is available
+      if (navigator.share && navigator.canShare) {
+        const shareData = {
+          title: product.title,
+          text: `Check out this amazing product: ${product.title}`,
+          url: window.location.href,
+        };
+
+        // Check if the data can be shared
+        if (navigator.canShare(shareData)) {
+          await navigator.share(shareData);
+          console.log("Product shared successfully");
+        } else {
+          // Fallback to clipboard
+          await navigator.clipboard.writeText(window.location.href);
+          toast.success("Product link copied to clipboard!");
+        }
+      } else if (navigator.clipboard) {
+        // Fallback to clipboard API
+        await navigator.clipboard.writeText(window.location.href);
+        toast.success("Product link copied to clipboard!");
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea");
+        textArea.value = window.location.href;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+          document.execCommand("copy");
+          toast.success("Product link copied to clipboard!");
+        } catch (err) {
+          console.error("Failed to copy: ", err);
+          toast.error("Failed to copy link. Please copy manually.");
+        }
+
+        document.body.removeChild(textArea);
+      }
+    } catch (error) {
+      console.error("Error sharing:", error);
+
+      // Final fallback - try clipboard again
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        toast.success("Product link copied to clipboard!");
+      } catch (clipboardError) {
+        console.error("Clipboard fallback failed:", clipboardError);
+        toast.error("Sharing failed. Please copy the URL manually.");
+      }
     }
   };
 
@@ -567,7 +671,7 @@ const ProductDetails = () => {
         <div className="lg:w-1/2">
           <div className="flex flex-col gap-4">
             {/* Main image/video display */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-6 flex items-center justify-center h-80 sm:h-96 relative overflow-hidden shadow-lg border border-gray-200">
+            <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl p-6 flex items-center justify-center h-80 sm:h-96 relative overflow-hidden shadow-lg border border-gray-200 group">
               {/* Discount Badge */}
               {priceInfo.hasDiscount && (
                 <div className="absolute top-4 left-4 z-10">
@@ -595,14 +699,15 @@ const ProductDetails = () => {
                   onError={handleMediaError}
                 />
               ) : (
-                <img
+                <ImageMagnifier
                   src={
                     allMedia[activeImageIndex]?.url ||
                     "/images/placeholder-product.png"
                   }
                   alt={allMedia[activeImageIndex]?.alt || product.title}
-                  className="w-full h-full object-contain rounded-xl transition-all duration-500 ease-in-out hover:scale-105"
-                  onError={handleMediaError}
+                  className="w-full h-full object-contain rounded-xl transition-all duration-500 ease-in-out"
+                  zoomLevel={2.5}
+                  magnifierSize={180}
                 />
               )}
             </div>
@@ -671,10 +776,12 @@ const ProductDetails = () => {
               </div>
               <button
                 onClick={handleShare}
-                className="p-3 rounded-full bg-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-105 border border-gray-200"
+                className="p-3 rounded-full cursor-pointer bg-white shadow-md hover:shadow-lg transition-all duration-300 hover:scale-105 border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
                 title="Share product"
+                type="button"
+                aria-label="Share this product"
               >
-                <FaShare className="text-gray-600" />
+                <FaShare className="text-gray-600 w-4 h-4" />
               </button>
             </div>
           </div>

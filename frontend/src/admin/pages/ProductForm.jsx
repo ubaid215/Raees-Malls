@@ -62,6 +62,10 @@ const ProductForm = ({
   const [newImageFiles, setNewImageFiles] = useState([]);
   const [existingVideos, setExistingVideos] = useState(product?.videos || []);
   const [newVideoFiles, setNewVideoFiles] = useState([]);
+   const [showBulkSpecs, setShowBulkSpecs] = useState(false);
+  const [bulkSpecsText, setBulkSpecsText] = useState("");
+  const [showBulkFeatures, setShowBulkFeatures] = useState(false);
+  const [bulkFeaturesText, setBulkFeaturesText] = useState("");
   const [specifications, setSpecifications] = useState(
     product?.specifications || []
   );
@@ -266,6 +270,96 @@ const ProductForm = ({
     };
     loadCategories();
   }, []);
+
+  const handleBulkSpecsSubmit = () => {
+    if (!bulkSpecsText.trim()) {
+      toastError("Please enter specifications");
+      return;
+    }
+
+    const lines = bulkSpecsText.split('\n').filter(line => line.trim());
+    const newSpecs = [];
+
+    for (const line of lines) {
+      // Try different parsing patterns
+      let key, value;
+      
+      // Pattern 1: Key: Value
+      if (line.includes(':')) {
+        const parts = line.split(':');
+        key = parts[0].trim();
+        value = parts.slice(1).join(':').trim();
+      } 
+      // Pattern 2: Key - Value
+      else if (line.includes('-')) {
+        const parts = line.split('-');
+        key = parts[0].trim();
+        value = parts.slice(1).join('-').trim();
+      }
+      // Pattern 3: Key = Value
+      else if (line.includes('=')) {
+        const parts = line.split('=');
+        key = parts[0].trim();
+        value = parts.slice(1).join('=').trim();
+      }
+      // Default: Use the whole line as value with a generic key
+      else {
+        key = "Feature";
+        value = line.trim();
+      }
+
+      if (key && value) {
+        newSpecs.push({ key, value });
+      }
+    }
+
+    if (newSpecs.length === 0) {
+      toastError("No valid specifications found. Use format: 'Key: Value'");
+      return;
+    }
+
+    setSpecifications([...specifications, ...newSpecs]);
+    setBulkSpecsText("");
+    setShowBulkSpecs(false);
+    toastSuccess(`Added ${newSpecs.length} specifications`);
+    debouncedSave();
+  };
+
+  const handleBulkFeaturesSubmit = () => {
+  if (!bulkFeaturesText.trim()) {
+    toastError("Please enter features");
+    return;
+  }
+
+  const lines = bulkFeaturesText.split("\n").filter((line) => line.trim());
+  const newFeatures = lines.map((line) => line.trim()).filter((line) => line);
+
+  if (newFeatures.length === 0) {
+    toastError("No valid features found");
+    return;
+  }
+
+  if (features.length + newFeatures.length > 30) {
+    toastError(
+      `Maximum 10 features allowed. You have ${features.length} already.`
+    );
+    return;
+  }
+
+  // Update the features state
+  setFeatures((prevFeatures) => [...prevFeatures, ...newFeatures]);
+  
+  // Clear the bulk text and hide the bulk input
+  setBulkFeaturesText("");
+  setShowBulkFeatures(false);
+  
+  // Show success message
+  toastSuccess(`Added ${newFeatures.length} features`);
+  
+  // Trigger auto-save
+  debouncedSave();
+};
+
 
   const handleImageChange = async (e) => {
     const files = Array.from(e.target.files);
@@ -1260,15 +1354,67 @@ const ProductForm = ({
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Specifications</h2>
-          <Button
-            type="button"
-            onClick={handleAddSpecification}
-            variant="outline"
-            size="sm"
-          >
-            Add Specification
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              onClick={() => setShowBulkSpecs(!showBulkSpecs)}
+              variant="outline"
+              size="sm"
+            >
+              {showBulkSpecs ? "Hide Bulk Input" : "Bulk Add"}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleAddSpecification}
+              variant="outline"
+              size="sm"
+            >
+              Add Specification
+            </Button>
+          </div>
         </div>
+
+        {showBulkSpecs && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-md">
+            <h3 className="text-md font-medium mb-2">Bulk Add Specifications</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Enter one specification per line. Use formats like: <br />
+              "Key: Value", "Key - Value", or "Key = Value"
+            </p>
+            <Textarea
+              value={bulkSpecsText}
+              onChange={(e) => setBulkSpecsText(e.target.value)}
+              rows={5}
+              placeholder="Material: Cotton
+Size: Large
+Weight: 500g
+Color: Blue"
+              className="w-full mb-3"
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                onClick={handleBulkSpecsSubmit}
+                variant="primary"
+                size="sm"
+              >
+                Add Specifications
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setShowBulkSpecs(false);
+                  setBulkSpecsText("");
+                }}
+                variant="outline"
+                size="sm"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         {specifications.length === 0 ? (
           <p className="text-gray-500 text-sm">No specifications added</p>
         ) : (
@@ -1309,19 +1455,71 @@ const ProductForm = ({
         )}
       </div>
 
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+
+       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">Features</h2>
-          <Button
-            type="button"
-            onClick={handleAddFeature}
-            variant="outline"
-            size="sm"
-            disabled={features.length >= 10}
-          >
-            Add Feature
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              onClick={() => setShowBulkFeatures(!showBulkFeatures)}
+              variant="outline"
+              size="sm"
+            >
+              {showBulkFeatures ? "Hide Bulk Input" : "Bulk Add"}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleAddFeature}
+              variant="outline"
+              size="sm"
+              disabled={features.length >= 10}
+            >
+              Add Feature
+            </Button>
+          </div>
         </div>
+
+        {showBulkFeatures && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-md">
+            <h3 className="text-md font-medium mb-2">Bulk Add Features</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Enter one feature per line. Each feature should be 1-200 characters.
+            </p>
+            <Textarea
+              value={bulkFeaturesText}
+              onChange={(e) => setBulkFeaturesText(e.target.value)}
+              rows={5}
+              placeholder="Water resistant
+Long battery life
+Easy to use interface
+Includes charging cable"
+              className="w-full mb-3"
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                onClick={handleBulkFeaturesSubmit}
+                variant="primary"
+                size="sm"
+              >
+                Add Features
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setShowBulkFeatures(false);
+                  setBulkFeaturesText("");
+                }}
+                variant="outline"
+                size="sm"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         {features.length === 0 ? (
           <p className="text-gray-500 text-sm">No features added</p>
         ) : (
