@@ -83,7 +83,7 @@ const corsOptions = {
 
 
 // Comment it when update on live site
-app.use(cors(corsOptions));
+// app.use(cors(corsOptions));
 
 
 app.use(express.json({ limit: '200mb' }));
@@ -338,7 +338,7 @@ app.use((err, req, res, next) => {
     error: process.env.NODE_ENV === 'development' ? err.stack : undefined,
   });
 });
-
+ 
 // Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
