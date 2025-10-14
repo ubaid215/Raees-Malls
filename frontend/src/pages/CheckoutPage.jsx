@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { FiCheckCircle, FiClock, FiLock } from "react-icons/fi";
+import { FiCheckCircle, FiClock, FiLock, FiCreditCard } from "react-icons/fi";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
 import { useLocation } from "react-router-dom";
 import Button from "../components/core/Button";
 import Input from "../components/core/Input";
-import PaymentAnnouncementBanner from "../components/core/PaymentAnnouncementBanner";
 import { useCart } from "../context/CartContext";
 import { useOrder } from "../context/OrderContext";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
+import { Banknote, Wallet } from "lucide-react";
 
 const CheckoutPage = () => {
   const location = useLocation();
@@ -26,13 +26,13 @@ const CheckoutPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderDetails, setOrderDetails] = useState(null);
-  const [orderCounts, setOrderCounts] = useState({}); // Track order counts for variants
+  const [orderCounts, setOrderCounts] = useState({});
   const [useExistingAddress, setUseExistingAddress] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState("");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash_on_delivery");
   
-  // Payment gateway integration flag - set to false to disable ordering
-  const [paymentGatewayActive, setPaymentGatewayActive] = useState(false); // to enable order system make it true
-  const [showComingSoonModal, setShowComingSoonModal] = useState(false);
+  // Payment gateway is now active
+  const [paymentGatewayActive, setPaymentGatewayActive] = useState(true);
 
   // Use passed cart data or fallback to context
   const effectiveCartItems = cartState?.cartItems || contextCartItems;
@@ -62,6 +62,38 @@ const CheckoutPage = () => {
     },
   });
 
+  // Payment methods configuration
+  const paymentMethods = [
+    {
+      id: "cash_on_delivery",
+      name: "Cash on Delivery",
+      description: "Pay when you receive your order",
+      icon: null,
+      available: true
+    },
+    {
+      id: "credit_card",
+      name: "Credit/Debit Card",
+      description: "Pay securely with your card",
+      icon: <FiCreditCard className="h-5 w-5" />,
+      available: true
+    },
+    {
+      id: "alfa_wallet",
+      name: "Alfa Wallet",
+      description: "Pay using your Alfa Wallet",
+      icon: <Wallet className="h-5 w-5" />,
+      available: true
+    },
+    {
+      id: "alfalah_bank",
+      name: "Alfalah Bank",
+      description: "Pay via Alfalah Bank Account",
+      icon: <Banknote className="h-5 w-5" />,
+      available: true
+    }
+  ];
+
   // Initialize form when user data loads
   useEffect(() => {
     if (user) {
@@ -69,16 +101,11 @@ const CheckoutPage = () => {
       
       // Check if user has saved addresses
       if (user.addresses && user.addresses.length > 0) {
-        // Find default address or use first one
         const defaultAddress = user.addresses.find(addr => addr.isDefault) || user.addresses[0];
-        
         setUseExistingAddress(true);
         setSelectedAddressId(defaultAddress._id?.toString() || "");
-        
-        // Populate form with default address
         populateAddressForm(defaultAddress);
       } else {
-        // No saved addresses, use manual entry
         setUseExistingAddress(false);
         setValue("fullName", user.name || "");
       }
@@ -101,7 +128,6 @@ const CheckoutPage = () => {
     if (addressId === "new") {
       setUseExistingAddress(false);
       setSelectedAddressId("");
-      // Clear form for manual entry
       setValue("fullName", user?.name || "");
       setValue("phone", "");
       setValue("addressLine1", "");
@@ -113,7 +139,6 @@ const CheckoutPage = () => {
     } else {
       setUseExistingAddress(true);
       setSelectedAddressId(addressId);
-      // Find and populate selected address
       const selectedAddress = user.addresses.find(addr => addr._id.toString() === addressId);
       if (selectedAddress) {
         populateAddressForm(selectedAddress);
@@ -195,7 +220,6 @@ const CheckoutPage = () => {
             sku: item.sku || item.productId?.sku || '',
             stock: item.stock || item.productId?.stock || 0
           },
-          // Include color info if available (for storage + color combinations)
           ...(item.variantColor && {
             color: {
               name: item.variantColor,
@@ -285,11 +309,8 @@ const CheckoutPage = () => {
   // Memoized calculation of order totals
   const { subtotal, shipping, total } = useMemo(() => {
     const subtotal = effectiveTotalPrice || 0;
-
-    // Calculate shipping cost - use effective shipping cost or calculate from items
     let shipping = effectiveShippingCost || 0;
     
-    // If no effective shipping cost, calculate from individual items
     if (!effectiveShippingCost) {
       const uniqueProducts = new Set();
       effectiveCartItems.forEach((item) => {
@@ -309,14 +330,8 @@ const CheckoutPage = () => {
     };
   }, [effectiveTotalPrice, effectiveShippingCost, effectiveCartItems]);
 
-  // Modified onSubmit to handle disabled state
+  // Modified onSubmit to handle payment methods
   const onSubmit = async (data) => {
-    // Check if payment gateway is active
-    if (!paymentGatewayActive) {
-      setShowComingSoonModal(true);
-      return;
-    }
-
     if (effectiveCartItems.length === 0) {
       toast.error("Your cart is empty. Please add items to proceed.");
       return;
@@ -331,20 +346,18 @@ const CheckoutPage = () => {
       // Prepare order data based on address selection
       const orderData = {
         items,
-        paymentMethod: "cash_on_delivery",
+        paymentMethod: selectedPaymentMethod,
         orderNotes: data.orderNotes?.trim() || "",
         totalShippingCost: shipping,
         subtotal,
         total
       };
 
-      // FIX: Add proper handling for existing addresses
+      // Handle address selection
       if (useExistingAddress && selectedAddressId) {
-        // Use existing address - send both flags
         orderData.useExistingAddress = true;
         orderData.existingAddressId = selectedAddressId;
         
-        // Also include the shipping address for validation/fallback
         orderData.shippingAddress = {
           fullName: data.fullName.trim(),
           addressLine1: data.addressLine1.trim(),
@@ -357,7 +370,6 @@ const CheckoutPage = () => {
           email: data.email.trim()
         };
       } else {
-        // Use manual address entry
         orderData.useExistingAddress = false;
         orderData.shippingAddress = {
           fullName: data.fullName.trim(),
@@ -388,39 +400,49 @@ const CheckoutPage = () => {
       }
 
       // Place the order
-      const order = await placeNewOrder(orderData);
+      const result = await placeNewOrder(orderData);
 
-      // Handle successful order
-      setOrderDetails({
-        orderId: order.orderId,
-        items: effectiveCartItems,
-        total,
-        createdAt: new Date().toISOString()
-      });
-
-      // Clear cart and update user if needed
-      clearCart();
-      if (data.saveAddress && !useExistingAddress) {
-        await fetchUser(); // Refresh user data to get updated addresses
-      }
-
-      // Check if any variant has been ordered twice
-      if (hasOrderedTwice) {
-        setOrderSuccess(true);
-        toast.success(`Order #${order.orderId} placed successfully!`, {
-          autoClose: 5000
-        });
+      // Handle successful order placement
+      if (result.payment) {
+        // Online payment - redirect to payment processing
+        if (selectedPaymentMethod === 'credit_card') {
+          // For credit card, we'll handle the redirect in the order context
+          // The form submission happens automatically
+          toast.info("Redirecting to payment gateway...");
+        } else {
+          // For Alfa Wallet/Bank, redirect to payment URL
+          window.location.href = result.payment.paymentUrl;
+        }
       } else {
-        // If no variant has been ordered twice, just show a regular success message
-        toast.success(`Order #${order.orderId} placed successfully!`, {
-          autoClose: 3000
+        // COD order - show success
+        setOrderDetails({
+          orderId: result.order.orderId,
+          items: effectiveCartItems,
+          total,
+          createdAt: new Date().toISOString()
         });
-        // Navigate to order confirmation page
-        navigate(`/orders/${order.orderId}`);
+
+        // Clear cart and update user if needed
+        clearCart();
+        if (data.saveAddress && !useExistingAddress) {
+          await fetchUser();
+        }
+
+        // Show success message
+        if (hasOrderedTwice) {
+          setOrderSuccess(true);
+          toast.success(`Order #${result.order.orderId} placed successfully!`, {
+            autoClose: 5000
+          });
+        } else {
+          toast.success(`Order #${result.order.orderId} placed successfully!`, {
+            autoClose: 3000
+          });
+          navigate(`/orders/${result.order.orderId}`);
+        }
       }
 
     } catch (error) {
-      // Log error details
       console.error("Order placement error:", {
         timestamp: new Date().toISOString(),
         errorMessage: error.message,
@@ -444,50 +466,6 @@ const CheckoutPage = () => {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  // Coming Soon Modal Component
-  const ComingSoonModal = () => {
-    if (!showComingSoonModal) return null;
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-          <div className="text-center">
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 mb-4">
-              <FiClock className="h-6 w-6 text-blue-600" />
-            </div>
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Payment Gateway Integration in Progress
-            </h3>
-            <p className="text-sm text-gray-500 mb-6">
-              We're currently working with our banking partners to integrate secure online payment options. 
-              Order placement will be available once the integration is complete.
-            </p>
-            <div className="space-y-3">
-              <div className="flex items-center justify-center gap-2 text-sm text-blue-600 bg-blue-50 rounded-lg p-3">
-                <FiLock className="h-4 w-4" />
-                <span>Secure payment options coming soon</span>
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => setShowComingSoonModal(false)}
-                  className="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded-md text-sm"
-                >
-                  Continue Browsing
-                </Button>
-                <Button
-                  onClick={() => navigate("/products")}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-md text-sm"
-                >
-                  Shop More
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   };
 
   if (orderSuccess && orderDetails) {
@@ -560,9 +538,6 @@ const CheckoutPage = () => {
           Checkout
         </h1>
 
-        {/* Payment Gateway Announcement Banner */}
-        <PaymentAnnouncementBanner />
-
         <div className="flex flex-col lg:flex-row gap-4">
           <div className="flex-1">
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" id="checkout-form">
@@ -583,8 +558,56 @@ const CheckoutPage = () => {
                   })}
                   type="email"
                   error={errors.email?.message}
-                  disabled={!paymentGatewayActive}
                 />
+              </div>
+
+              {/* Payment Method Selection */}
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                <h2 className="text-lg font-semibold text-gray-900 mb-3">
+                  Payment Method
+                </h2>
+                <div className="space-y-3">
+                  {paymentMethods.map((method) => (
+                    <div
+                      key={method.id}
+                      className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                        selectedPaymentMethod === method.id
+                          ? 'border-red-500 bg-red-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      } ${!method.available ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      onClick={() => method.available && setSelectedPaymentMethod(method.id)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {method.icon && (
+                            <div className="text-gray-600">
+                              {method.icon}
+                            </div>
+                          )}
+                          <div>
+                            <h3 className="font-medium text-gray-900">
+                              {method.name}
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              {method.description}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center">
+                          <input
+                            type="radio"
+                            name="paymentMethod"
+                            value={method.id}
+                            checked={selectedPaymentMethod === method.id}
+                            onChange={() => method.available && setSelectedPaymentMethod(method.id)}
+                            className="text-red-600 focus:ring-red-500"
+                            disabled={!method.available}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Address Selection */}
@@ -605,7 +628,6 @@ const CheckoutPage = () => {
                             checked={selectedAddressId === address._id.toString()}
                             onChange={(e) => handleAddressSelection(e.target.value)}
                             className="mt-1 text-red-600 focus:ring-red-500"
-                            disabled={!paymentGatewayActive}
                           />
                           <div className="flex-1">
                             <div className="font-medium text-gray-900">
@@ -641,7 +663,6 @@ const CheckoutPage = () => {
                           checked={!useExistingAddress}
                           onChange={(e) => handleAddressSelection(e.target.value)}
                           className="text-red-600 focus:ring-red-500"
-                          disabled={!paymentGatewayActive}
                         />
                         <span className="font-medium text-gray-900">
                           Use a new address
@@ -670,7 +691,6 @@ const CheckoutPage = () => {
                         },
                       })}
                       error={errors.fullName?.message}
-                      disabled={!paymentGatewayActive}
                     />
 
                     <Input
@@ -685,7 +705,6 @@ const CheckoutPage = () => {
                       type="tel"
                       placeholder="e.g. +92 3001234567"
                       error={errors.phone?.message}
-                      disabled={!paymentGatewayActive}
                     />
 
                     <Input
@@ -698,7 +717,6 @@ const CheckoutPage = () => {
                         },
                       })}
                       error={errors.addressLine1?.message}
-                      disabled={!paymentGatewayActive}
                     />
 
                     <Input
@@ -709,7 +727,6 @@ const CheckoutPage = () => {
                           message: "Cannot exceed 200 characters",
                         },
                       })}
-                      disabled={!paymentGatewayActive}
                     />
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -723,7 +740,6 @@ const CheckoutPage = () => {
                           },
                         })}
                         error={errors.city?.message}
-                        disabled={!paymentGatewayActive}
                       />
 
                       <Input
@@ -736,7 +752,6 @@ const CheckoutPage = () => {
                           },
                         })}
                         error={errors.state?.message}
-                        disabled={!paymentGatewayActive}
                       />
 
                       <Input
@@ -749,7 +764,6 @@ const CheckoutPage = () => {
                           },
                         })}
                         error={errors.postalCode?.message}
-                        disabled={!paymentGatewayActive}
                       />
                     </div>
 
@@ -760,7 +774,6 @@ const CheckoutPage = () => {
                       <select
                         {...register("country", { required: "Country is required" })}
                         className="w-full border border-gray-300 rounded-md p-2 text-sm"
-                        disabled={!paymentGatewayActive}
                       >
                         <option value="Pakistan">Pakistan</option>
                       </select>
@@ -772,7 +785,6 @@ const CheckoutPage = () => {
                           type="checkbox"
                           {...register("saveAddress")}
                           className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                          disabled={!paymentGatewayActive}
                         />
                         <span className="ml-2 text-sm text-gray-600">
                           Save this address for future orders
@@ -794,7 +806,6 @@ const CheckoutPage = () => {
                       type="checkbox"
                       {...register("billingSameAsShipping")}
                       className="rounded border-gray-300 text-red-600 focus:ring-red-500"
-                      disabled={!paymentGatewayActive}
                     />
                     <span className="ml-2 text-sm text-gray-600">
                       Same as shipping address
@@ -929,7 +940,9 @@ const CheckoutPage = () => {
                   disabled={isSubmitting}
                   loading={isSubmitting}
                 >
-                  {isSubmitting ? "Placing Order..." : "Place Order"}
+                  {isSubmitting ? "Placing Order..." : 
+                   selectedPaymentMethod === "cash_on_delivery" ? "Place Order" : 
+                   "Proceed to Payment"}
                 </Button>
               </div>
             </form>
@@ -988,6 +1001,15 @@ const CheckoutPage = () => {
                 </div>
               </div>
 
+              {/* Payment Method Info */}
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">
+                  <strong>Payment Method:</strong> {
+                    paymentMethods.find(m => m.id === selectedPaymentMethod)?.name
+                  }
+                </p>
+              </div>
+
               {/* Submit Button - Desktop */}
               <div className="hidden lg:block">
                 <Button
@@ -997,7 +1019,9 @@ const CheckoutPage = () => {
                   disabled={isSubmitting}
                   loading={isSubmitting}
                 >
-                  {isSubmitting ? "Placing Order..." : "Place Order"}
+                  {isSubmitting ? "Placing Order..." : 
+                   selectedPaymentMethod === "cash_on_delivery" ? "Place Order" : 
+                   "Proceed to Payment"}
                 </Button>
               </div>
             </div>

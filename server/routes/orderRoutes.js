@@ -7,7 +7,9 @@ const {
   updateOrderStatusValidator,
   getOrdersValidator,
   downloadInvoiceValidator,
-  cancelOrderValidator
+  cancelOrderValidator,
+  checkPaymentStatusValidator,
+  retryPaymentValidator
 } = require('../validation/orderValidators');
 
 // User routes (under /api/orders)
@@ -35,6 +37,32 @@ router.put(
   orderController.cancelOrder
 );
 
+// NEW: Payment-related routes
+router.post(
+  '/payment/ipn',
+  orderController.handlePaymentIPN
+);
+
+router.get(
+  '/payment/return',
+  orderController.handlePaymentReturn
+);
+
+router.get(
+  '/:orderId/payment/status',
+  authenticateJWT,
+  authorizeRoles('user', 'admin'),
+  checkPaymentStatusValidator,
+  orderController.checkPaymentStatus
+);
+
+router.post(
+  '/:orderId/payment/retry',
+  authenticateJWT,
+  authorizeRoles('user'),
+  retryPaymentValidator,
+  orderController.retryPayment
+);
 
 // Notification routes (public access for toast notifications)
 router.get(

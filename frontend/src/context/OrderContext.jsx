@@ -11,7 +11,10 @@ import {
   cancelOrder as apiCancelOrder,
   getRecentOrderNotifications,
   getRevenueStats,
-  getProductRevenue
+  getProductRevenue,
+  checkPaymentStatus,
+  retryPayment,
+  handlePaymentReturn
 } from '../services/orderService';
 import socketService from '../services/socketService';
 import { useToast } from './ToastContext';
@@ -28,6 +31,7 @@ export const OrderProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
   const [revenueStats, setRevenueStats] = useState(null);
   const [productStats, setProductStats] = useState([]);
+  const [paymentStatus, setPaymentStatus] = useState({});
   const { success: toastSuccess, error: toastError, warning: toastWarn, info: toastInfo } = useToast();
 
   // Add these refs for preventing multiple fetches
@@ -44,7 +48,7 @@ export const OrderProvider = ({ children }) => {
     return `orders_${type}_${userId || 'all'}_p${page}_l${limit}_s${status || 'all'}${extraParams}`;
   }, []);
 
-  // Enhanced validation with better error messages
+  // Enhanced validation with payment method support
   const validateOrderData = (orderData) => {
     const errors = [];
     
@@ -79,9 +83,19 @@ export const OrderProvider = ({ children }) => {
       if (!country) errors.push('Country is required');
       if (!phone) {
         errors.push('Phone number is required');
-      } else if (!/^\+\d{1,4}\s\d{6,14}$/.test(phone)) {
-        errors.push('Phone number must be in the format +[country code] [number]');
+      } else {
+        const phoneRegex = /^(\+?\d{1,4}[\s-]?)?\(?\d{1,4}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,9}$/;
+        if (!phoneRegex.test(phone)) {
+          errors.push('Please enter a valid phone number (e.g., +923001234567, 03001234567, or 3001234567)');
+        }
       }
+    }
+    
+    // Payment method validation
+    if (!orderData.paymentMethod) {
+      errors.push('Payment method is required');
+    } else if (!['cash_on_delivery', 'credit_card', 'alfa_wallet', 'alfalah_bank'].includes(orderData.paymentMethod)) {
+      errors.push('Invalid payment method selected');
     }
     
     if (orderData.discountCode && !/^[A-Z0-9-]+$/i.test(orderData.discountCode)) {
@@ -94,7 +108,7 @@ export const OrderProvider = ({ children }) => {
   // Improved cache management
   const clearAllOrdersCache = useCallback(() => {
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('orders_') || key.includes('_orders_') || key.startsWith('notifications_') || key.startsWith('stats_')) {
+      if (key.startsWith('orders_') || key.includes('_orders_') || key.startsWith('notifications_') || key.startsWith('stats_') || key.startsWith('payment_')) {
         localStorage.removeItem(key);
         localStorage.removeItem(`${key}_timestamp`);
       }
@@ -104,13 +118,142 @@ export const OrderProvider = ({ children }) => {
   const clearUserOrdersCache = useCallback(() => {
     if (user?._id) {
       Object.keys(localStorage).forEach(key => {
-        if (key.includes(`user_${user._id}`)) {
+        if (key.includes(`user_${user._id}`) || key.startsWith(`payment_${user._id}`)) {
           localStorage.removeItem(key);
           localStorage.removeItem(`${key}_timestamp`);
         }
       });
     }
   }, [user?._id]);
+
+  // Payment-related functions
+  const checkOrderPaymentStatus = useCallback(async (orderId, forceRefresh = false) => {
+    if (!orderId) return null;
+
+    const cacheKey = `payment_status_${orderId}`;
+    
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 30 * 1000; // 30 seconds cache
+
+      if (cached && cacheValid) {
+        try {
+          return JSON.parse(cached);
+        } catch (parseError) {
+          localStorage.removeItem(cacheKey);
+          localStorage.removeItem(`${cacheKey}_timestamp`);
+        }
+      }
+    }
+
+    try {
+      const response = await checkPaymentStatus(orderId);
+      const paymentData = response.data;
+      
+      // Update payment status state
+      setPaymentStatus(prev => ({
+        ...prev,
+        [orderId]: paymentData
+      }));
+
+      // Cache the response
+      if (!forceRefresh) {
+        localStorage.setItem(cacheKey, JSON.stringify(paymentData));
+        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      }
+
+      return paymentData;
+    } catch (err) {
+      console.error('checkOrderPaymentStatus error:', err);
+      throw err;
+    }
+  }, []);
+
+  const retryOrderPayment = async (orderId) => {
+    if (!isRegularUser) {
+      const errorMessage = 'Unauthorized: Only users can retry payments';
+      setError(errorMessage);
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await retryPayment(orderId);
+      const { order, payment } = response.data;
+
+      // Clear payment cache
+      localStorage.removeItem(`payment_status_${orderId}`);
+      localStorage.removeItem(`payment_status_${orderId}_timestamp`);
+
+      toastSuccess('Payment retry initiated', { position: "top-right", autoClose: 3000 });
+
+      // Handle payment redirection based on method
+      if (payment) {
+        if (order.paymentMethod === 'credit_card') {
+          // Redirect to payment gateway with form data
+          redirectToPaymentGateway(payment.redirectUrl, payment.formData);
+        } else {
+          // Redirect to API payment page
+          window.location.href = payment.paymentUrl;
+        }
+      }
+
+      return { order, payment };
+    } catch (err) {
+      console.error('retryOrderPayment error:', err);
+      await handleOrderError(err, isRegularUser, () => retryOrderPayment(orderId));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePaymentReturnFromGateway = async (queryParams) => {
+    try {
+      const response = await handlePaymentReturn(queryParams);
+      const { order, paymentDetails } = response.data;
+
+      // Clear relevant caches
+      clearUserOrdersCache();
+      localStorage.removeItem(`payment_status_${order.orderId}`);
+      
+      // Update local state
+      if (paymentDetails.responseCode === '00') {
+        toastSuccess('Payment completed successfully!', { position: "top-right", autoClose: 5000 });
+      } else {
+        toastError(`Payment failed: ${paymentDetails.message}`, { position: "top-right", autoClose: 5000 });
+      }
+
+      return response.data;
+    } catch (err) {
+      console.error('handlePaymentReturnFromGateway error:', err);
+      toastError('Error processing payment return', { position: "top-right", autoClose: 5000 });
+      throw err;
+    }
+  };
+
+  // Helper function to redirect to payment gateway
+  const redirectToPaymentGateway = (redirectUrl, formData) => {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = redirectUrl;
+    form.style.display = 'none';
+
+    Object.keys(formData).forEach(key => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = key;
+      input.value = formData[key];
+      form.appendChild(input);
+    });
+
+    document.body.appendChild(form);
+    form.submit();
+  };
 
   // Enhanced socket reconnection logic
   const handleSocketReconnect = useCallback(() => {
@@ -122,6 +265,56 @@ export const OrderProvider = ({ children }) => {
     }
   }, [isAdmin, admin?._id, user?._id]);
 
+  // Payment socket event handlers
+  const setupPaymentSocketHandlers = useCallback(() => {
+    if (isRegularUser && user?._id) {
+      socketService.on('paymentSuccess', (data) => {
+        console.log('Payment success received:', data);
+        const { order } = data;
+        
+        // Update local orders state
+        setOrders(prev => prev.map(ord => 
+          ord.orderId === order.orderId ? { ...ord, ...order } : ord
+        ));
+        
+        // Update payment status
+        setPaymentStatus(prev => ({
+          ...prev,
+          [order.orderId]: { ...prev[order.orderId], paymentStatus: 'completed' }
+        }));
+
+        // Clear cache
+        localStorage.removeItem(`payment_status_${order.orderId}`);
+        clearUserOrdersCache();
+
+        toastSuccess(`Payment completed for order ${order.orderId}`, {
+          position: "top-right",
+          autoClose: 5000,
+        });
+      });
+
+      socketService.on('paymentFailed', (data) => {
+        console.log('Payment failure received:', data);
+        const { order, message } = data;
+        
+        // Update payment status
+        setPaymentStatus(prev => ({
+          ...prev,
+          [order.orderId]: { 
+            ...prev[order.orderId], 
+            paymentStatus: 'failed',
+            error: message
+          }
+        }));
+
+        toastError(`Payment failed: ${message}`, {
+          position: "top-right",
+          autoClose: 5000,
+        });
+      });
+    }
+  }, [isRegularUser, user?._id, clearUserOrdersCache]);
+
   const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '', forceRefresh = false) => {
     if (!isRegularUser && !isAdmin) {
       return;
@@ -129,7 +322,6 @@ export const OrderProvider = ({ children }) => {
 
     const cacheKey = generateCacheKey('user', user?._id, page, limit, status);
     
-    // Skip cache if forceRefresh is true
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
@@ -137,13 +329,11 @@ export const OrderProvider = ({ children }) => {
 
       if (cached && cacheValid) {
         try {
-          // console.log('fetchUserOrders: Using cached orders');
           const { orders, pagination } = JSON.parse(cached);
           setOrders(orders || []);
           setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
           return;
         } catch (parseError) {
-          console.warn('Failed to parse cached orders:', parseError);
           localStorage.removeItem(cacheKey);
           localStorage.removeItem(`${cacheKey}_timestamp`);
         }
@@ -153,13 +343,9 @@ export const OrderProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
-      // console.log('fetchUserOrders: Fetching from API...', { page, limit, status });
       const response = await getUserOrders(page, limit, status);
       const { orders = [], total = 0, page: currentPage = 1, limit: currentLimit = 10, totalPages = 1 } = response.data || {};
       
-      // console.log('fetchUserOrders: API response:', { orders: orders.length, total });
-      
-      // Improved order filtering
       const filteredOrders = Array.isArray(orders) ? orders.filter(order => {
         return order && (order.orderId || order._id) && order.items && Array.isArray(order.items);
       }) : [];
@@ -167,7 +353,6 @@ export const OrderProvider = ({ children }) => {
       setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
       
-      // Cache response only if not forcing refresh
       if (!forceRefresh && filteredOrders.length > 0) {
         localStorage.setItem(cacheKey, JSON.stringify({
           orders: filteredOrders,
@@ -190,7 +375,6 @@ export const OrderProvider = ({ children }) => {
 
     const cacheKey = generateCacheKey('all', 'admin', page, limit, status, `_user_${userId || 'all'}`);
     
-    // Skip cache if forceRefresh is true
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
@@ -198,13 +382,11 @@ export const OrderProvider = ({ children }) => {
 
       if (cached && cacheValid) {
         try {
-          // console.log('fetchAllOrders: Using cached orders');
           const { orders, pagination } = JSON.parse(cached);
           setOrders(orders || []);
           setPagination(pagination || { total: 0, page: 1, limit: 10, totalPages: 1 });
           return;
         } catch (parseError) {
-          console.warn('Failed to parse cached orders:', parseError);
           localStorage.removeItem(cacheKey);
           localStorage.removeItem(`${cacheKey}_timestamp`);
         }
@@ -214,13 +396,9 @@ export const OrderProvider = ({ children }) => {
     setLoading(true);
     setError('');
     try {
-      // console.log('fetchAllOrders: Fetching from API...', { page, limit, status, userId });
       const response = await getAllOrders(page, limit, status, userId);
       const { orders = [], total = 0, page: currentPage = 1, limit: currentLimit = 10, totalPages = 1 } = response.data || {};
       
-      // console.log('fetchAllOrders: API response:', { orders: orders.length, total });
-      
-      // Improved order filtering
       const filteredOrders = Array.isArray(orders) ? orders.filter(order => {
         return order && order.orderId && order.items && Array.isArray(order.items);
       }) : [];
@@ -228,7 +406,6 @@ export const OrderProvider = ({ children }) => {
       setOrders(filteredOrders);
       setPagination({ total, page: currentPage, limit: currentLimit, totalPages });
       
-      // Cache response only if not forcing refresh
       if (!forceRefresh && filteredOrders.length > 0) {
         localStorage.setItem(cacheKey, JSON.stringify({
           orders: filteredOrders,
@@ -253,7 +430,7 @@ export const OrderProvider = ({ children }) => {
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 1 * 60 * 1000; // 1 minute cache
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 1 * 60 * 1000;
 
       if (cached && cacheValid) {
         try {
@@ -290,7 +467,7 @@ export const OrderProvider = ({ children }) => {
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes cache
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000;
 
       if (cached && cacheValid) {
         try {
@@ -327,7 +504,7 @@ export const OrderProvider = ({ children }) => {
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000; // 5 minutes cache
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 5 * 60 * 1000;
 
       if (cached && cacheValid) {
         try {
@@ -369,14 +546,13 @@ export const OrderProvider = ({ children }) => {
     [fetchAllOrders]
   );
 
-  // Enhanced useEffect with better initialization control
+  // Enhanced useEffect with payment socket handlers
   useEffect(() => {
     if (!userRole || initializationRef.current) return;
 
     const currentUserId = isAdmin ? admin?._id : user?._id;
     if (!currentUserId) return;
 
-    // console.log('OrderProvider: Setting up for role:', userRole, 'UserID:', currentUserId);
     initializationRef.current = true;
 
     const setupTimer = setTimeout(() => {
@@ -385,8 +561,6 @@ export const OrderProvider = ({ children }) => {
       const shouldFetch = !lastFetchTime || (now - lastFetchTime) > 30000;
 
       if (shouldFetch) {
-        // console.log('OrderProvider: Fetching initial data');
-        
         if (isAdmin) {
           debouncedFetchAllOrders(1, 10, '', '', true);
           fetchNotifications(5, true);
@@ -402,7 +576,7 @@ export const OrderProvider = ({ children }) => {
 
     let pollingInterval = null;
 
-    // Enhanced socket setup
+    // Enhanced socket setup with payment handlers
     if (isAdmin) {
       socketService.connect(currentUserId, 'admin');
 
@@ -412,7 +586,6 @@ export const OrderProvider = ({ children }) => {
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
             if (!socketService.getConnectionState()) {
-              // console.log('Polling: Fetching orders due to socket disconnect');
               debouncedFetchAllOrders(1, 10, '', '', true);
               fetchNotifications(5, true);
             }
@@ -420,23 +593,19 @@ export const OrderProvider = ({ children }) => {
         }
       };
 
-      // Enhanced socket event handlers
       socketService.on('connect_error', handleSocketError);
       
       socketService.on('orderNotification', (notification) => {
-        // console.log('Socket: Order notification received:', notification);
-        setNotifications(prev => [notification, ...prev.slice(0, 4)]); // Keep latest 5
+        setNotifications(prev => [notification, ...prev.slice(0, 4)]);
       });
 
       socketService.on('newOrder', (data) => {
-        // console.log('Socket: New order received:', data);
         clearAllOrdersCache();
         debouncedFetchAllOrders(1, 10, '', '', true);
         fetchNotifications(5, true);
         fetchRevenueStats('month', '', '', true);
         fetchProductStats(10, '', '', true);
         
-        // Show toast notification
         toastSuccess(`New order received: ${data.order?.orderId}`, {
           position: "top-right",
           autoClose: 5000,
@@ -444,18 +613,15 @@ export const OrderProvider = ({ children }) => {
       });
 
       socketService.on('orderStatusUpdated', (updatedOrder) => {
-        // console.log('Socket: Order status updated:', updatedOrder);
         clearAllOrdersCache();
         debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
         
-        // Update local state optimistically
         setOrders(prev => prev.map(order => 
           order.orderId === updatedOrder.orderId ? { ...order, ...updatedOrder } : order
         ));
       });
 
       socketService.on('connect', () => {
-        // console.log('Socket: Connected successfully');
         if (pollingInterval) {
           clearInterval(pollingInterval);
           pollingInterval = null;
@@ -464,10 +630,8 @@ export const OrderProvider = ({ children }) => {
       });
 
       socketService.on('disconnect', () => {
-        // console.log('Socket: Disconnected');
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
-            // console.log('Polling: Fetching data due to socket disconnect');
             debouncedFetchAllOrders(1, 10, '', '', true);
             fetchNotifications(5, true);
           }, 15000);
@@ -477,18 +641,18 @@ export const OrderProvider = ({ children }) => {
     } else if (isRegularUser) {
       socketService.connect(currentUserId, 'user');
       
+      // Setup payment socket handlers
+      setupPaymentSocketHandlers();
+      
       socketService.on('orderStatusUpdated', (updatedOrder) => {
-        // console.log('Socket: User order status updated:', updatedOrder);
         if (updatedOrder.userId === currentUserId) {
           clearUserOrdersCache();
           debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
           
-          // Update local state optimistically
           setOrders(prev => prev.map(order => 
             order.orderId === updatedOrder.orderId ? { ...order, ...updatedOrder } : order
           ));
           
-          // Show user notification
           toastInfo(`Order ${updatedOrder.orderId} status updated to: ${updatedOrder.status}`, {
             position: "top-right",
             autoClose: 4000,
@@ -498,11 +662,12 @@ export const OrderProvider = ({ children }) => {
     }
 
     return () => {
-      // console.log('OrderProvider: Cleaning up...');
       clearTimeout(setupTimer);
       socketService.off('orderNotification');
       socketService.off('newOrder');
       socketService.off('orderStatusUpdated');
+      socketService.off('paymentSuccess');
+      socketService.off('paymentFailed');
       socketService.off('connect');
       socketService.off('connect_error');
       socketService.off('disconnect');
@@ -513,7 +678,7 @@ export const OrderProvider = ({ children }) => {
       debouncedFetchAllOrders.cancel();
       initializationRef.current = false;
     };
-  }, [userRole, admin?._id, user?._id, pagination.page, pagination.limit]);
+  }, [userRole, admin?._id, user?._id, pagination.page, pagination.limit, setupPaymentSocketHandlers]);
 
   const handleOrderError = async (err, isUser, retryFn) => {
     console.error('Order error:', {
@@ -552,20 +717,29 @@ export const OrderProvider = ({ children }) => {
     }
 
     try {
-      const order = await placeOrder({
-        ...orderData,
-        items: orderData.items.map(item => ({
-          ...item,
-          productId: String(item.productId),
-        })),
-      });
+      const response = await placeOrder(orderData);
+      const { order, payment } = response.data;
 
-      // console.log('Order placed successfully:', order);
       toastSuccess('Order placed successfully!', { position: "top-right", autoClose: 3000 });
       
-      // Clear cache and force refresh
+      // Clear cache
       clearAllOrdersCache();
       
+      // Handle payment redirection for online payments
+      if (order.paymentMethod !== 'cash_on_delivery' && payment) {
+        if (order.paymentMethod === 'credit_card') {
+          // Redirect to payment gateway with form data
+          redirectToPaymentGateway(payment.redirectUrl, payment.formData);
+        } else {
+          // Redirect to API payment page
+          window.location.href = payment.paymentUrl;
+        }
+        
+        // Return both order and payment for handling redirection
+        return { order, payment };
+      }
+      
+      // For COD orders, refresh orders list
       if (isAdmin) {
         await debouncedFetchAllOrders(1, 10, '', '', true);
         fetchNotifications(5, true);
@@ -575,7 +749,7 @@ export const OrderProvider = ({ children }) => {
         await debouncedFetchUserOrders(1, 10, '', true);
       }
       
-      return order;
+      return { order, payment: null };
     } catch (err) {
       await handleOrderError(err, isRegularUser || isAdmin, () => placeNewOrder(orderData));
       throw err;
@@ -614,10 +788,8 @@ export const OrderProvider = ({ children }) => {
 
     try {
       const order = await updateOrderStatus(orderId, status);
-      // console.log('Order status updated:', order);
       toastSuccess(`Order status updated to: ${status}`, { position: "top-right", autoClose: 3000 });
       
-      // Clear cache and force refresh
       clearAllOrdersCache();
       await debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
       fetchNotifications(5, true);
@@ -632,44 +804,43 @@ export const OrderProvider = ({ children }) => {
   };
 
   const cancelUserOrder = async (orderId) => {
-  if (!isRegularUser) {
-    const errorMessage = 'Unauthorized: Only users can cancel their own orders';
-    setError(errorMessage);
-    toastError(errorMessage, { position: "top-right", autoClose: 3000 });
-    throw new Error(errorMessage);
-  }
+    if (!isRegularUser) {
+      const errorMessage = 'Unauthorized: Only users can cancel their own orders';
+      setError(errorMessage);
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
+    }
 
-  setLoading(true);
-  setError('');
+    setLoading(true);
+    setError('');
 
-  if (!orderId || typeof orderId !== 'string') {
-    const errorMessage = 'Invalid order ID';
-    setError(errorMessage);
-    setLoading(false);
-    toastError(errorMessage, { position: "top-right", autoClose: 3000 });
-    throw new Error(errorMessage);
-  }
+    if (!orderId || typeof orderId !== 'string') {
+      const errorMessage = 'Invalid order ID';
+      setError(errorMessage);
+      setLoading(false);
+      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      throw new Error(errorMessage);
+    }
 
-  try {
-    const order = await apiCancelOrder(orderId); // ✅ now sends status
-    clearUserOrdersCache();
-    await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
-    toastSuccess('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
-    return order;
-  } catch (err) {
-    console.error('Cancel order error:', {
-      orderId,
-      message: err.message,
-      status: err.response?.status,
-      data: err.response?.data,
-    });
-    await handleOrderError(err, isRegularUser, () => cancelUserOrder(orderId));
-    throw err;
-  } finally {
-    setLoading(false);
-  }
-};
-
+    try {
+      const order = await apiCancelOrder(orderId);
+      clearUserOrdersCache();
+      await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
+      toastSuccess('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
+      return order;
+    } catch (err) {
+      console.error('Cancel order error:', {
+        orderId,
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data,
+      });
+      await handleOrderError(err, isRegularUser, () => cancelUserOrder(orderId));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const downloadOrderInvoice = async (orderId) => {
     if (!isAdmin && !isRegularUser) {
@@ -713,7 +884,6 @@ export const OrderProvider = ({ children }) => {
 
   // Enhanced force refresh function
   const forceRefreshOrders = useCallback(() => {
-    // console.log('Force refreshing orders...');
     clearAllOrdersCache();
     if (isAdmin) {
       debouncedFetchAllOrders(1, 10, '', '', true);
@@ -733,12 +903,16 @@ export const OrderProvider = ({ children }) => {
     notifications,
     revenueStats,
     productStats,
+    paymentStatus,
     placeNewOrder,
     fetchUserOrders: debouncedFetchUserOrders,
     fetchAllOrders: debouncedFetchAllOrders,
     fetchNotifications,
     fetchRevenueStats,
     fetchProductStats,
+    checkOrderPaymentStatus,
+    retryOrderPayment,
+    handlePaymentReturnFromGateway,
     updateStatus,
     cancelOrder: cancelUserOrder,
     downloadOrderInvoice,

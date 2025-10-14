@@ -20,7 +20,6 @@ const validate = (req, res, next) => {
   next();
 };
 
-
 const placeOrderValidator = [
   // Items array validation
   body('items')
@@ -119,7 +118,7 @@ const placeOrderValidator = [
     return true;
   }),
 
-  // Shipping address validation (unchanged)
+  // Shipping address validation
   body('shippingAddress')
     .exists().withMessage('Shipping address is required')
     .isObject().withMessage('Shipping address must be an object'),
@@ -161,10 +160,10 @@ const placeOrderValidator = [
     .optional({ nullable: true })
     .isEmail().withMessage('Invalid email address'),
 
-  // Payment and billing validation (unchanged)
+  // Payment and billing validation - UPDATED with new payment methods
   body('paymentMethod')
     .optional()
-    .isIn(['cash_on_delivery', 'credit_card', 'paypal', 'bank_transfer'])
+    .isIn(['cash_on_delivery', 'credit_card', 'alfa_wallet', 'alfalah_bank'])
     .withMessage('Invalid payment method'),
 
   body('billingAddress')
@@ -211,15 +210,31 @@ const placeOrderValidator = [
   body('total')
     .optional().isFloat({ min: 0 }).withMessage('Invalid total'),
 
-  // Discount validation (unchanged)
+  // Discount validation
   body('discountCode')
     .optional({ nullable: true }).isString().withMessage('Invalid discount code')
     .matches(/^[A-Z0-9-]+$/i).withMessage('Discount code can only contain letters, numbers, and hyphens')
     .isLength({ max: 20 }).withMessage('Discount code cannot exceed 20 characters'),
 
-  // Save address validation (unchanged)
+  // Save address validation
   body('saveAddress')
     .optional().isBoolean().withMessage('saveAddress must be a boolean'),
+
+  // Use existing address validation
+  body('useExistingAddress')
+    .optional().isBoolean().withMessage('useExistingAddress must be a boolean'),
+
+  body('existingAddressId')
+    .optional()
+    .custom((value, { req }) => {
+      if (req.body.useExistingAddress && !value) {
+        throw new Error('existingAddressId is required when useExistingAddress is true');
+      }
+      if (value && !mongoose.Types.ObjectId.isValid(value)) {
+        throw new Error('Invalid existingAddressId format');
+      }
+      return true;
+    }),
 
   // Order notes validation
   body('orderNotes')
@@ -228,7 +243,6 @@ const placeOrderValidator = [
 
   validate
 ];
-
 
 const updateOrderStatusValidator = [
   param('orderId')
@@ -274,11 +288,11 @@ const getOrdersValidator = [
     .withMessage('Invalid user ID'),
   query('paymentMethod')
     .optional()
-    .isIn(['', 'cash_on_delivery', 'credit_card', 'paypal', 'bank_transfer'])
+    .isIn(['', 'cash_on_delivery', 'credit_card', 'alfa_wallet', 'alfalah_bank'])
     .withMessage('Invalid payment method'),
   query('paymentStatus')
     .optional()
-    .isIn(['', 'pending', 'authorized', 'paid', 'partially_refunded', 'refunded', 'voided'])
+    .isIn(['', 'pending', 'completed', 'failed', 'refunded', 'not_required'])
     .withMessage('Invalid payment status'),
   query('dateFrom')
     .optional()
@@ -307,11 +321,88 @@ const cancelOrderValidator = [
   validate
 ];
 
+// NEW: Check payment status validator
+const checkPaymentStatusValidator = [
+  param('orderId')
+    .isString()
+    .matches(/^ORD-[A-F0-9]{8}$/i)
+    .withMessage('Invalid order ID format. Must be like ORD-XXXXXXXX'),
+  validate
+];
+
+// NEW: Retry payment validator
+const retryPaymentValidator = [
+  param('orderId')
+    .isString()
+    .matches(/^ORD-[A-F0-9]{8}$/i)
+    .withMessage('Invalid order ID format. Must be like ORD-XXXXXXXX'),
+  validate
+];
+
+// NEW: IPN handler validator (for Alfa Payment Gateway)
+const ipnHandlerValidator = [
+  body('handshake_key')
+    .notEmpty()
+    .withMessage('Handshake key is required'),
+  body('transaction_id')
+    .notEmpty()
+    .withMessage('Transaction ID is required'),
+  body('transaction_status')
+    .notEmpty()
+    .withMessage('Transaction status is required'),
+  body('transaction_amount')
+    .notEmpty()
+    .isFloat({ min: 0 })
+    .withMessage('Valid transaction amount is required'),
+  body('transaction_date')
+    .optional()
+    .isISO8601()
+    .withMessage('Invalid transaction date format'),
+  body('response_code')
+    .optional()
+    .isString()
+    .withMessage('Response code must be a string'),
+  body('response_message')
+    .optional()
+    .isString()
+    .withMessage('Response message must be a string'),
+  body('basket_id')
+    .optional()
+    .isString()
+    .withMessage('Basket ID must be a string'),
+  validate
+];
+
+// NEW: Payment return validator
+const paymentReturnValidator = [
+  query('transaction_id')
+    .optional()
+    .isString()
+    .withMessage('Transaction ID must be a string'),
+  query('response_code')
+    .optional()
+    .isString()
+    .withMessage('Response code must be a string'),
+  query('response_message')
+    .optional()
+    .isString()
+    .withMessage('Response message must be a string'),
+  query('basket_id')
+    .optional()
+    .isString()
+    .withMessage('Basket ID must be a string'),
+  validate
+];
+
 module.exports = {
   placeOrderValidator,
   updateOrderStatusValidator,
   getOrdersValidator,
   downloadInvoiceValidator,
   cancelOrderValidator,
+  checkPaymentStatusValidator,
+  retryPaymentValidator,
+  ipnHandlerValidator,
+  paymentReturnValidator,
   validate
 };

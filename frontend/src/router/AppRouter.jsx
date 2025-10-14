@@ -1,42 +1,50 @@
-import React, { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AnimatePresence } from 'framer-motion';
-import LoadingSpinner from '../components/core/LoadingSpinner';
-import ScrollToTop from '../components/core/ScrollToTop';
-import CustomerLayout from '../components/layout/CustomerLayout';
-import AdminLayout from '../admin/components/AdminLayout';
-import ProtectedRoute from '../context/ProtectedRoute';
-import ProtectedAdminRoute from '../context/ProtectedAdminRoute';
-import CategorySection from '../components/shared/CategorySection';
-import CheckoutPage from '../pages/CheckoutPage';
-import AdminProfile from '../admin/pages/AdminProfile';
+import React, { lazy, Suspense, useEffect } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
+import LoadingSpinner from "../components/core/LoadingSpinner";
+import ScrollToTop from "../components/core/ScrollToTop";
+import CustomerLayout from "../components/layout/CustomerLayout";
+import AdminLayout from "../admin/components/AdminLayout";
+import ProtectedRoute from "../context/ProtectedRoute";
+import ProtectedAdminRoute from "../context/ProtectedAdminRoute";
+import CategorySection from "../components/shared/CategorySection";
+import CheckoutPage from "../pages/CheckoutPage";
+import AdminProfile from "../admin/pages/AdminProfile";
+import PaymentReturn from "../pages/PaymentReturn";
+import PaymentStatus from "../pages/PaymentStatus";
 
 // Lazy load pages
-const HomePage = lazy(() => import('../pages/HomePage'));
-const AllProducts = lazy(() => import('../pages/AllProducts'));
-const ProductDetails = lazy(() => import('../components/Products/ProductDetails'));
-const About = lazy(() => import('../pages/About'));
-const Contact = lazy(() => import('../pages/Contact'));
-const Login = lazy(() => import('../pages/Login'));
-const Register = lazy(() => import('../pages/Register'));
-const Profile = lazy(() => import('../components/shared/Profile'));
-const Wishlist = lazy(() => import('../components/Products/Wishlist'));
-const Cart = lazy(() => import('../components/features/Cart'));
-const Order = lazy(() => import('../pages/Order'));
-const GoogleCallback = lazy(() => import('../pages/GoogleCallback'));
-const Dashboard = lazy(() => import('../admin/pages/Dashboard'));
-const ProductInventory = lazy(() => import('../admin/pages/ProductInventory'));
-const OrderManagement = lazy(() => import('../admin/pages/OrderManagment'));
-const AdminLogin = lazy(() => import('../admin/pages/AdminLogin'));
-const AddProductPage = lazy(() => import('../admin/pages/AddProductPage'));
-const EditProductPage = lazy(() => import('../admin/pages/EditProductPage'));
-const HeroSliderAdmin = lazy(() => import('../admin/components/HeroSliderAdmin'));
-const CategoryManager = lazy(() => import('../admin/components/CategoryManager'));
-const BannerManager = lazy(() => import('../admin/components/BannerManager'));
-const PrivacyPolicy = lazy(() => import('../pages/PrivacyPolicy'));
-const ReturnPolicy = lazy(() => import('../pages/ReturnPolicy'));
-const RefundShipping = lazy(() => import('../pages/RefundShipping'));
-const WarrantyTerms = lazy(() => import('../pages/WarrantyTerms'));
+const HomePage = lazy(() => import("../pages/HomePage"));
+const AllProducts = lazy(() => import("../pages/AllProducts"));
+const ProductDetails = lazy(
+  () => import("../components/Products/ProductDetails")
+);
+const About = lazy(() => import("../pages/About"));
+const Contact = lazy(() => import("../pages/Contact"));
+const Login = lazy(() => import("../pages/Login"));
+const Register = lazy(() => import("../pages/Register"));
+const Profile = lazy(() => import("../components/shared/Profile"));
+const Wishlist = lazy(() => import("../components/Products/Wishlist"));
+const Cart = lazy(() => import("../components/features/Cart"));
+const Order = lazy(() => import("../pages/Order"));
+const GoogleCallback = lazy(() => import("../pages/GoogleCallback"));
+const Dashboard = lazy(() => import("../admin/pages/Dashboard"));
+const ProductInventory = lazy(() => import("../admin/pages/ProductInventory"));
+const OrderManagement = lazy(() => import("../admin/pages/OrderManagment"));
+const AdminLogin = lazy(() => import("../admin/pages/AdminLogin"));
+const AddProductPage = lazy(() => import("../admin/pages/AddProductPage"));
+const EditProductPage = lazy(() => import("../admin/pages/EditProductPage"));
+const HeroSliderAdmin = lazy(
+  () => import("../admin/components/HeroSliderAdmin")
+);
+const CategoryManager = lazy(
+  () => import("../admin/components/CategoryManager")
+);
+const BannerManager = lazy(() => import("../admin/components/BannerManager"));
+const PrivacyPolicy = lazy(() => import("../pages/PrivacyPolicy"));
+const ReturnPolicy = lazy(() => import("../pages/ReturnPolicy"));
+const RefundShipping = lazy(() => import("../pages/RefundShipping"));
+const WarrantyTerms = lazy(() => import("../pages/WarrantyTerms"));
 
 const AppRouter = () => {
   const location = useLocation();
@@ -45,33 +53,32 @@ const AppRouter = () => {
   useEffect(() => {
     // Initialize dataLayer if it doesn't exist
     window.dataLayer = window.dataLayer || [];
-    
+
     // Push page view event to dataLayer
     window.dataLayer.push({
-      event: 'page_view',
+      event: "page_view",
       page_location: window.location.href,
       page_path: location.pathname,
       page_title: document.title,
       page_search: location.search,
-      page_hash: location.hash
+      page_hash: location.hash,
     });
 
     // Additional tracking for GA4 (if gtag is available)
     if (window.gtag) {
-      window.gtag('config', 'GA_MEASUREMENT_ID', {
+      window.gtag("config", "GA_MEASUREMENT_ID", {
         page_path: location.pathname,
         page_title: document.title,
-        page_location: window.location.href
+        page_location: window.location.href,
       });
     }
 
     // Console log for debugging (remove in production)
-    console.log('GTM Page View Tracked:', {
+    console.log("GTM Page View Tracked:", {
       path: location.pathname,
       title: document.title,
-      url: window.location.href
+      url: window.location.href,
     });
-
   }, [location]);
 
   return (
@@ -96,12 +103,7 @@ const AppRouter = () => {
             <Route path="warranty-terms" element={<WarrantyTerms />} />
 
             {/* Protected Customer Routes */}
-            <Route
-              path="wishlist"
-              element={
-                  <Wishlist />
-              }
-            />
+            <Route path="wishlist" element={<Wishlist />} />
             <Route
               path="cart"
               element={
@@ -115,6 +117,23 @@ const AppRouter = () => {
               element={
                 <ProtectedRoute>
                   <CheckoutPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/payment/return"
+              element={
+                <ProtectedRoute>
+                  <PaymentReturn />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/orders/:orderId/payment-status"
+              element={
+                <ProtectedRoute>
+                  
+                  <PaymentStatus />
                 </ProtectedRoute>
               }
             />

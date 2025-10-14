@@ -45,7 +45,23 @@ export const downloadInvoice = async (orderId) => {
   return response;
 };
 
-// New service functions to match backend capabilities
+// Payment-related services
+export const checkPaymentStatus = async (orderId) => {
+  const response = await api.get(`/orders/${orderId}/payment/status`);
+  return response.data;
+};
+
+export const retryPayment = async (orderId) => {
+  const response = await api.post(`/orders/${orderId}/payment/retry`);
+  return response.data;
+};
+
+export const handlePaymentReturn = async (queryParams) => {
+  const response = await api.get('/orders/payment/return', { params: queryParams });
+  return response.data;
+};
+
+// Analytics services
 export const getRecentOrderNotifications = async (limit = 5) => {
   const response = await api.get('/orders/notifications/recent', {
     params: { limit }
@@ -58,7 +74,7 @@ export const getRevenueStats = async (period = 'month', startDate = '', endDate 
   if (startDate) params.startDate = startDate;
   if (endDate) params.endDate = endDate;
   
-  const response = await api.get('/orders/stats/revenue', { params });
+  const response = await api.get('/orders/analytics/revenue', { params });
   return response.data;
 };
 
@@ -67,6 +83,6 @@ export const getProductRevenue = async (limit = 10, startDate = '', endDate = ''
   if (startDate) params.startDate = startDate;
   if (endDate) params.endDate = endDate;
   
-  const response = await api.get('/orders/stats/products', { params });
+  const response = await api.get('/orders/analytics/products', { params });
   return response.data;
 };

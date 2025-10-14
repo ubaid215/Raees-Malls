@@ -83,7 +83,7 @@ const corsOptions = {
 
 
 // Comment it when update on live site
-// app.use(cors(corsOptions));
+app.use(cors(corsOptions));
 
 
 app.use(express.json({ limit: '200mb' }));

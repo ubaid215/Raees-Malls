@@ -409,11 +409,11 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
     ?.replace(/\s+/g, '')
     ?.replace(/[^a-z0-9]/g, ''); // Remove special characters
 
-  console.log('Color processing:', { 
-    original: color.name, 
-    normalized: normalizedColorName,
-    found: colorMap[normalizedColorName] || 'NOT FOUND' 
-  });
+  // console.log('Color processing:', { 
+  //   original: color.name, 
+  //   normalized: normalizedColorName,
+  //   found: colorMap[normalizedColorName] || 'NOT FOUND' 
+  // });
 
   // Check if we have a mapping for this color
   if (normalizedColorName && colorMap[normalizedColorName]) {
@@ -450,7 +450,7 @@ const ProductCard = memo(({ productId, product: initialProduct }) => {
   }
 
   // Final fallback - use a gradient or pattern to indicate unknown color
-  console.warn('Unknown color, using fallback:', color);
+  // console.warn('Unknown color, using fallback:', color);
   return { 
     backgroundColor: '#e5e7eb', // Light gray fallback
     background: 'linear-gradient(45deg, #e5e7eb 25%, transparent 25%), linear-gradient(-45deg, #e5e7eb 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e5e7eb 75%), linear-gradient(-45deg, transparent 75%, #e5e7eb 75%)',
