@@ -18,22 +18,73 @@ const generateQR = async (text, options) => {
   return await QRCode.toDataURL(text, options);
 };
 
-// Alfa Payment Gateway Configuration
 const ALFA_CONFIG = {
   MERCHANT_HASH_KEY: process.env.ALFA_MERCHANT_HASH_KEY,
   MERCHANT_USERNAME: process.env.ALFA_MERCHANT_USERNAME,
   MERCHANT_PASSWORD: process.env.ALFA_MERCHANT_PASSWORD,
   RETURN_URL: process.env.ALFA_RETURN_URL || `${process.env.FRONTEND_URL}/payment/return`,
   LISTENER_URL: process.env.ALFA_LISTENER_URL || `${process.env.BACKEND_URL}/api/orders/payment/ipn`,
-  API_BASE_URL: process.env.ALFA_API_BASE_URL || 'https://sandbox.bankalfalah.com/HS/HS/HS',
-  PAGE_REDIRECTION_URL: process.env.ALFA_PAGE_REDIRECTION_URL || 'https://sandbox.bankalfalah.com/SSO/SSO/SSO'
+  
+  // FIXED: Correct API endpoints based on Bank Alfalah documentation
+  HANDSHAKE_URL: process.env.ALFA_HANDSHAKE_URL || 'https://sandbox.bankalfalah.com/HS/api/HandShake',
+  TRANSACTION_URL: process.env.ALFA_TRANSACTION_URL || 'https://sandbox.bankalfalah.com/HS/api/Transaction',
+  PROCESS_TRANSACTION_URL: process.env.ALFA_PROCESS_TRANSACTION_URL || 'https://sandbox.bankalfalah.com/HS/api/ProcessTransaction',
+  
+  // Page redirection URL for credit/debit cards
+  PAGE_REDIRECTION_URL: process.env.ALFA_PAGE_REDIRECTION_URL || 'https://sandbox.bankalfalah.com/SSO'
 };
 
 // Helper function to generate Alfa Payment Gateway hash
-const generateAlfaHash = (data) => {
-  const hashString = `${ALFA_CONFIG.MERCHANT_HASH_KEY}${data.transaction_amount}${data.transaction_id}`;
+const generateAlfaHash = (transactionAmount, transactionId) => {
+  // Format: MERCHANT_HASH_KEY + transaction_amount + transaction_id
+  const hashString = `${ALFA_CONFIG.MERCHANT_HASH_KEY}${transactionAmount}${transactionId}`;
   return crypto.createHash('sha256').update(hashString).digest('hex');
 };
+
+// STEP 1: Handshake Request
+const performHandshake = async (orderId) => {
+  try {
+    console.log('[ALFA_HANDSHAKE] Starting handshake', { orderId });
+
+    const handshakePayload = {
+      HS_MerchantId: ALFA_CONFIG.MERCHANT_USERNAME,
+      HS_MerchantPassword: ALFA_CONFIG.MERCHANT_PASSWORD,
+      HS_RequestHash: crypto.createHash('sha256')
+        .update(`${ALFA_CONFIG.MERCHANT_HASH_KEY}${orderId}`)
+        .digest('hex')
+    };
+
+    console.log('[ALFA_HANDSHAKE] Payload', handshakePayload);
+
+    const response = await axios.post(ALFA_CONFIG.HANDSHAKE_URL, handshakePayload, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log('[ALFA_HANDSHAKE] Response', response.data);
+
+    if (response.data.success || response.data.HS_IsSuccess === 'true') {
+      return {
+        success: true,
+        authToken: response.data.HS_AuthToken || response.data.authToken,
+        sessionId: response.data.HS_SessionId || response.data.sessionId
+      };
+    }
+
+    return {
+      success: false,
+      error: response.data.HS_ResponseMessage || 'Handshake failed'
+    };
+  } catch (error) {
+    console.error('[ALFA_HANDSHAKE] Failed', error.response?.data || error.message);
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message
+    };
+  }
+};
+
 
 // Helper function to extract variant information from order items
 const extractVariantInfo = (item) => {
@@ -117,70 +168,117 @@ const calculateItemDetails = (item) => {
   };
 };
 
-// NEW: Initiate Alfa Payment for API mode (Alfa Wallet & Bank Account)
+// STEP 2: Transaction Request (for Alfa Wallet & Bank Account)
 const initiateAlfaPaymentAPI = async (order, paymentMethod) => {
   try {
     const transactionId = `TXN-${order.orderId}-${Date.now()}`;
-    const paymentData = {
-      merchant_id: ALFA_CONFIG.MERCHANT_USERNAME,
-      merchant_password: ALFA_CONFIG.MERCHANT_PASSWORD,
-      transaction_id: transactionId,
-      transaction_amount: order.totalAmount.toFixed(2),
-      transaction_currency: 'PKR',
-      customer_email: order.userId.email || '',
-      customer_mobile: order.shippingAddress.phone || '',
-      basket_id: order.orderId,
-      return_url: ALFA_CONFIG.RETURN_URL,
-      listener_url: ALFA_CONFIG.LISTENER_URL,
-      payment_method: paymentMethod === 'alfa_wallet' ? 'alfa_wallet' : 'alfalah_bank'
-    };
+    const transactionAmount = order.totalAmount.toFixed(2);
 
-    // Generate hash
-    paymentData.hash = generateAlfaHash(paymentData);
+    // Step 1: Perform Handshake
+    const handshakeResult = await performHandshake(order.orderId);
+    if (!handshakeResult.success) {
+      throw new Error(`Handshake failed: ${handshakeResult.error}`);
+    }
 
     console.log('[ALFA_PAYMENT] Initiating API payment', { transactionId, paymentMethod });
 
-    const response = await axios.post(`${ALFA_CONFIG.API_BASE_URL}/api/payment/initiate`, paymentData);
+    // Step 2: Create Transaction
+    const transactionPayload = {
+      AuthToken: handshakeResult.authToken,
+      ChannelId: paymentMethod === 'alfa_wallet' ? 'Alfa Wallet' : 'Alfalah Bank Account',
+      TransactionTypeId: paymentMethod === 'alfa_wallet' ? '1' : '2', // 1=Wallet, 2=Bank Account
+      TransactionReferenceNumber: transactionId,
+      TransactionAmount: transactionAmount,
+      Currency: 'PKR',
+      BankIdentificationNumber: paymentMethod === 'alfalah_bank' ? order.bankAccountNumber : '',
+      MobileNumber: order.shippingAddress.phone || '',
+      EmailAddress: order.userId.email || '',
+      MerchantId: ALFA_CONFIG.MERCHANT_USERNAME,
+      MerchantPassword: ALFA_CONFIG.MERCHANT_PASSWORD,
+      RequestHash: generateAlfaHash(transactionAmount, transactionId),
+      ReturnURL: ALFA_CONFIG.RETURN_URL,
+      MerchantResponseURL: ALFA_CONFIG.LISTENER_URL
+    };
+
+    console.log('[ALFA_PAYMENT] Transaction payload', transactionPayload);
+
+    const response = await axios.post(ALFA_CONFIG.TRANSACTION_URL, transactionPayload, {
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log('[ALFA_PAYMENT] Transaction response', response.data);
+
+    if (response.data.success || response.data.TransactionStatus === 'Success') {
+      return {
+        success: true,
+        transactionId,
+        authToken: handshakeResult.authToken,
+        sessionId: handshakeResult.sessionId,
+        paymentUrl: response.data.PaymentURL || response.data.paymentUrl,
+        transactionResponse: response.data
+      };
+    }
+
+    return {
+      success: false,
+      error: response.data.ResponseMessage || 'Transaction initiation failed'
+    };
+  } catch (error) {
+    console.error('[ALFA_PAYMENT] API initiation failed', error.response?.data || error.message);
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message
+    };
+  }
+};
+
+// Generate Alfa Payment form data for page redirection (Credit/Debit Card)
+const generateAlfaPaymentForm = async (order) => {
+  try {
+    const transactionId = `TXN-${order.orderId}-${Date.now()}`;
+    const transactionAmount = order.totalAmount.toFixed(2);
+
+    // Perform Handshake first
+    const handshakeResult = await performHandshake(order.orderId);
+    if (!handshakeResult.success) {
+      throw new Error(`Handshake failed: ${handshakeResult.error}`);
+    }
+
+    console.log('[ALFA_PAYMENT] Generating payment form', { transactionId });
+
+    // Create form data for page redirection
+    const formData = {
+      AuthToken: handshakeResult.authToken,
+      RequestHash: generateAlfaHash(transactionAmount, transactionId),
+      ChannelId: 'Card on Delivery', // For credit/debit cards
+      TransactionTypeId: '3', // Card payment
+      TransactionReferenceNumber: transactionId,
+      TransactionAmount: transactionAmount,
+      Currency: 'PKR',
+      MobileNumber: order.shippingAddress.phone || '',
+      EmailAddress: order.userId.email || '',
+      MerchantId: ALFA_CONFIG.MERCHANT_USERNAME,
+      ReturnURL: ALFA_CONFIG.RETURN_URL,
+      MerchantResponseURL: ALFA_CONFIG.LISTENER_URL
+    };
 
     return {
       success: true,
       transactionId,
-      paymentUrl: response.data.payment_url,
-      sessionId: response.data.session_id
+      authToken: handshakeResult.authToken,
+      sessionId: handshakeResult.sessionId,
+      formData,
+      actionUrl: ALFA_CONFIG.PAGE_REDIRECTION_URL
     };
   } catch (error) {
-    console.error('[ALFA_PAYMENT] API initiation failed', error);
+    console.error('[ALFA_PAYMENT] Form generation failed', error);
     return {
       success: false,
       error: error.message
     };
   }
-};
-
-// NEW: Generate Alfa Payment form data for page redirection (Credit Card)
-const generateAlfaPaymentForm = (order) => {
-  const transactionId = `TXN-${order.orderId}-${Date.now()}`;
-  
-  const formData = {
-    merchant_id: ALFA_CONFIG.MERCHANT_USERNAME,
-    transaction_id: transactionId,
-    transaction_amount: order.totalAmount.toFixed(2),
-    transaction_currency: 'PKR',
-    customer_email: order.userId.email || '',
-    customer_mobile: order.shippingAddress.phone || '',
-    basket_id: order.orderId,
-    return_url: ALFA_CONFIG.RETURN_URL,
-    listener_url: ALFA_CONFIG.LISTENER_URL
-  };
-
-  // Generate hash
-  formData.hash = generateAlfaHash(formData);
-
-  return {
-    transactionId,
-    formData,
-    actionUrl: ALFA_CONFIG.PAGE_REDIRECTION_URL
-  };
 };
 
 exports.placeOrder = async (req, res, next) => {
@@ -545,32 +643,44 @@ exports.placeOrder = async (req, res, next) => {
         order.alfaPayment = {
           transactionId: paymentResponse.transactionId,
           transactionDate: new Date(),
+          authToken: paymentResponse.authToken,
+          sessionId: paymentResponse.sessionId,
+          merchantHashKey: ALFA_CONFIG.MERCHANT_HASH_KEY,
+          merchantUsername: ALFA_CONFIG.MERCHANT_USERNAME,
+          paymentChannel: paymentMethod,
+          basketId: order.orderId,
+          transactionResponse: paymentResponse.transactionResponse
+        };
+
+      } else if (paymentMethod === 'credit_card' || paymentMethod === 'debit_card') {
+        // Use page redirection for credit/debit cards
+        paymentResponse = await generateAlfaPaymentForm(order);
+        
+        if (!paymentResponse.success) {
+          throw new ApiError(500, `Payment form generation failed: ${paymentResponse.error}`);
+        }
+
+        // Save transaction details
+        order.alfaPayment = {
+          transactionId: paymentResponse.transactionId,
+          transactionDate: new Date(),
+          authToken: paymentResponse.authToken,
+          sessionId: paymentResponse.sessionId,
           merchantHashKey: ALFA_CONFIG.MERCHANT_HASH_KEY,
           merchantUsername: ALFA_CONFIG.MERCHANT_USERNAME,
           paymentChannel: paymentMethod,
           basketId: order.orderId
         };
-
-      } else if (paymentMethod === 'credit_card') {
-        // Use page redirection for credit cards
-        paymentResponse = generateAlfaPaymentForm(order);
-        
-        // Save transaction details
-        order.alfaPayment = {
-          transactionId: paymentResponse.transactionId,
-          transactionDate: new Date(),
-          merchantHashKey: ALFA_CONFIG.MERCHANT_HASH_KEY,
-          merchantUsername: ALFA_CONFIG.MERCHANT_USERNAME,
-          paymentChannel: 'credit_card',
-          basketId: order.orderId
-        };
+      } else {
+        // Invalid payment method
+        throw new ApiError(400, `Invalid payment method: ${paymentMethod}`);
       }
 
       // Save order with pending payment status (don't reduce stock yet)
       await order.save();
       console.log(`[ORDER] Order created with pending payment`, { orderId: order.orderId });
 
-      // Return payment initiation details - IMPORTANT: Different message for online payments
+      // Return payment initiation details
       return ApiResponse.success(res, 201, 'Payment required to complete order', {
         order: {
           orderId: order.orderId,
@@ -582,14 +692,15 @@ exports.placeOrder = async (req, res, next) => {
         payment: {
           method: paymentMethod,
           transactionId: paymentResponse.transactionId,
-          ...(paymentMethod === 'credit_card' 
+          authToken: paymentResponse.authToken,
+          sessionId: paymentResponse.sessionId,
+          ...(paymentMethod === 'credit_card' || paymentMethod === 'debit_card'
             ? { 
                 redirectUrl: paymentResponse.actionUrl,
                 formData: paymentResponse.formData 
               }
             : { 
-                paymentUrl: paymentResponse.paymentUrl,
-                sessionId: paymentResponse.sessionId 
+                paymentUrl: paymentResponse.paymentUrl
               }
           )
         },
