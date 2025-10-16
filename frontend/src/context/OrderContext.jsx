@@ -14,7 +14,10 @@ import {
   getProductRevenue,
   checkPaymentStatus,
   retryPayment,
-  handlePaymentReturn
+  handlePaymentReturn,
+  getOrderDetails,
+  submitPaymentForm,
+  validatePaymentData
 } from '../services/orderService';
 import socketService from '../services/socketService';
 import { useToast } from './ToastContext';
@@ -32,9 +35,10 @@ export const OrderProvider = ({ children }) => {
   const [revenueStats, setRevenueStats] = useState(null);
   const [productStats, setProductStats] = useState([]);
   const [paymentStatus, setPaymentStatus] = useState({});
+  const [currentOrder, setCurrentOrder] = useState(null);
   const { success: toastSuccess, error: toastError, warning: toastWarn, info: toastInfo } = useToast();
 
-  // Add these refs for preventing multiple fetches
+  // Refs for preventing multiple fetches
   const lastAdminFetch = useRef(0);
   const lastUserFetch = useRef(0);
   const initializationRef = useRef(false);
@@ -43,12 +47,12 @@ export const OrderProvider = ({ children }) => {
   const isRegularUser = isAuthenticated && user && user.role === 'user';
   const userRole = isAdmin ? admin.role : (isRegularUser ? user.role : null);
 
-  // Improved cache key generation
+  // Cache key generation
   const generateCacheKey = useCallback((type, userId, page, limit, status, extraParams = '') => {
     return `orders_${type}_${userId || 'all'}_p${page}_l${limit}_s${status || 'all'}${extraParams}`;
   }, []);
 
-  // Enhanced validation with payment method support
+  // Order data validation
   const validateOrderData = (orderData) => {
     const errors = [];
     
@@ -59,14 +63,8 @@ export const OrderProvider = ({ children }) => {
         if (!item.productId) {
           errors.push(`Item ${index + 1}: Product ID is required`);
         }
-        if (item.variantId && typeof item.variantId !== 'string') {
-          errors.push(`Item ${index + 1}: Variant ID must be a string`);
-        }
         if (!item.quantity || item.quantity < 1 || !Number.isInteger(item.quantity)) {
           errors.push(`Item ${index + 1}: Quantity must be a positive integer`);
-        }
-        if (item.variantType && !['simple', 'color', 'storage', 'size'].includes(item.variantType)) {
-          errors.push(`Item ${index + 1}: Invalid variant type`);
         }
       });
     }
@@ -83,32 +81,28 @@ export const OrderProvider = ({ children }) => {
       if (!country) errors.push('Country is required');
       if (!phone) {
         errors.push('Phone number is required');
-      } else {
-        const phoneRegex = /^(\+?\d{1,4}[\s-]?)?\(?\d{1,4}\)?[\s.-]?\d{1,4}[\s.-]?\d{1,9}$/;
-        if (!phoneRegex.test(phone)) {
-          errors.push('Please enter a valid phone number (e.g., +923001234567, 03001234567, or 3001234567)');
-        }
       }
     }
     
     // Payment method validation
     if (!orderData.paymentMethod) {
       errors.push('Payment method is required');
-    } else if (!['cash_on_delivery', 'credit_card', 'alfa_wallet', 'alfalah_bank'].includes(orderData.paymentMethod)) {
+    } else if (!['cash_on_delivery', 'credit_card', 'debit_card', 'alfa_wallet', 'alfalah_bank'].includes(orderData.paymentMethod)) {
       errors.push('Invalid payment method selected');
     }
     
-    if (orderData.discountCode && !/^[A-Z0-9-]+$/i.test(orderData.discountCode)) {
-      errors.push('Discount code can only contain letters, numbers, and hyphens');
+    // Bank account validation for Alfalah Bank payments
+    if (orderData.paymentMethod === 'alfalah_bank' && !orderData.bankAccountNumber) {
+      errors.push('Bank account number is required for Alfalah Bank payments');
     }
     
     return errors;
   };
 
-  // Improved cache management
+  // Cache management
   const clearAllOrdersCache = useCallback(() => {
     Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('orders_') || key.includes('_orders_') || key.startsWith('notifications_') || key.startsWith('stats_') || key.startsWith('payment_')) {
+      if (key.startsWith('orders_') || key.startsWith('notifications_') || key.startsWith('stats_') || key.startsWith('payment_')) {
         localStorage.removeItem(key);
         localStorage.removeItem(`${key}_timestamp`);
       }
@@ -126,6 +120,44 @@ export const OrderProvider = ({ children }) => {
     }
   }, [user?._id]);
 
+  // Fetch order details
+  const fetchOrderDetails = useCallback(async (orderId, forceRefresh = false) => {
+    if (!orderId) return null;
+
+    const cacheKey = `order_details_${orderId}`;
+    
+    if (!forceRefresh) {
+      const cached = localStorage.getItem(cacheKey);
+      const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 2 * 60 * 1000;
+
+      if (cached && cacheValid) {
+        try {
+          return JSON.parse(cached);
+        } catch (parseError) {
+          localStorage.removeItem(cacheKey);
+          localStorage.removeItem(`${cacheKey}_timestamp`);
+        }
+      }
+    }
+
+    try {
+      const response = await getOrderDetails(orderId);
+      const orderData = response.data?.order;
+      
+      if (!forceRefresh && orderData) {
+        localStorage.setItem(cacheKey, JSON.stringify(orderData));
+        localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
+      }
+      
+      setCurrentOrder(orderData);
+      return orderData;
+    } catch (err) {
+      console.error('fetchOrderDetails error:', err);
+      throw err;
+    }
+  }, []);
+
   // Payment-related functions
   const checkOrderPaymentStatus = useCallback(async (orderId, forceRefresh = false) => {
     if (!orderId) return null;
@@ -135,7 +167,7 @@ export const OrderProvider = ({ children }) => {
     if (!forceRefresh) {
       const cached = localStorage.getItem(cacheKey);
       const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
-      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 30 * 1000; // 30 seconds cache
+      const cacheValid = cacheTimestamp && Date.now() - parseInt(cacheTimestamp) < 30 * 1000;
 
       if (cached && cacheValid) {
         try {
@@ -151,13 +183,11 @@ export const OrderProvider = ({ children }) => {
       const response = await checkPaymentStatus(orderId);
       const paymentData = response.data;
       
-      // Update payment status state
       setPaymentStatus(prev => ({
         ...prev,
         [orderId]: paymentData
       }));
 
-      // Cache the response
       if (!forceRefresh) {
         localStorage.setItem(cacheKey, JSON.stringify(paymentData));
         localStorage.setItem(`${cacheKey}_timestamp`, Date.now().toString());
@@ -185,19 +215,15 @@ export const OrderProvider = ({ children }) => {
       const response = await retryPayment(orderId);
       const { order, payment } = response.data;
 
-      // Clear payment cache
       localStorage.removeItem(`payment_status_${orderId}`);
       localStorage.removeItem(`payment_status_${orderId}_timestamp`);
 
       toastSuccess('Payment retry initiated', { position: "top-right", autoClose: 3000 });
 
-      // Handle payment redirection based on method
       if (payment) {
-        if (order.paymentMethod === 'credit_card') {
-          // Redirect to payment gateway with form data
-          redirectToPaymentGateway(payment.redirectUrl, payment.formData);
+        if (payment.requiresFormSubmission) {
+          await submitPaymentForm(payment.formData, payment.actionUrl);
         } else {
-          // Redirect to API payment page
           window.location.href = payment.paymentUrl;
         }
       }
@@ -217,15 +243,17 @@ export const OrderProvider = ({ children }) => {
       const response = await handlePaymentReturn(queryParams);
       const { order, paymentDetails } = response.data;
 
-      // Clear relevant caches
       clearUserOrdersCache();
       localStorage.removeItem(`payment_status_${order.orderId}`);
+      localStorage.removeItem(`order_details_${order.orderId}`);
       
-      // Update local state
-      if (paymentDetails.responseCode === '00') {
+      if (paymentDetails.responseCode === '00' || paymentDetails.transaction_status === 'success') {
         toastSuccess('Payment completed successfully!', { position: "top-right", autoClose: 5000 });
       } else {
-        toastError(`Payment failed: ${paymentDetails.message}`, { position: "top-right", autoClose: 5000 });
+        toastError(`Payment failed: ${paymentDetails.message || paymentDetails.response_message}`, { 
+          position: "top-right", 
+          autoClose: 5000 
+        });
       }
 
       return response.data;
@@ -236,26 +264,25 @@ export const OrderProvider = ({ children }) => {
     }
   };
 
-  // Helper function to redirect to payment gateway
-  const redirectToPaymentGateway = (redirectUrl, formData) => {
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = redirectUrl;
-    form.style.display = 'none';
+  // Enhanced payment submission
+  const submitBankAlfalahPayment = async (paymentData) => {
+    try {
+      const validationErrors = validatePaymentData(paymentData);
+      if (validationErrors.length > 0) {
+        throw new Error(validationErrors.join(', '));
+      }
 
-    Object.keys(formData).forEach(key => {
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = key;
-      input.value = formData[key];
-      form.appendChild(input);
-    });
-
-    document.body.appendChild(form);
-    form.submit();
+      await submitPaymentForm(paymentData.formData, paymentData.actionUrl);
+      
+      return { success: true, message: 'Payment form submitted successfully' };
+    } catch (error) {
+      console.error('submitBankAlfalahPayment error:', error);
+      toastError(`Payment submission failed: ${error.message}`, { position: "top-right", autoClose: 5000 });
+      throw error;
+    }
   };
 
-  // Enhanced socket reconnection logic
+  // Socket reconnection
   const handleSocketReconnect = useCallback(() => {
     if (!socketService.getConnectionState()) {
       const currentUserId = isAdmin ? admin?._id : user?._id;
@@ -272,19 +299,21 @@ export const OrderProvider = ({ children }) => {
         console.log('Payment success received:', data);
         const { order } = data;
         
-        // Update local orders state
         setOrders(prev => prev.map(ord => 
           ord.orderId === order.orderId ? { ...ord, ...order } : ord
         ));
         
-        // Update payment status
         setPaymentStatus(prev => ({
           ...prev,
           [order.orderId]: { ...prev[order.orderId], paymentStatus: 'completed' }
         }));
 
-        // Clear cache
+        if (currentOrder && currentOrder.orderId === order.orderId) {
+          setCurrentOrder(prev => ({ ...prev, ...order }));
+        }
+
         localStorage.removeItem(`payment_status_${order.orderId}`);
+        localStorage.removeItem(`order_details_${order.orderId}`);
         clearUserOrdersCache();
 
         toastSuccess(`Payment completed for order ${order.orderId}`, {
@@ -297,7 +326,6 @@ export const OrderProvider = ({ children }) => {
         console.log('Payment failure received:', data);
         const { order, message } = data;
         
-        // Update payment status
         setPaymentStatus(prev => ({
           ...prev,
           [order.orderId]: { 
@@ -307,18 +335,21 @@ export const OrderProvider = ({ children }) => {
           }
         }));
 
+        if (currentOrder && currentOrder.orderId === order.orderId) {
+          setCurrentOrder(prev => ({ ...prev, paymentStatus: 'failed' }));
+        }
+
         toastError(`Payment failed: ${message}`, {
           position: "top-right",
           autoClose: 5000,
         });
       });
     }
-  }, [isRegularUser, user?._id, clearUserOrdersCache]);
+  }, [isRegularUser, user?._id, clearUserOrdersCache, currentOrder]);
 
+  // Fetch functions
   const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '', forceRefresh = false) => {
-    if (!isRegularUser && !isAdmin) {
-      return;
-    }
+    if (!isRegularUser && !isAdmin) return;
 
     const cacheKey = generateCacheKey('user', user?._id, page, limit, status);
     
@@ -369,9 +400,7 @@ export const OrderProvider = ({ children }) => {
   }, [isRegularUser, isAdmin, user?._id, generateCacheKey]);
 
   const fetchAllOrders = useCallback(async (page = 1, limit = 10, status = '', userId = '', forceRefresh = false) => {
-    if (!isAdmin) {
-      return;
-    }
+    if (!isAdmin) return;
 
     const cacheKey = generateCacheKey('all', 'admin', page, limit, status, `_user_${userId || 'all'}`);
     
@@ -421,7 +450,6 @@ export const OrderProvider = ({ children }) => {
     }
   }, [isAdmin, generateCacheKey]);
 
-  // New function to fetch notifications
   const fetchNotifications = useCallback(async (limit = 5, forceRefresh = false) => {
     if (!isAdmin) return;
 
@@ -458,7 +486,6 @@ export const OrderProvider = ({ children }) => {
     }
   }, [isAdmin]);
 
-  // New function to fetch revenue stats
   const fetchRevenueStats = useCallback(async (period = 'month', startDate = '', endDate = '', forceRefresh = false) => {
     if (!isAdmin) return;
 
@@ -495,7 +522,6 @@ export const OrderProvider = ({ children }) => {
     }
   }, [isAdmin]);
 
-  // New function to fetch product revenue stats
   const fetchProductStats = useCallback(async (limit = 10, startDate = '', endDate = '', forceRefresh = false) => {
     if (!isAdmin) return;
 
@@ -546,7 +572,7 @@ export const OrderProvider = ({ children }) => {
     [fetchAllOrders]
   );
 
-  // Enhanced useEffect with payment socket handlers
+  // Main useEffect
   useEffect(() => {
     if (!userRole || initializationRef.current) return;
 
@@ -576,7 +602,6 @@ export const OrderProvider = ({ children }) => {
 
     let pollingInterval = null;
 
-    // Enhanced socket setup with payment handlers
     if (isAdmin) {
       socketService.connect(currentUserId, 'admin');
 
@@ -641,7 +666,6 @@ export const OrderProvider = ({ children }) => {
     } else if (isRegularUser) {
       socketService.connect(currentUserId, 'user');
       
-      // Setup payment socket handlers
       setupPaymentSocketHandlers();
       
       socketService.on('orderStatusUpdated', (updatedOrder) => {
@@ -722,24 +746,18 @@ export const OrderProvider = ({ children }) => {
 
       toastSuccess('Order placed successfully!', { position: "top-right", autoClose: 3000 });
       
-      // Clear cache
       clearAllOrdersCache();
       
-      // Handle payment redirection for online payments
       if (order.paymentMethod !== 'cash_on_delivery' && payment) {
-        if (order.paymentMethod === 'credit_card') {
-          // Redirect to payment gateway with form data
-          redirectToPaymentGateway(payment.redirectUrl, payment.formData);
+        if (payment.requiresFormSubmission) {
+          await submitPaymentForm(payment.formData, payment.actionUrl);
         } else {
-          // Redirect to API payment page
           window.location.href = payment.paymentUrl;
         }
         
-        // Return both order and payment for handling redirection
         return { order, payment };
       }
       
-      // For COD orders, refresh orders list
       if (isAdmin) {
         await debouncedFetchAllOrders(1, 10, '', '', true);
         fetchNotifications(5, true);
@@ -882,7 +900,6 @@ export const OrderProvider = ({ children }) => {
     }
   };
 
-  // Enhanced force refresh function
   const forceRefreshOrders = useCallback(() => {
     clearAllOrdersCache();
     if (isAdmin) {
@@ -904,15 +921,18 @@ export const OrderProvider = ({ children }) => {
     revenueStats,
     productStats,
     paymentStatus,
+    currentOrder,
     placeNewOrder,
     fetchUserOrders: debouncedFetchUserOrders,
     fetchAllOrders: debouncedFetchAllOrders,
+    fetchOrderDetails,
     fetchNotifications,
     fetchRevenueStats,
     fetchProductStats,
     checkOrderPaymentStatus,
     retryOrderPayment,
     handlePaymentReturnFromGateway,
+    submitBankAlfalahPayment,
     updateStatus,
     cancelOrder: cancelUserOrder,
     downloadOrderInvoice,

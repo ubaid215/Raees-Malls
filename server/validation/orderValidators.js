@@ -160,12 +160,32 @@ const placeOrderValidator = [
     .optional({ nullable: true })
     .isEmail().withMessage('Invalid email address'),
 
-  // Payment and billing validation - UPDATED with new payment methods
+  // Payment and billing validation - UPDATED with all Bank Alfalah payment methods
   body('paymentMethod')
     .optional()
-    .isIn(['cash_on_delivery', 'credit_card', 'alfa_wallet', 'alfalah_bank'])
+    .isIn([
+      'cash_on_delivery', 
+      'credit_card', 
+      'debit_card',
+      'alfa_wallet', 
+      'alfalah_bank'
+    ])
     .withMessage('Invalid payment method'),
 
+  // Bank account validation for Alfalah Bank payments
+  body('bankAccountNumber')
+    .optional()
+    .custom((value, { req }) => {
+      if (req.body.paymentMethod === 'alfalah_bank' && !value) {
+        throw new Error('Bank account number is required for Alfalah Bank payments');
+      }
+      if (value && !/^\d{10,16}$/.test(value)) {
+        throw new Error('Bank account number must be 10-16 digits');
+      }
+      return true;
+    }),
+
+  // Billing address validation
   body('billingAddress')
     .optional().isObject().withMessage('Billing address must be an object'),
 
@@ -288,7 +308,7 @@ const getOrdersValidator = [
     .withMessage('Invalid user ID'),
   query('paymentMethod')
     .optional()
-    .isIn(['', 'cash_on_delivery', 'credit_card', 'alfa_wallet', 'alfalah_bank'])
+    .isIn(['', 'cash_on_delivery', 'credit_card', 'debit_card', 'alfa_wallet', 'alfalah_bank'])
     .withMessage('Invalid payment method'),
   query('paymentStatus')
     .optional()
@@ -339,7 +359,7 @@ const retryPaymentValidator = [
   validate
 ];
 
-// NEW: IPN handler validator (for Alfa Payment Gateway)
+// NEW: IPN handler validator (for Bank Alfalah Payment Gateway)
 const ipnHandlerValidator = [
   body('handshake_key')
     .notEmpty()
@@ -370,6 +390,23 @@ const ipnHandlerValidator = [
     .optional()
     .isString()
     .withMessage('Basket ID must be a string'),
+  // Additional Bank Alfalah specific fields
+  body('merchant_id')
+    .optional()
+    .isString()
+    .withMessage('Merchant ID must be a string'),
+  body('store_id')
+    .optional()
+    .isString()
+    .withMessage('Store ID must be a string'),
+  body('channel_id')
+    .optional()
+    .isString()
+    .withMessage('Channel ID must be a string'),
+  body('currency')
+    .optional()
+    .isString()
+    .withMessage('Currency must be a string'),
   validate
 ];
 
@@ -391,6 +428,113 @@ const paymentReturnValidator = [
     .optional()
     .isString()
     .withMessage('Basket ID must be a string'),
+  // Additional Bank Alfalah return parameters
+  query('auth_token')
+    .optional()
+    .isString()
+    .withMessage('Auth token must be a string'),
+  query('session_id')
+    .optional()
+    .isString()
+    .withMessage('Session ID must be a string'),
+  query('merchant_id')
+    .optional()
+    .isString()
+    .withMessage('Merchant ID must be a string'),
+  query('store_id')
+    .optional()
+    .isString()
+    .withMessage('Store ID must be a string'),
+  validate
+];
+
+// NEW: Handshake validator for Bank Alfalah
+const handshakeValidator = [
+  body('orderId')
+    .notEmpty()
+    .withMessage('Order ID is required')
+    .isString()
+    .withMessage('Order ID must be a string'),
+  body('transactionAmount')
+    .notEmpty()
+    .isFloat({ min: 1 })
+    .withMessage('Valid transaction amount is required'),
+  validate
+];
+
+// NEW: Payment form generation validator
+const paymentFormValidator = [
+  body('orderId')
+    .notEmpty()
+    .withMessage('Order ID is required')
+    .isString()
+    .withMessage('Order ID must be a string'),
+  body('paymentMethod')
+    .notEmpty()
+    .isIn(['credit_card', 'debit_card', 'alfa_wallet', 'alfalah_bank'])
+    .withMessage('Invalid payment method'),
+  body('transactionAmount')
+    .optional()
+    .isFloat({ min: 1 })
+    .withMessage('Valid transaction amount is required'),
+  body('bankAccountNumber')
+    .optional()
+    .custom((value, { req }) => {
+      if (req.body.paymentMethod === 'alfalah_bank' && !value) {
+        throw new Error('Bank account number is required for Alfalah Bank payments');
+      }
+      if (value && !/^\d{10,16}$/.test(value)) {
+        throw new Error('Bank account number must be 10-16 digits');
+      }
+      return true;
+    }),
+  validate
+];
+
+// NEW: Revenue stats validator
+const revenueStatsValidator = [
+  query('period')
+    .optional()
+    .isIn(['day', 'week', 'month', 'year'])
+    .withMessage('Period must be one of: day, week, month, year'),
+  query('startDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Invalid start date format'),
+  query('endDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Invalid end date format'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Limit must be between 1 and 100'),
+  validate
+];
+
+// NEW: Product revenue validator
+const productRevenueValidator = [
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 50 })
+    .withMessage('Limit must be between 1 and 50'),
+  query('startDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Invalid start date format'),
+  query('endDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Invalid end date format'),
+  validate
+];
+
+// NEW: Recent notifications validator
+const recentNotificationsValidator = [
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 20 })
+    .withMessage('Limit must be between 1 and 20'),
   validate
 ];
 
@@ -404,5 +548,10 @@ module.exports = {
   retryPaymentValidator,
   ipnHandlerValidator,
   paymentReturnValidator,
+  handshakeValidator,
+  paymentFormValidator,
+  revenueStatsValidator,
+  productRevenueValidator,
+  recentNotificationsValidator,
   validate
 };

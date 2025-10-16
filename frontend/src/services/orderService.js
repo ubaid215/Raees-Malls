@@ -45,7 +45,13 @@ export const downloadInvoice = async (orderId) => {
   return response;
 };
 
-// Payment-related services
+// NEW: Get order details
+export const getOrderDetails = async (orderId) => {
+  const response = await api.get(`/orders/${orderId}`);
+  return response.data;
+};
+
+// Payment-related services - UPDATED for Bank Alfalah
 export const checkPaymentStatus = async (orderId) => {
   const response = await api.get(`/orders/${orderId}/payment/status`);
   return response.data;
@@ -58,6 +64,12 @@ export const retryPayment = async (orderId) => {
 
 export const handlePaymentReturn = async (queryParams) => {
   const response = await api.get('/orders/payment/return', { params: queryParams });
+  return response.data;
+};
+
+// NEW: Handle payment IPN (for webhook callbacks)
+export const handlePaymentIPN = async (ipnData) => {
+  const response = await api.post('/orders/payment/ipn', ipnData);
   return response.data;
 };
 
@@ -85,4 +97,61 @@ export const getProductRevenue = async (limit = 10, startDate = '', endDate = ''
   
   const response = await api.get('/orders/analytics/products', { params });
   return response.data;
+};
+
+// NEW: Payment gateway utilities
+export const submitPaymentForm = (formData, actionUrl) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = actionUrl;
+      form.style.display = 'none';
+
+      // Add all form fields
+      Object.keys(formData).forEach(key => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = formData[key];
+        form.appendChild(input);
+      });
+
+      // Add submit button (required by some gateways)
+      const submitInput = document.createElement('input');
+      submitInput.type = 'submit';
+      submitInput.style.display = 'none';
+      form.appendChild(submitInput);
+
+      document.body.appendChild(form);
+      
+      // Store form reference for cleanup
+      window.currentPaymentForm = form;
+      
+      // Auto-submit the form
+      form.submit();
+      resolve({ success: true, message: 'Payment form submitted' });
+    } catch (error) {
+      reject(new Error(`Payment form submission failed: ${error.message}`));
+    }
+  });
+};
+
+// NEW: Validate payment data before submission
+export const validatePaymentData = (paymentData) => {
+  const errors = [];
+  
+  if (!paymentData.transactionId) {
+    errors.push('Transaction ID is required');
+  }
+  
+  if (!paymentData.formData || typeof paymentData.formData !== 'object') {
+    errors.push('Payment form data is required');
+  }
+  
+  if (!paymentData.actionUrl) {
+    errors.push('Payment gateway URL is required');
+  }
+  
+  return errors;
 };

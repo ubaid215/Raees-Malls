@@ -8,6 +8,9 @@ import {
   FiFilter,
   FiRefreshCw,
   FiAlertCircle,
+  FiCreditCard,
+  FiDollarSign,
+  FiXCircle,
 } from "react-icons/fi";
 import { toast } from "react-toastify";
 import LoadingSkeleton from "../../components/shared/LoadingSkelaton";
@@ -492,6 +495,38 @@ const getItemImage = (item) => {
       .join(', ');
   };
 
+  // Helper function to format payment method for display
+  const formatPaymentMethod = (method) => {
+    if (!method) return "Unknown";
+    
+    const methodMap = {
+      'cash_on_delivery': 'Cash on Delivery',
+      'alfa_wallet': 'Alfa Wallet',
+      'alfalah_bank': 'Bank Alfalah',
+      'credit_card': 'Credit Card',
+      'debit_card': 'Debit Card'
+    };
+    
+    return methodMap[method] || method.split('_').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
+  };
+
+  // Helper function to format payment status for display
+  const formatPaymentStatus = (status) => {
+    if (!status) return "Unknown";
+    
+    const statusMap = {
+      'pending': 'Pending',
+      'completed': 'Completed',
+      'failed': 'Failed',
+      'not_required': 'Not Required',
+      'refunded': 'Refunded'
+    };
+    
+    return statusMap[status] || status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
   const getOrderStatusBadge = (status) => {
     const statusStyles = {
       pending: "bg-yellow-100 text-yellow-800",
@@ -510,6 +545,49 @@ const getItemImage = (item) => {
         {status === "shipped" && <FiTruck className="mr-1" />}
         {status === "delivered" && <FiCheckCircle className="mr-1" />}
         <span className="capitalize">{status || "Unknown"}</span>
+      </span>
+    );
+  };
+
+  const getPaymentMethodBadge = (method) => {
+    const methodStyles = {
+      cash_on_delivery: "bg-green-100 text-green-800",
+      alfa_wallet: "bg-blue-100 text-blue-800",
+      alfalah_bank: "bg-indigo-100 text-indigo-800",
+      credit_card: "bg-purple-100 text-purple-800",
+      debit_card: "bg-pink-100 text-pink-800",
+    };
+
+    return (
+      <span
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${methodStyles[method] || "bg-gray-100 text-gray-800"}`}
+      >
+        {method === "cash_on_delivery" && <FiDollarSign className="mr-1" />}
+        {(method === "alfa_wallet" || method === "alfalah_bank" || method === "credit_card" || method === "debit_card") && <FiCreditCard className="mr-1" />}
+        <span>{formatPaymentMethod(method)}</span>
+      </span>
+    );
+  };
+
+  const getPaymentStatusBadge = (status) => {
+    const statusStyles = {
+      pending: "bg-yellow-100 text-yellow-800",
+      completed: "bg-green-100 text-green-800",
+      failed: "bg-red-100 text-red-800",
+      not_required: "bg-gray-100 text-gray-800",
+      refunded: "bg-orange-100 text-orange-800",
+    };
+
+    return (
+      <span
+        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusStyles[status] || "bg-gray-100 text-gray-800"}`}
+      >
+        {status === "pending" && <FiClock className="mr-1" />}
+        {status === "completed" && <FiCheckCircle className="mr-1" />}
+        {status === "failed" && <FiXCircle className="mr-1" />}
+        {status === "not_required" && <FiDollarSign className="mr-1" />}
+        {status === "refunded" && <FiRefreshCw className="mr-1" />}
+        <span>{formatPaymentStatus(status)}</span>
       </span>
     );
   };
@@ -769,7 +847,7 @@ const getItemImage = (item) => {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                     <div>
                       <p className="text-xs text-gray-600">Order ID</p>
                       <p className="font-medium text-gray-900 text-sm">
@@ -777,8 +855,16 @@ const getItemImage = (item) => {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-600">Status</p>
+                      <p className="text-xs text-gray-600">Order Status</p>
                       {getOrderStatusBadge(order.status)}
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Payment Method</p>
+                      {getPaymentMethodBadge(order.paymentMethod)}
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600">Payment Status</p>
+                      {getPaymentStatusBadge(order.paymentStatus)}
                     </div>
                     <div>
                       <p className="text-xs text-gray-600">Order Date</p>

@@ -9,10 +9,19 @@ const {
   downloadInvoiceValidator,
   cancelOrderValidator,
   checkPaymentStatusValidator,
-  retryPaymentValidator
+  retryPaymentValidator,
+  ipnHandlerValidator,
+  paymentReturnValidator,
+  revenueStatsValidator,
+  productRevenueValidator,
+  recentNotificationsValidator
 } = require('../validation/orderValidators');
 
-// User routes (under /api/orders)
+// =============================================
+// USER ROUTES (Authenticated Users)
+// =============================================
+
+// Place a new order
 router.post(
   '/',
   authenticateJWT,
@@ -21,6 +30,7 @@ router.post(
   orderController.placeOrder
 );
 
+// Get user's orders
 router.get(
   '/user',
   authenticateJWT,
@@ -29,6 +39,7 @@ router.get(
   orderController.getUserOrders
 );
 
+// Cancel user's order
 router.put(
   '/:orderId/cancel',
   authenticateJWT,
@@ -37,17 +48,25 @@ router.put(
   orderController.cancelOrder
 );
 
-// NEW: Payment-related routes
+// =============================================
+// PAYMENT ROUTES
+// =============================================
+
+// Bank Alfalah IPN (Instant Payment Notification) - Public endpoint
 router.post(
   '/payment/ipn',
+  ipnHandlerValidator,
   orderController.handlePaymentIPN
 );
 
+// Payment return URL (after payment completion) - Public endpoint
 router.get(
   '/payment/return',
+  paymentReturnValidator,
   orderController.handlePaymentReturn
 );
 
+// Check payment status for an order
 router.get(
   '/:orderId/payment/status',
   authenticateJWT,
@@ -56,6 +75,7 @@ router.get(
   orderController.checkPaymentStatus
 );
 
+// Retry failed payment
 router.post(
   '/:orderId/payment/retry',
   authenticateJWT,
@@ -64,28 +84,44 @@ router.post(
   orderController.retryPayment
 );
 
-// Notification routes (public access for toast notifications)
+// =============================================
+// NOTIFICATION ROUTES (Mixed Access)
+// =============================================
+
+// Recent order notifications (public access for toast notifications)
 router.get(
   '/notifications/recent',
+  recentNotificationsValidator,
   orderController.getRecentOrderNotifications
 );
 
-// Revenue/Analytics routes (admin only)
+// =============================================
+// ANALYTICS & REPORTING ROUTES (Admin Only)
+// =============================================
+
+// Revenue statistics
 router.get(
   '/analytics/revenue',
   authenticateJWT,
   authorizeRoles('admin'),
+  revenueStatsValidator,
   orderController.getRevenueStats
 );
 
+// Product revenue analytics
 router.get(
   '/analytics/products',
   authenticateJWT,
   authorizeRoles('admin'),
+  productRevenueValidator,
   orderController.getProductRevenue
 );
 
-// Admin routes
+// =============================================
+// ADMIN MANAGEMENT ROUTES (Admin Only)
+// =============================================
+
+// Get all orders (with filtering and pagination)
 router.get(
   '/',
   authenticateJWT,
@@ -94,6 +130,7 @@ router.get(
   orderController.getAllOrders
 );
 
+// Update order status
 router.put(
   '/:orderId/status',
   authenticateJWT,
@@ -102,12 +139,26 @@ router.put(
   orderController.updateOrderStatus
 );
 
+// Download order invoice
 router.get(
   '/:orderId/invoice',
   authenticateJWT,
-  authorizeRoles('admin'),
+  authorizeRoles('admin', 'user'),
   downloadInvoiceValidator,
   orderController.downloadInvoice
+);
+
+// =============================================
+// ORDER DETAILS ROUTES (User & Admin)
+// =============================================
+
+// Get order details by ID (shared route - users can see their own, admins can see all)
+router.get(
+  '/:orderId',
+  authenticateJWT,
+  authorizeRoles('user', 'admin'),
+  checkPaymentStatusValidator,
+  orderController.getOrderDetails
 );
 
 module.exports = router;

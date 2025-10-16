@@ -10,7 +10,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
-const crypto = require('crypto');
+const CryptoJS = require('crypto-js');
 const axios = require('axios');
 
 // Add this helper function
@@ -19,72 +19,260 @@ const generateQR = async (text, options) => {
 };
 
 const ALFA_CONFIG = {
-  MERCHANT_HASH_KEY: process.env.ALFA_MERCHANT_HASH_KEY,
-  MERCHANT_USERNAME: process.env.ALFA_MERCHANT_USERNAME,
-  MERCHANT_PASSWORD: process.env.ALFA_MERCHANT_PASSWORD,
-  RETURN_URL: process.env.ALFA_RETURN_URL || `${process.env.FRONTEND_URL}/payment/return`,
+  MERCHANT_ID: process.env.ALFA_MERCHANT_ID || '32892',
+  STORE_ID: process.env.ALFA_STORE_ID || '221340',
+  MERCHANT_USERNAME: process.env.ALFA_MERCHANT_USERNAME || 'lycixi',
+  MERCHANT_PASSWORD: process.env.ALFA_MERCHANT_PASSWORD || 'Nda8tI9ib4tvFzk4yqF7CA==',
+  MERCHANT_HASH: process.env.ALFA_MERCHANT_HASH_KEY || 'OUU362MB1urjt7KPP4CIHFLpyWkhnEJyWM+XCFLfdDDgfJ0w/q3C5MVwUTLJj8PxhpJ+MYhr2++NmOWncQkNYQ==',
+
+  // ✅ CORRECTED ENCRYPTION KEYS
+  ENCRYPTION_KEY1: process.env.ALFA_ENCRYPTION_KEY1 || 'dM3R6sKzrWn6d6aQ',
+  ENCRYPTION_KEY2: process.env.ALFA_ENCRYPTION_KEY2 || '1299316423257449',
+
+  RETURN_URL: process.env.ALFA_RETURN_URL || `${process.env.FRONTEND_URL}/api/orders/payment/return`,
   LISTENER_URL: process.env.ALFA_LISTENER_URL || `${process.env.BACKEND_URL}/api/orders/payment/ipn`,
-  
-  // FIXED: Correct API endpoints based on Bank Alfalah documentation
-  HANDSHAKE_URL: process.env.ALFA_HANDSHAKE_URL || 'https://sandbox.bankalfalah.com/HS/api/HandShake',
-  TRANSACTION_URL: process.env.ALFA_TRANSACTION_URL || 'https://sandbox.bankalfalah.com/HS/api/Transaction',
-  PROCESS_TRANSACTION_URL: process.env.ALFA_PROCESS_TRANSACTION_URL || 'https://sandbox.bankalfalah.com/HS/api/ProcessTransaction',
-  
-  // Page redirection URL for credit/debit cards
-  PAGE_REDIRECTION_URL: process.env.ALFA_PAGE_REDIRECTION_URL || 'https://sandbox.bankalfalah.com/SSO'
+
+  HANDSHAKE_URL: process.env.ALFA_HANDSHAKE_URL || 'https://sandbox.bankalfalah.com/HS/HS/HS',
+  TRANSACTION_URL: process.env.ALFA_TRANSACTION_URL || 'https://sandbox.bankalfalah.com/HS/api/HSAPI/PaymentRequest',
+  PROCESS_TRANSACTION_URL: process.env.ALFA_PROCESS_TRANSACTION_URL || 'https://sandbox.bankalfalah.com/HS/api/HSAPI/ProcessRequest',
+  PAGE_REDIRECTION_URL: process.env.ALFA_PAGE_REDIRECTION_URL || 'https://sandbox.bankalfalah.com/SSO/SSO/SSO',
+
+  CHANNEL_ID: process.env.ALFA_CHANNEL_ID || '1001',
+  DEFAULT_CURRENCY: 'PKR'
 };
 
-// Helper function to generate Alfa Payment Gateway hash
-const generateAlfaHash = (transactionAmount, transactionId) => {
-  // Format: MERCHANT_HASH_KEY + transaction_amount + transaction_id
-  const hashString = `${ALFA_CONFIG.MERCHANT_HASH_KEY}${transactionAmount}${transactionId}`;
-  return crypto.createHash('sha256').update(hashString).digest('hex');
+
+// Helper function to generate AES encrypted hash for Bank Alfalah
+const generateAlfaRequestHash = (formData, isHandshake = false) => {
+  try {
+    console.log('[ALFA_HASH] Generating request hash', { 
+      isHandshake, 
+      fieldsCount: Object.keys(formData).length,
+      fields: Object.keys(formData)
+    });
+    
+    let mapString = '';
+    
+    if (isHandshake) {
+      // CRITICAL: Order matters! Match Bank Alfalah documentation
+      const fields = [
+        'HS_ChannelId',
+        'HS_MerchantId',
+        'HS_StoreId',
+        'HS_ReturnURL',
+        'HS_MerchantHash',
+        'HS_MerchantUsername',
+        'HS_MerchantPassword',
+        'HS_IsRedirectionRequest',
+        'HS_TransactionReferenceNumber'
+      ];
+
+      fields.forEach(field => {
+        if (formData[field] !== undefined && formData[field] !== null) {
+          mapString += `${field}=${formData[field]}&`;
+        }
+      });
+    } else {
+      // Payment fields order
+      const fields = [
+        'AuthToken',
+        'ChannelId',
+        'Currency',
+        'IsBIN',
+        'ReturnURL',
+        'MerchantId',
+        'StoreId',
+        'MerchantHash',
+        'MerchantUsername',
+        'MerchantPassword',
+        'TransactionTypeId',
+        'TransactionReferenceNumber',
+        'TransactionAmount'
+      ];
+
+      fields.forEach(field => {
+        if (formData[field] !== undefined && formData[field] !== null) {
+          mapString += `${field}=${formData[field]}&`;
+        }
+      });
+    }
+    
+    // Remove trailing '&'
+    mapString = mapString.slice(0, -1);
+    
+    console.log('[ALFA_HASH] Map string:', mapString);
+    
+    // Encrypt using AES-CBC
+    const encrypted = CryptoJS.AES.encrypt(
+      CryptoJS.enc.Utf8.parse(mapString),
+      CryptoJS.enc.Utf8.parse(ALFA_CONFIG.ENCRYPTION_KEY1),
+      {
+        keySize: 128 / 8,
+        iv: CryptoJS.enc.Utf8.parse(ALFA_CONFIG.ENCRYPTION_KEY2),
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7
+      }
+    );
+    
+    const encryptedString = encrypted.toString();
+    console.log('[ALFA_HASH] ✅ Encrypted hash generated (length:', encryptedString.length, ')');
+    
+    return encryptedString;
+  } catch (error) {
+    console.error('[ALFA_HASH] ❌ Error generating hash:', error);
+    throw new Error('Failed to generate payment hash');
+  }
 };
 
-// STEP 1: Handshake Request
+
+// FIXED STEP 1: Handshake Request
 const performHandshake = async (orderId) => {
   try {
     console.log('[ALFA_HANDSHAKE] Starting handshake', { orderId });
 
-    const handshakePayload = {
-      HS_MerchantId: ALFA_CONFIG.MERCHANT_USERNAME,
+    const handshakeData = {
+      HS_ChannelId: ALFA_CONFIG.CHANNEL_ID,
+      HS_MerchantId: ALFA_CONFIG.MERCHANT_ID,
+      HS_StoreId: ALFA_CONFIG.STORE_ID,
+      HS_ReturnURL: ALFA_CONFIG.RETURN_URL,
+      HS_MerchantHash: ALFA_CONFIG.MERCHANT_HASH,
+      HS_MerchantUsername: ALFA_CONFIG.MERCHANT_USERNAME,
       HS_MerchantPassword: ALFA_CONFIG.MERCHANT_PASSWORD,
-      HS_RequestHash: crypto.createHash('sha256')
-        .update(`${ALFA_CONFIG.MERCHANT_HASH_KEY}${orderId}`)
-        .digest('hex')
+      HS_IsRedirectionRequest: '0', // 0 = API call (get AuthToken in response)
+      HS_TransactionReferenceNumber: orderId
     };
 
-    console.log('[ALFA_HANDSHAKE] Payload', handshakePayload);
+    // Generate hash
+    const hashData = { ...handshakeData };
+    handshakeData.HS_RequestHash = generateAlfaRequestHash(hashData, true);
 
-    const response = await axios.post(ALFA_CONFIG.HANDSHAKE_URL, handshakePayload, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
+    console.log('[ALFA_HANDSHAKE] Complete RequestHash:', handshakeData.HS_RequestHash);
+    console.log('[ALFA_HANDSHAKE] Hash length:', handshakeData.HS_RequestHash.length);
+
+    // ✅ CRITICAL: Use application/x-www-form-urlencoded
+    const formData = new URLSearchParams();
+    Object.keys(handshakeData).forEach(key => {
+      formData.append(key, handshakeData[key]);
     });
 
-    console.log('[ALFA_HANDSHAKE] Response', response.data);
+    console.log('[ALFA_HANDSHAKE] Making request to:', ALFA_CONFIG.HANDSHAKE_URL);
+    
+    const response = await axios.post(
+      ALFA_CONFIG.HANDSHAKE_URL, 
+      formData,
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 30000
+      }
+    );
 
-    if (response.data.success || response.data.HS_IsSuccess === 'true') {
+    console.log('[ALFA_HANDSHAKE] Response Status:', response.status);
+    console.log('[ALFA_HANDSHAKE] Response Data:', JSON.stringify(response.data, null, 2));
+
+    if (response.data.success === 'true' && response.data.AuthToken) {
+      console.log('[ALFA_HANDSHAKE] ✅ Success! AuthToken received');
       return {
         success: true,
-        authToken: response.data.HS_AuthToken || response.data.authToken,
-        sessionId: response.data.HS_SessionId || response.data.sessionId
+        authToken: response.data.AuthToken,
+        returnURL: response.data.ReturnURL
+      };
+    } else {
+      console.error('[ALFA_HANDSHAKE] ❌ Failed', response.data);
+      return {
+        success: false,
+        error: response.data.ErrorMessage || response.data.Message || 'Handshake failed'
       };
     }
 
-    return {
-      success: false,
-      error: response.data.HS_ResponseMessage || 'Handshake failed'
-    };
   } catch (error) {
-    console.error('[ALFA_HANDSHAKE] Failed', error.response?.data || error.message);
+    console.error('[ALFA_HANDSHAKE] ❌ Exception:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    });
     return {
       success: false,
-      error: error.response?.data?.message || error.message
+      error: error.response?.data?.Message || error.response?.data?.ErrorMessage || error.message
     };
   }
 };
 
+
+// FIXED STEP 2: Generate Page Redirection Form
+const generateAlfaPaymentForm = async (order, paymentMethod, authToken) => {
+  try {
+    const transactionId = order.orderId;
+    const transactionAmount = order.totalAmount.toFixed(2);
+
+    console.log('[ALFA_PAYMENT] Generating payment form', { 
+      paymentMethod, 
+      orderId: order.orderId,
+      transactionAmount,
+      hasAuthToken: !!authToken
+    });
+
+    if (!authToken) {
+      throw new Error('AuthToken is required for payment form generation');
+    }
+
+    // Map payment method to transaction type
+    const transactionTypeMap = {
+      'alfa_wallet': '1',
+      'alfalah_bank': '2',
+      'credit_card': '3',
+      'debit_card': '3'
+    };
+
+    const transactionTypeId = transactionTypeMap[paymentMethod];
+    if (!transactionTypeId) {
+      throw new Error(`Unsupported payment method: ${paymentMethod}`);
+    }
+
+    // Prepare payment form data
+    const formData = {
+      AuthToken: authToken, // CRITICAL: Include AuthToken from handshake
+      ChannelId: ALFA_CONFIG.CHANNEL_ID,
+      Currency: ALFA_CONFIG.DEFAULT_CURRENCY,
+      IsBIN: '0',
+      ReturnURL: ALFA_CONFIG.RETURN_URL,
+      MerchantId: ALFA_CONFIG.MERCHANT_ID,
+      StoreId: ALFA_CONFIG.STORE_ID,
+      MerchantHash: ALFA_CONFIG.MERCHANT_HASH,
+      MerchantUsername: ALFA_CONFIG.MERCHANT_USERNAME,
+      MerchantPassword: ALFA_CONFIG.MERCHANT_PASSWORD,
+      TransactionTypeId: transactionTypeId,
+      TransactionReferenceNumber: transactionId,
+      TransactionAmount: transactionAmount
+    };
+
+    // Generate request hash for payment form
+    formData.RequestHash = generateAlfaRequestHash(formData, false);
+
+    console.log('[ALFA_PAYMENT] Form data prepared:', {
+      hasAuthToken: !!formData.AuthToken,
+      TransactionTypeId: formData.TransactionTypeId,
+      TransactionAmount: formData.TransactionAmount,
+      RequestHash: formData.RequestHash.substring(0, 50) + '...'
+    });
+
+    return {
+      success: true,
+      transactionId,
+      formData,
+      actionUrl: ALFA_CONFIG.PAGE_REDIRECTION_URL,
+      requiresFormSubmission: true
+    };
+
+  } catch (error) {
+    console.error('[ALFA_PAYMENT] Form generation failed:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
 
 // Helper function to extract variant information from order items
 const extractVariantInfo = (item) => {
@@ -168,119 +356,7 @@ const calculateItemDetails = (item) => {
   };
 };
 
-// STEP 2: Transaction Request (for Alfa Wallet & Bank Account)
-const initiateAlfaPaymentAPI = async (order, paymentMethod) => {
-  try {
-    const transactionId = `TXN-${order.orderId}-${Date.now()}`;
-    const transactionAmount = order.totalAmount.toFixed(2);
-
-    // Step 1: Perform Handshake
-    const handshakeResult = await performHandshake(order.orderId);
-    if (!handshakeResult.success) {
-      throw new Error(`Handshake failed: ${handshakeResult.error}`);
-    }
-
-    console.log('[ALFA_PAYMENT] Initiating API payment', { transactionId, paymentMethod });
-
-    // Step 2: Create Transaction
-    const transactionPayload = {
-      AuthToken: handshakeResult.authToken,
-      ChannelId: paymentMethod === 'alfa_wallet' ? 'Alfa Wallet' : 'Alfalah Bank Account',
-      TransactionTypeId: paymentMethod === 'alfa_wallet' ? '1' : '2', // 1=Wallet, 2=Bank Account
-      TransactionReferenceNumber: transactionId,
-      TransactionAmount: transactionAmount,
-      Currency: 'PKR',
-      BankIdentificationNumber: paymentMethod === 'alfalah_bank' ? order.bankAccountNumber : '',
-      MobileNumber: order.shippingAddress.phone || '',
-      EmailAddress: order.userId.email || '',
-      MerchantId: ALFA_CONFIG.MERCHANT_USERNAME,
-      MerchantPassword: ALFA_CONFIG.MERCHANT_PASSWORD,
-      RequestHash: generateAlfaHash(transactionAmount, transactionId),
-      ReturnURL: ALFA_CONFIG.RETURN_URL,
-      MerchantResponseURL: ALFA_CONFIG.LISTENER_URL
-    };
-
-    console.log('[ALFA_PAYMENT] Transaction payload', transactionPayload);
-
-    const response = await axios.post(ALFA_CONFIG.TRANSACTION_URL, transactionPayload, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-
-    console.log('[ALFA_PAYMENT] Transaction response', response.data);
-
-    if (response.data.success || response.data.TransactionStatus === 'Success') {
-      return {
-        success: true,
-        transactionId,
-        authToken: handshakeResult.authToken,
-        sessionId: handshakeResult.sessionId,
-        paymentUrl: response.data.PaymentURL || response.data.paymentUrl,
-        transactionResponse: response.data
-      };
-    }
-
-    return {
-      success: false,
-      error: response.data.ResponseMessage || 'Transaction initiation failed'
-    };
-  } catch (error) {
-    console.error('[ALFA_PAYMENT] API initiation failed', error.response?.data || error.message);
-    return {
-      success: false,
-      error: error.response?.data?.message || error.message
-    };
-  }
-};
-
-// Generate Alfa Payment form data for page redirection (Credit/Debit Card)
-const generateAlfaPaymentForm = async (order) => {
-  try {
-    const transactionId = `TXN-${order.orderId}-${Date.now()}`;
-    const transactionAmount = order.totalAmount.toFixed(2);
-
-    // Perform Handshake first
-    const handshakeResult = await performHandshake(order.orderId);
-    if (!handshakeResult.success) {
-      throw new Error(`Handshake failed: ${handshakeResult.error}`);
-    }
-
-    console.log('[ALFA_PAYMENT] Generating payment form', { transactionId });
-
-    // Create form data for page redirection
-    const formData = {
-      AuthToken: handshakeResult.authToken,
-      RequestHash: generateAlfaHash(transactionAmount, transactionId),
-      ChannelId: 'Card on Delivery', // For credit/debit cards
-      TransactionTypeId: '3', // Card payment
-      TransactionReferenceNumber: transactionId,
-      TransactionAmount: transactionAmount,
-      Currency: 'PKR',
-      MobileNumber: order.shippingAddress.phone || '',
-      EmailAddress: order.userId.email || '',
-      MerchantId: ALFA_CONFIG.MERCHANT_USERNAME,
-      ReturnURL: ALFA_CONFIG.RETURN_URL,
-      MerchantResponseURL: ALFA_CONFIG.LISTENER_URL
-    };
-
-    return {
-      success: true,
-      transactionId,
-      authToken: handshakeResult.authToken,
-      sessionId: handshakeResult.sessionId,
-      formData,
-      actionUrl: ALFA_CONFIG.PAGE_REDIRECTION_URL
-    };
-  } catch (error) {
-    console.error('[ALFA_PAYMENT] Form generation failed', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
+// Updated placeOrder function with page redirection support
 exports.placeOrder = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
@@ -624,90 +700,118 @@ exports.placeOrder = async (req, res, next) => {
     // Attach user email to order for payment processing
     order.userId = user;
 
-    // --- PAYMENT PROCESSING ---
-    let paymentResponse = null;
+// --- PAYMENT PROCESSING ---
+let paymentResponse = null;
 
-    if (paymentMethod !== 'cash_on_delivery') {
-      console.log(`[ORDER] Processing online payment`, { paymentMethod, orderId: order.orderId });
+if (paymentMethod !== 'cash_on_delivery') {
+  console.log(`[ORDER] Processing online payment`, { paymentMethod, orderId: order.orderId });
 
-      // Handle different payment methods
-      if (paymentMethod === 'alfa_wallet' || paymentMethod === 'alfalah_bank') {
-        // Use API mode for Alfa Wallet and Alfalah Bank Account
-        paymentResponse = await initiateAlfaPaymentAPI(order, paymentMethod);
-        
-        if (!paymentResponse.success) {
-          throw new ApiError(500, `Payment initiation failed: ${paymentResponse.error}`);
-        }
+  // Use page redirection for ALL Bank Alfalah payment methods
+  if (['alfa_wallet', 'alfalah_bank', 'credit_card', 'debit_card'].includes(paymentMethod)) {
+    
+    // STEP 1: Perform handshake to get AuthToken
+    console.log(`🟡 [ALFA] Starting handshake process`, { orderId: order.orderId });
+    
+    try {
+      console.log(`🪵 [ALFA DEBUG] Calling performHandshake()`);
+      const handshakeResult = await performHandshake(order.orderId);
 
-        // Save transaction details
-        order.alfaPayment = {
-          transactionId: paymentResponse.transactionId,
-          transactionDate: new Date(),
-          authToken: paymentResponse.authToken,
-          sessionId: paymentResponse.sessionId,
-          merchantHashKey: ALFA_CONFIG.MERCHANT_HASH_KEY,
-          merchantUsername: ALFA_CONFIG.MERCHANT_USERNAME,
-          paymentChannel: paymentMethod,
-          basketId: order.orderId,
-          transactionResponse: paymentResponse.transactionResponse
-        };
+      console.log(`🪵 [ALFA DEBUG] Handshake response:`, handshakeResult);
 
-      } else if (paymentMethod === 'credit_card' || paymentMethod === 'debit_card') {
-        // Use page redirection for credit/debit cards
-        paymentResponse = await generateAlfaPaymentForm(order);
-        
-        if (!paymentResponse.success) {
-          throw new ApiError(500, `Payment form generation failed: ${paymentResponse.error}`);
-        }
-
-        // Save transaction details
-        order.alfaPayment = {
-          transactionId: paymentResponse.transactionId,
-          transactionDate: new Date(),
-          authToken: paymentResponse.authToken,
-          sessionId: paymentResponse.sessionId,
-          merchantHashKey: ALFA_CONFIG.MERCHANT_HASH_KEY,
-          merchantUsername: ALFA_CONFIG.MERCHANT_USERNAME,
-          paymentChannel: paymentMethod,
-          basketId: order.orderId
-        };
-      } else {
-        // Invalid payment method
-        throw new ApiError(400, `Invalid payment method: ${paymentMethod}`);
+      if (!handshakeResult.success) {
+        console.error(`🔴 [ALFA] Handshake failed`, { error: handshakeResult.error });
+        throw new ApiError(500, `Payment handshake failed: ${handshakeResult.error}`);
       }
 
-      // Save order with pending payment status (don't reduce stock yet)
-      await order.save();
-      console.log(`[ORDER] Order created with pending payment`, { orderId: order.orderId });
-
-      // Return payment initiation details
-      return ApiResponse.success(res, 201, 'Payment required to complete order', {
-        order: {
-          orderId: order.orderId,
-          totalAmount: order.totalAmount,
-          paymentStatus: order.paymentStatus,
-          status: order.status,
-          paymentMethod: order.paymentMethod
-        },
-        payment: {
-          method: paymentMethod,
-          transactionId: paymentResponse.transactionId,
-          authToken: paymentResponse.authToken,
-          sessionId: paymentResponse.sessionId,
-          ...(paymentMethod === 'credit_card' || paymentMethod === 'debit_card'
-            ? { 
-                redirectUrl: paymentResponse.actionUrl,
-                formData: paymentResponse.formData 
-              }
-            : { 
-                paymentUrl: paymentResponse.paymentUrl
-              }
-          )
-        },
-        requiresPayment: true,
-        message: "Please complete payment to confirm your order"
+      console.log(`🟢 [ALFA] Handshake successful`, {
+        hasAuthToken: !!handshakeResult.authToken,
+        authTokenLength: handshakeResult.authToken?.length,
+        orderId: order.orderId
       });
+
+      // STEP 2: Generate payment form with AuthToken
+      console.log(`🟡 [ALFA] Generating payment form`, {
+        orderId: order.orderId,
+        authToken: handshakeResult.authToken?.substring(0, 10) + '...'
+      });
+
+      const paymentFormStart = Date.now();
+      paymentResponse = await generateAlfaPaymentForm(order, paymentMethod, handshakeResult.authToken);
+
+      const paymentFormTime = Date.now() - paymentFormStart;
+
+      console.log(`🪵 [ALFA DEBUG] Payment form response time: ${paymentFormTime}ms`);
+      console.log(`🪵 [ALFA DEBUG] Payment form response:`, paymentResponse);
+
+      if (!paymentResponse.success) {
+        console.error(`🔴 [ALFA] Payment initiation failed`, { error: paymentResponse.error });
+        throw new ApiError(500, `Payment initiation failed: ${paymentResponse.error}`);
+      }
+
+      // Save transaction details including AuthToken
+      order.alfaPayment = {
+        transactionId: paymentResponse.transactionId,
+        transactionDate: new Date(),
+        merchantId: ALFA_CONFIG.MERCHANT_ID,
+        storeId: ALFA_CONFIG.STORE_ID,
+        paymentChannel: paymentMethod,
+        basketId: order.orderId,
+        authToken: handshakeResult.authToken,
+        formData: paymentResponse.formData
+      };
+
+      console.log(`🟢 [ALFA] Payment initiation completed`, {
+        transactionId: paymentResponse.transactionId,
+        orderId: order.orderId,
+        actionUrl: paymentResponse.actionUrl
+      });
+
+    } catch (err) {
+      console.error(`🔴 [ALFA ERROR] Payment flow failed`, {
+        message: err.message,
+        stack: err.stack,
+        response: err.response?.data,
+        status: err.response?.status,
+        url: err.config?.url
+      });
+      throw err;
     }
+
+  } else {
+    // Invalid payment method
+    console.error(`🔴 [ORDER] Invalid payment method`, { paymentMethod });
+    throw new ApiError(400, `Invalid payment method: ${paymentMethod}`);
+  }
+
+  // Save order with pending payment status (don't reduce stock yet)
+  await order.save();
+  console.log(`[ORDER] Order created with pending payment`, { orderId: order.orderId });
+
+  // Return payment initiation details for page redirection
+  return ApiResponse.success(res, 201, 'Payment required to complete order', {
+    order: {
+      orderId: order.orderId,
+      totalAmount: order.totalAmount,
+      paymentStatus: order.paymentStatus,
+      status: order.status,
+      paymentMethod: order.paymentMethod
+    },
+    payment: {
+      method: paymentMethod,
+      transactionId: paymentResponse.transactionId,
+      requiresFormSubmission: true,
+      formData: paymentResponse.formData,
+      actionUrl: paymentResponse.actionUrl,
+      encryptionKeys: {
+        key1: ALFA_CONFIG.ENCRYPTION_KEY1,
+        key2: ALFA_CONFIG.ENCRYPTION_KEY2
+      }
+    },
+    requiresPayment: true,
+    message: "Please complete payment to confirm your order"
+  });
+}
+
 
     // --- COD ORDERS: Process immediately ---
     await order.save();
@@ -867,7 +971,7 @@ exports.handlePaymentIPN = async (req, res, next) => {
 
     // Verify handshake key
     const expectedHash = crypto.createHash('sha256')
-      .update(`${ALFA_CONFIG.MERCHANT_HASH_KEY}${transaction_amount}${transaction_id}`)
+      .update(`${ALFA_CONFIG.MERCHANT_HASH}${transaction_amount}${transaction_id}`)
       .digest('hex');
 
     if (handshake_key !== expectedHash) {
@@ -1016,50 +1120,191 @@ exports.handlePaymentIPN = async (req, res, next) => {
   }
 };
 
-// NEW: Handle payment return (when user is redirected back from payment gateway)
+// In your orderController.js - Update handlePaymentReturn
 exports.handlePaymentReturn = async (req, res, next) => {
   try {
-    console.log('[PAYMENT_RETURN] User returned from payment gateway', req.query);
+    console.log('[PAYMENT_RETURN] User returned from payment gateway');
+    console.log('[PAYMENT_RETURN] Query params:', req.query);
 
-    const { transaction_id, response_code, basket_id } = req.query;
+    // Bank Alfalah returns these parameters
+    const { 
+      RC: responseCode,           // Response Code
+      RD: responseDescription,    // Response Description  
+      TS: transactionStatus,      // Transaction Status
+      O: orderId,                 // Order ID (your reference number)
+      TID: transactionId,         // Transaction ID (Bank's ID)
+      AuthToken                   // Auth Token
+    } = req.query;
 
-    // Find order
-    const order = await Order.findOne({
-      $or: [
-        { orderId: basket_id },
-        { 'alfaPayment.transactionId': transaction_id }
-      ]
+    console.log('[PAYMENT_RETURN] Parsed params:', {
+      responseCode,
+      responseDescription,
+      transactionStatus,
+      orderId,
+      transactionId
     });
 
-    if (!order) {
-      return ApiResponse.error(res, 404, 'Order not found');
+    if (!orderId) {
+      console.error('[PAYMENT_RETURN] No order ID in return parameters');
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=missing_order_id`);
     }
 
-    // Add payment attempt
-    await order.addPaymentAttempt(
-      response_code === '00' ? 'success' : 'failed',
-      response_code,
-      req.query.response_message || 'Payment return'
-    );
+    // Find order
+    const order = await Order.findOne({ orderId })
+      .populate('userId', 'name email');
 
-    // Return order status
-    ApiResponse.success(res, 200, 'Payment return processed', {
-      order: {
-        orderId: order.orderId,
-        paymentStatus: order.paymentStatus,
-        status: order.status,
-        totalAmount: order.totalAmount
-      },
-      paymentDetails: {
-        transactionId: transaction_id,
-        responseCode: response_code,
-        message: req.query.response_message
-      }
+    if (!order) {
+      console.error('[PAYMENT_RETURN] Order not found', { orderId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=order_not_found&orderId=${orderId}`);
+    }
+
+    console.log('[PAYMENT_RETURN] Order found:', {
+      orderId: order.orderId,
+      currentStatus: order.status,
+      paymentStatus: order.paymentStatus
     });
+
+    // Determine if payment was successful
+    const isSuccess = responseCode === '00' && transactionStatus === 'S';
+    
+    // Update order status
+    if (isSuccess) {
+      order.paymentStatus = 'completed';
+      order.status = 'confirmed';
+      
+      console.log('[PAYMENT_RETURN] ✅ Payment successful, updating stock');
+      
+      // Update stock for successful payment
+      await updateOrderStock(order);
+      
+    } else {
+      order.paymentStatus = 'failed';
+      order.status = 'payment_failed';
+      
+      console.log('[PAYMENT_RETURN] ❌ Payment failed', {
+        responseCode,
+        responseDescription
+      });
+    }
+
+    // Save payment attempt details
+    if (!order.alfaPayment) {
+      order.alfaPayment = {};
+    }
+    
+    if (!order.alfaPayment.paymentAttempts) {
+      order.alfaPayment.paymentAttempts = [];
+    }
+
+    order.alfaPayment.paymentAttempts.push({
+      attemptDate: new Date(),
+      status: isSuccess ? 'success' : 'failed',
+      responseCode: responseCode,
+      responseMessage: responseDescription,
+      transactionId: transactionId || order.alfaPayment.transactionId,
+      transactionStatus: transactionStatus
+    });
+
+    await order.save();
+
+    // Send socket notification for successful payment
+    if (isSuccess) {
+      const io = req.app.get('socketio');
+      if (io) {
+        const notificationData = {
+          id: uuidv4(),
+          title: '✅ Payment Successful!',
+          message: `${order.userId?.name || 'Customer'} completed payment for order #${order.orderId}`,
+          type: 'payment',
+          orderId: order.orderId,
+          orderTotal: order.totalAmount,
+          itemCount: order.items.length,
+          timestamp: new Date().toISOString(),
+          customerName: order.userId?.name || 'Customer',
+          customerEmail: order.userId?.email
+        };
+
+        io.emit('orderNotification', notificationData);
+        io.to('adminRoom').emit('newOrder', { order, notification: notificationData });
+        io.to(`user_${order.userId._id}`).emit('paymentSuccess', { order });
+      }
+    }
+
+    // Redirect to frontend with result
+    if (isSuccess) {
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/return?status=success&orderId=${orderId}`);
+    } else {
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/return?status=failed&orderId=${orderId}&code=${responseCode}&message=${encodeURIComponent(responseDescription || 'Payment failed')}`);
+    }
 
   } catch (error) {
     console.error('[PAYMENT_RETURN] Error processing payment return', error);
-    next(error);
+    return res.redirect(`${process.env.FRONTEND_URL}/payment/return?status=error&message=${encodeURIComponent('Payment processing error')}`);
+  }
+};
+
+// Helper function to update stock after successful payment
+const updateOrderStock = async (order) => {
+  try {
+    console.log('[UPDATE_STOCK] Updating stock for order:', order.orderId);
+
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        console.warn(`[UPDATE_STOCK] Product not found: ${item.productId}`);
+        continue;
+      }
+
+      switch (item.variantType) {
+        case 'simple':
+          await Product.findByIdAndUpdate(product._id, { 
+            $inc: { stock: -item.simpleProduct.quantity } 
+          });
+          console.log('[UPDATE_STOCK] Simple product updated');
+          break;
+
+        case 'color':
+          await Product.updateOne(
+            { _id: product._id, 'variants._id': item.colorVariant.variantId },
+            { $inc: { 'variants.$.stock': -item.colorVariant.quantity } }
+          );
+          console.log('[UPDATE_STOCK] Color variant updated');
+          break;
+
+        case 'storage':
+          await Product.updateOne(
+            { _id: product._id },
+            { $inc: { 'variants.$[v].storageOptions.$[s].stock': -item.storageVariant.quantity } },
+            { 
+              arrayFilters: [
+                { 'v._id': item.storageVariant.variantId }, 
+                { 's._id': item.storageVariant.storageOption._id }
+              ] 
+            }
+          );
+          console.log('[UPDATE_STOCK] Storage variant updated');
+          break;
+
+        case 'size':
+          await Product.updateOne(
+            { _id: product._id },
+            { $inc: { 'variants.$[v].sizeOptions.$[s].stock': -item.sizeVariant.quantity } },
+            { 
+              arrayFilters: [
+                { 'v._id': item.sizeVariant.variantId }, 
+                { 's._id': item.sizeVariant.sizeOption._id }
+              ] 
+            }
+          );
+          console.log('[UPDATE_STOCK] Size variant updated');
+          break;
+      }
+    }
+
+    console.log('[UPDATE_STOCK] ✅ Stock update completed');
+  } catch (error) {
+    console.error('[UPDATE_STOCK] Error updating stock:', error);
+    throw error;
   }
 };
 
@@ -1119,8 +1364,8 @@ exports.retryPayment = async (req, res, next) => {
 
     let paymentResponse = null;
 
-    if (order.paymentMethod === 'alfa_wallet' || order.paymentMethod === 'alfalah_bank') {
-      paymentResponse = await initiateAlfaPaymentAPI(order, order.paymentMethod);
+    if (['alfa_wallet', 'alfalah_bank', 'credit_card', 'debit_card'].includes(order.paymentMethod)) {
+      paymentResponse = await generateAlfaPaymentForm(order, order.paymentMethod);
       
       if (!paymentResponse.success) {
         throw new ApiError(500, `Payment initiation failed: ${paymentResponse.error}`);
@@ -1128,12 +1373,7 @@ exports.retryPayment = async (req, res, next) => {
 
       order.alfaPayment.transactionId = paymentResponse.transactionId;
       order.alfaPayment.transactionDate = new Date();
-
-    } else if (order.paymentMethod === 'credit_card') {
-      paymentResponse = generateAlfaPaymentForm(order);
-      
-      order.alfaPayment.transactionId = paymentResponse.transactionId;
-      order.alfaPayment.transactionDate = new Date();
+      order.alfaPayment.formData = paymentResponse.formData;
     }
 
     order.paymentStatus = 'pending';
@@ -1148,16 +1388,13 @@ exports.retryPayment = async (req, res, next) => {
       payment: {
         method: order.paymentMethod,
         transactionId: paymentResponse.transactionId,
-        ...(order.paymentMethod === 'credit_card' 
-          ? { 
-              redirectUrl: paymentResponse.actionUrl,
-              formData: paymentResponse.formData 
-            }
-          : { 
-              paymentUrl: paymentResponse.paymentUrl,
-              sessionId: paymentResponse.sessionId 
-            }
-        )
+        requiresFormSubmission: true,
+        formData: paymentResponse.formData,
+        actionUrl: paymentResponse.actionUrl,
+        encryptionKeys: {
+          key1: ALFA_CONFIG.ENCRYPTION_KEY1,
+          key2: ALFA_CONFIG.ENCRYPTION_KEY2
+        }
       }
     });
 
@@ -1166,6 +1403,8 @@ exports.retryPayment = async (req, res, next) => {
     next(error);
   }
 };
+
+// ... (rest of the controller methods remain the same - getRecentOrderNotifications, getRevenueStats, getProductRevenue, getUserOrders, getAllOrders, updateOrderStatus, cancelOrder, downloadInvoice)
 
 exports.getRecentOrderNotifications = async (req, res, next) => {
   try {
@@ -1192,6 +1431,43 @@ exports.getRecentOrderNotifications = async (req, res, next) => {
       notifications
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+// NEW: Get order details by ID
+exports.getOrderDetails = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user?.userId;
+    const userRole = req.user?.role;
+
+    let order;
+    
+    if (userRole === 'admin') {
+      // Admin can see any order
+      order = await Order.findOne({ orderId })
+        .populate('userId', 'name email')
+        .populate('items.productId', 'title brand sku images')
+        .populate('discountId', 'code value type');
+    } else {
+      // User can only see their own orders
+      order = await Order.findOne({ orderId, userId })
+        .populate('userId', 'name email')
+        .populate('items.productId', 'title brand sku images')
+        .populate('discountId', 'code value type');
+    }
+
+    if (!order) {
+      throw new ApiError(404, 'Order not found');
+    }
+
+    ApiResponse.success(res, 200, 'Order details retrieved successfully', {
+      order
+    });
+
+  } catch (error) {
+    console.error('[ORDER_DETAILS] Error retrieving order', error);
     next(error);
   }
 };

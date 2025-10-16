@@ -151,10 +151,10 @@ const orderSchema = new Schema({
     min: 0,
     default: 0
   },
-  // Payment fields with Alfa Payment Gateway integration
+  // Payment fields with Alfa Payment Gateway integration - UPDATED
   paymentMethod: {
     type: String,
-    enum: ['credit_card', 'alfa_wallet', 'alfalah_bank', 'cash_on_delivery'],
+    enum: ['credit_card', 'debit_card', 'alfa_wallet', 'alfalah_bank', 'cash_on_delivery'],
     default: 'cash_on_delivery'
   },
   paymentStatus: {
@@ -162,19 +162,29 @@ const orderSchema = new Schema({
     enum: ['pending', 'processing', 'completed', 'failed', 'refunded', 'not_required'],
     default: 'pending'
   },
-  // Alfa Payment Gateway Integration Fields
+  // Alfa Payment Gateway Integration Fields - UPDATED for Page Redirection
   alfaPayment: {
     transactionId: {
       type: String,
       index: true
     },
     transactionDate: Date,
-    merchantHashKey: String,
+    // Merchant credentials for reference
+    merchantId: String,
+    storeId: String,
+    merchantHash: String,
     merchantUsername: String,
+    // Payment channel and type
     paymentChannel: {
       type: String,
       enum: ['alfa_wallet', 'alfalah_bank', 'credit_card', 'debit_card']
     },
+    // Authentication tokens from handshake
+    authToken: String,
+    sessionId: String,
+    // Form data for page redirection
+    formData: Schema.Types.Mixed, // Stores complete form data for payment
+    // Response fields
     responseCode: String,
     responseMessage: String,
     authCode: String,
@@ -191,7 +201,11 @@ const orderSchema = new Schema({
       transaction_amount: Number,
       transaction_date: Date,
       response_code: String,
-      response_message: String
+      response_message: String,
+      merchant_id: String,
+      store_id: String,
+      channel_id: String,
+      currency: String
     },
     // For tracking payment attempts
     paymentAttempts: [{
@@ -201,8 +215,18 @@ const orderSchema = new Schema({
       },
       status: String,
       responseCode: String,
-      responseMessage: String
-    }]
+      responseMessage: String,
+      transactionId: String,
+      paymentMethod: String
+    }],
+    // Additional fields for Bank Alfalah page redirection
+    handshakeCompleted: {
+      type: Boolean,
+      default: false
+    },
+    handshakeData: Schema.Types.Mixed, // Stores handshake response data
+    returnUrl: String, // URL to redirect after payment
+    merchantResponseUrl: String // IPN listener URL
   },
   status: {
     type: String,
@@ -217,7 +241,8 @@ const orderSchema = new Schema({
     state: { type: String, required: true },
     postalCode: { type: String, required: true },
     country: { type: String, required: true },
-    phone: { type: String, required: true }
+    phone: { type: String, required: true },
+    email: { type: String } // Added email for payment processing
   },
   billingAddress: {
     sameAsShipping: { type: Boolean, default: true },
@@ -238,6 +263,19 @@ const orderSchema = new Schema({
     customer: String,
     admin: String
   },
+  // Additional fields for payment processing
+  requiresPayment: {
+    type: Boolean,
+    default: false
+  },
+  paymentExpiry: {
+    type: Date,
+    default: function() {
+      // Payment expires in 24 hours for online payments
+      return this.paymentMethod !== 'cash_on_delivery' ? 
+        new Date(Date.now() + 24 * 60 * 60 * 1000) : null;
+    }
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -248,11 +286,14 @@ const orderSchema = new Schema({
   }
 });
 
-// Indexes for better query performance
+// Indexes for better query performance - UPDATED
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ 'alfaPayment.transactionId': 1 });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ status: 1 });
+orderSchema.index({ 'alfaPayment.paymentAttempts.attemptDate': -1 });
+orderSchema.index({ paymentExpiry: 1 }, { expireAfterSeconds: 0 }); // TTL index for expired payments
+orderSchema.index({ orderId: 1 }); // For quick order lookup
 
 // Validation to ensure each item has the proper structure based on variantType
 orderItemSchema.pre('validate', function(next) {
@@ -292,7 +333,7 @@ orderItemSchema.pre('validate', function(next) {
   next();
 });
 
-// Update timestamps on save
+// Update timestamps on save - ENHANCED
 orderSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   
@@ -304,8 +345,22 @@ orderSchema.pre('save', function(next) {
   // Set payment status based on payment method
   if (this.paymentMethod === 'cash_on_delivery') {
     this.paymentStatus = 'not_required';
-  } else if (!this.paymentStatus || this.paymentStatus === 'not_required') {
-    this.paymentStatus = 'pending';
+    this.requiresPayment = false;
+  } else {
+    this.requiresPayment = true;
+    if (!this.paymentStatus || this.paymentStatus === 'not_required') {
+      this.paymentStatus = 'pending';
+    }
+  }
+  
+  // Set payment expiry for online payments
+  if (this.paymentMethod !== 'cash_on_delivery' && !this.paymentExpiry) {
+    this.paymentExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+  }
+  
+  // Initialize alfaPayment object if not exists
+  if (!this.alfaPayment) {
+    this.alfaPayment = {};
   }
   
   next();
@@ -346,7 +401,7 @@ orderSchema.pre('save', function(next) {
   next();
 });
 
-// Instance methods
+// Instance methods - ENHANCED
 
 // Check if order can be processed (payment completed or COD)
 orderSchema.methods.canProcess = function() {
@@ -356,7 +411,15 @@ orderSchema.methods.canProcess = function() {
   return this.paymentStatus === 'completed';
 };
 
-// Update payment status from IPN
+// Check if payment is expired
+orderSchema.methods.isPaymentExpired = function() {
+  if (this.paymentMethod === 'cash_on_delivery' || !this.paymentExpiry) {
+    return false;
+  }
+  return new Date() > this.paymentExpiry;
+};
+
+// Update payment status from IPN - ENHANCED
 orderSchema.methods.updatePaymentFromIPN = function(ipnData) {
   this.alfaPayment.ipnReceived = true;
   this.alfaPayment.ipnData = {
@@ -366,23 +429,31 @@ orderSchema.methods.updatePaymentFromIPN = function(ipnData) {
     transaction_amount: parseFloat(ipnData.transaction_amount),
     transaction_date: new Date(ipnData.transaction_date),
     response_code: ipnData.response_code,
-    response_message: ipnData.response_message
+    response_message: ipnData.response_message,
+    merchant_id: ipnData.merchant_id,
+    store_id: ipnData.store_id,
+    channel_id: ipnData.channel_id,
+    currency: ipnData.currency
   };
   
   // Update payment status based on IPN response
   if (ipnData.response_code === '00' || ipnData.transaction_status === 'success') {
     this.paymentStatus = 'completed';
     this.status = 'processing';
+    this.alfaPayment.responseCode = ipnData.response_code;
+    this.alfaPayment.responseMessage = ipnData.response_message;
   } else {
     this.paymentStatus = 'failed';
     this.status = 'payment_failed';
+    this.alfaPayment.responseCode = ipnData.response_code;
+    this.alfaPayment.responseMessage = ipnData.response_message;
   }
   
   return this.save();
 };
 
-// Add payment attempt record
-orderSchema.methods.addPaymentAttempt = function(status, responseCode, responseMessage) {
+// Add payment attempt record - ENHANCED
+orderSchema.methods.addPaymentAttempt = function(status, responseCode, responseMessage, transactionId = null, paymentMethod = null) {
   if (!this.alfaPayment.paymentAttempts) {
     this.alfaPayment.paymentAttempts = [];
   }
@@ -391,13 +462,53 @@ orderSchema.methods.addPaymentAttempt = function(status, responseCode, responseM
     attemptDate: new Date(),
     status,
     responseCode,
-    responseMessage
+    responseMessage,
+    transactionId: transactionId || this.alfaPayment.transactionId,
+    paymentMethod: paymentMethod || this.paymentMethod
   });
+  
+  // Update main payment status if this is a failure
+  if (status === 'failed') {
+    this.paymentStatus = 'failed';
+    this.status = 'payment_failed';
+  }
   
   return this.save();
 };
 
-// Static methods
+// Initialize Alfa Payment data
+orderSchema.methods.initializeAlfaPayment = function(paymentData) {
+  this.alfaPayment = {
+    ...this.alfaPayment,
+    transactionId: paymentData.transactionId,
+    transactionDate: new Date(),
+    merchantId: paymentData.merchantId,
+    storeId: paymentData.storeId,
+    merchantHash: paymentData.merchantHash,
+    merchantUsername: paymentData.merchantUsername,
+    paymentChannel: paymentData.paymentChannel,
+    authToken: paymentData.authToken,
+    sessionId: paymentData.sessionId,
+    formData: paymentData.formData,
+    basketId: paymentData.basketId || this.orderId,
+    returnUrl: paymentData.returnUrl,
+    merchantResponseUrl: paymentData.merchantResponseUrl
+  };
+  
+  return this.save();
+};
+
+// Mark handshake as completed
+orderSchema.methods.markHandshakeCompleted = function(handshakeData) {
+  this.alfaPayment.handshakeCompleted = true;
+  this.alfaPayment.handshakeData = handshakeData;
+  this.alfaPayment.authToken = handshakeData.authToken;
+  this.alfaPayment.sessionId = handshakeData.sessionId;
+  
+  return this.save();
+};
+
+// Static methods - ENHANCED
 
 // Find orders by payment status
 orderSchema.statics.findByPaymentStatus = function(paymentStatus) {
@@ -412,9 +523,58 @@ orderSchema.statics.findPendingPayments = function() {
   });
 };
 
+// Find expired payments
+orderSchema.statics.findExpiredPayments = function() {
+  return this.find({
+    paymentStatus: 'pending',
+    paymentMethod: { $ne: 'cash_on_delivery' },
+    paymentExpiry: { $lt: new Date() }
+  });
+};
+
 // Find orders by transaction ID
 orderSchema.statics.findByTransactionId = function(transactionId) {
   return this.findOne({ 'alfaPayment.transactionId': transactionId });
 };
+
+// Find orders that need payment retry
+orderSchema.statics.findFailedPayments = function() {
+  return this.find({
+    paymentStatus: 'failed',
+    paymentMethod: { $ne: 'cash_on_delivery' },
+    createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // Last 7 days
+  });
+};
+
+// Virtual for payment status description
+orderSchema.virtual('paymentStatusDescription').get(function() {
+  const statusMap = {
+    'pending': 'Payment Pending',
+    'processing': 'Payment Processing',
+    'completed': 'Payment Completed',
+    'failed': 'Payment Failed',
+    'refunded': 'Payment Refunded',
+    'not_required': 'No Payment Required'
+  };
+  return statusMap[this.paymentStatus] || 'Unknown Status';
+});
+
+// Virtual for order status description
+orderSchema.virtual('orderStatusDescription').get(function() {
+  const statusMap = {
+    'pending': 'Order Pending',
+    'processing': 'Processing Order',
+    'shipped': 'Order Shipped',
+    'delivered': 'Order Delivered',
+    'cancelled': 'Order Cancelled',
+    'returned': 'Order Returned',
+    'payment_failed': 'Payment Failed'
+  };
+  return statusMap[this.status] || 'Unknown Status';
+});
+
+// Ensure virtual fields are serialized
+orderSchema.set('toJSON', { virtuals: true });
+orderSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('Order', orderSchema);
