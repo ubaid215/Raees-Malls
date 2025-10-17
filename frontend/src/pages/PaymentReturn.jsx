@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock, ArrowLeft, ExternalLink, Copy, Package, Truck, ShoppingBag } from 'lucide-react';
-import { useOrder } from '../contexts/OrderContext';
+import { useOrder } from '../context/OrderContext';
 
 const PaymentReturn = () => {
   const location = useLocation();
