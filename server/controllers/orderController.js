@@ -1120,7 +1120,7 @@ exports.handlePaymentIPN = async (req, res, next) => {
   }
 };
 
-// ✅ ENHANCED: Better parameter handling for Bank Alfalah response
+// FIXED: Handle Payment Return with proper status handling
 exports.handlePaymentReturn = async (req, res, next) => {
   try {
     console.log('[PAYMENT_RETURN] ========== START ==========');
@@ -1131,12 +1131,12 @@ exports.handlePaymentReturn = async (req, res, next) => {
     // ✅ Bank Alfalah can send params in query OR body
     const params = { ...req.query, ...req.body };
     
-    console.log('[PAYMENT_RETURN] Merged params:', JSON.stringify(params, null, 2));
+    console.log('[PAYMENT_RETURN] All parameters:', params);
 
-    // ✅ Extract all possible parameter variations Bank Alfalah might send
-    const responseCode = params.RC || params.response_code || params.ResponseCode;
+    // ✅ Extract all possible parameter variations
+    const responseCode = params.RC || params.response_code || params.ResponseCode || params.code;
     const responseDescription = params.RD || params.response_description || params.ResponseDescription || params.message;
-    const transactionStatus = params.TS || params.transaction_status || params.TransactionStatus;
+    const transactionStatus = params.TS || params.transaction_status || params.TransactionStatus || params.status;
     const orderId = params.O || params.order_id || params.OrderId || params.basket_id || params.TransactionReferenceNumber;
     const transactionId = params.TID || params.transaction_id || params.TransactionId;
     const authToken = params.AuthToken || params.auth_token;
@@ -1161,10 +1161,24 @@ exports.handlePaymentReturn = async (req, res, next) => {
       );
     }
 
-    // ✅ Find order
+    // ✅ Find order - FIXED: Use proper query
     console.log('[PAYMENT_RETURN] Searching for order:', orderId);
-    const order = await Order.findOne({ orderId: orderId })
+    
+    // Try multiple lookup strategies
+    let order = await Order.findOne({ orderId: orderId })
       .populate('userId', 'name email');
+
+    if (!order) {
+      // Try with transaction ID
+      order = await Order.findOne({ 'alfaPayment.transactionId': orderId })
+        .populate('userId', 'name email');
+    }
+
+    if (!order) {
+      // Try with basket ID
+      order = await Order.findOne({ 'alfaPayment.basketId': orderId })
+        .populate('userId', 'name email');
+    }
 
     if (!order) {
       console.error('[PAYMENT_RETURN] ❌ Order not found:', orderId);
@@ -1184,13 +1198,15 @@ exports.handlePaymentReturn = async (req, res, next) => {
     const successIndicators = [
       responseCode === '00',
       responseCode === '000',
+      responseCode === '0',
       transactionStatus === 'S',
       transactionStatus === 'success',
       transactionStatus === 'Success',
       transactionStatus === 'SUCCESS',
       responseDescription && responseDescription.toLowerCase().includes('success'),
       responseDescription && responseDescription.toLowerCase().includes('approved'),
-      responseDescription && responseDescription.toLowerCase().includes('completed')
+      responseDescription && responseDescription.toLowerCase().includes('completed'),
+      params.status === 'success'
     ];
 
     const isSuccess = successIndicators.some(indicator => indicator === true);
@@ -1203,17 +1219,24 @@ exports.handlePaymentReturn = async (req, res, next) => {
       finalDecision: isSuccess ? 'SUCCESS' : 'FAILED'
     });
 
-    // ✅ Update order based on payment result
+    // ✅ Update order based on payment result - FIXED STATUS VALUES
     if (isSuccess) {
       console.log('[PAYMENT_RETURN] ✅ Processing successful payment...');
       
       // Only update if not already completed
       if (order.paymentStatus !== 'completed') {
         order.paymentStatus = 'completed';
-        order.status = 'confirmed';
+        // Don't change order status - let admin handle order processing
+        // order.status remains as 'pending' or whatever it was
         
-        // Update stock
-        console.log('[PAYMENT_RETURN] Updating stock...');
+        // Update Alfa payment details
+        order.alfaPayment.responseCode = responseCode;
+        order.alfaPayment.responseMessage = responseDescription;
+        order.alfaPayment.transactionId = transactionId || order.alfaPayment.transactionId;
+        
+        console.log('[PAYMENT_RETURN] ✅ Payment marked as completed');
+        
+        // Update stock only if payment is newly completed
         await updateOrderStock(order);
         console.log('[PAYMENT_RETURN] ✅ Stock updated');
       } else {
@@ -1223,12 +1246,17 @@ exports.handlePaymentReturn = async (req, res, next) => {
     } else {
       console.log('[PAYMENT_RETURN] ❌ Processing failed payment...');
       order.paymentStatus = 'failed';
-      order.status = 'payment_failed';
+      order.status = 'payment_failed'; // This status exists in your model
+      
+      // Update Alfa payment details for failure
+      order.alfaPayment.responseCode = responseCode;
+      order.alfaPayment.responseMessage = responseDescription;
     }
 
     // ✅ Save payment attempt with ALL parameters for debugging
-    if (!order.alfaPayment) order.alfaPayment = {};
-    if (!order.alfaPayment.paymentAttempts) order.alfaPayment.paymentAttempts = [];
+    if (!order.alfaPayment.paymentAttempts) {
+      order.alfaPayment.paymentAttempts = [];
+    }
 
     const paymentAttempt = {
       attemptDate: new Date(),
@@ -1290,13 +1318,13 @@ exports.handlePaymentReturn = async (req, res, next) => {
     
     if (isSuccess) {
       redirectUrl.searchParams.set('status', 'success');
-      redirectUrl.searchParams.set('orderId', orderId);
-      redirectUrl.searchParams.set('transactionId', transactionId || 'N/A');
+      redirectUrl.searchParams.set('orderId', order.orderId);
+      redirectUrl.searchParams.set('transactionId', transactionId || order.alfaPayment.transactionId || 'N/A');
       redirectUrl.searchParams.set('amount', order.totalAmount);
       redirectUrl.searchParams.set('responseCode', responseCode || '00');
     } else {
       redirectUrl.searchParams.set('status', 'failed');
-      redirectUrl.searchParams.set('orderId', orderId);
+      redirectUrl.searchParams.set('orderId', order.orderId);
       redirectUrl.searchParams.set('code', responseCode || 'ERROR');
       redirectUrl.searchParams.set('message', encodeURIComponent(responseDescription || 'Payment failed'));
     }

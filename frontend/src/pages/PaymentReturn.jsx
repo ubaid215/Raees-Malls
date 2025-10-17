@@ -160,10 +160,30 @@ const PaymentReturn = () => {
     return statusInfo[status] || statusInfo.pending;
   };
 
-  const isPaymentSuccessful = paymentResult?.success && 
-                             (paymentResult?.order?.paymentStatus === 'completed' ||
-                              paymentResult?.paymentDetails?.transaction_status === 'success' ||
-                              paymentResult?.paymentDetails?.responseCode === '00');
+ // In your PaymentReturn component, update the status handling:
+const isPaymentSuccessful = paymentResult?.success && 
+  (paymentResult?.order?.paymentStatus === 'completed' ||
+   paymentResult?.paymentDetails?.responseCode === '00');
+
+// Status mapping that matches your model
+const orderStatusMap = {
+  'pending': { color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
+  'processing': { color: 'bg-blue-100 text-blue-800', label: 'Processing' },
+  'shipped': { color: 'bg-purple-100 text-purple-800', label: 'Shipped' },
+  'delivered': { color: 'bg-green-100 text-green-800', label: 'Delivered' },
+  'cancelled': { color: 'bg-red-100 text-red-800', label: 'Cancelled' },
+  'returned': { color: 'bg-orange-100 text-orange-800', label: 'Returned' },
+  'payment_failed': { color: 'bg-red-100 text-red-800', label: 'Payment Failed' }
+};
+
+const paymentStatusMap = {
+  'pending': { color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
+  'processing': { color: 'bg-blue-100 text-blue-800', label: 'Processing' },
+  'completed': { color: 'bg-green-100 text-green-800', label: 'Completed' },
+  'failed': { color: 'bg-red-100 text-red-800', label: 'Failed' },
+  'refunded': { color: 'bg-orange-100 text-orange-800', label: 'Refunded' },
+  'not_required': { color: 'bg-gray-100 text-gray-800', label: 'Not Required' }
+};
 
   const orderId = paymentResult?.order?.orderId || 'N/A';
   const orderStatusInfo = getOrderStatusInfo(paymentResult?.order?.status);
