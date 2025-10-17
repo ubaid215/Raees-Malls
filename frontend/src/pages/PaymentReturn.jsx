@@ -1,28 +1,32 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle, XCircle, Clock, ArrowLeft, ExternalLink, Copy } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, ArrowLeft, ExternalLink, Copy, Package, Truck, ShoppingBag } from 'lucide-react';
+import { useOrder } from '../contexts/OrderContext';
 
 const PaymentReturn = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { fetchOrderDetails, checkOrderPaymentStatus, syncPaymentStatus } = useOrder();
+  
   const [loading, setLoading] = useState(true);
   const [paymentResult, setPaymentResult] = useState(null);
+  const [orderDetails, setOrderDetails] = useState(null);
   const [copiedOrderId, setCopiedOrderId] = useState(false);
+  const [syncingPayment, setSyncingPayment] = useState(false);
 
   useEffect(() => {
-    // ✅ Parse URL parameters directly - no API call needed
-    const processPaymentReturn = () => {
+    const processPaymentReturn = async () => {
       try {
         const queryParams = Object.fromEntries(new URLSearchParams(location.search));
         console.log('[PaymentReturn] URL params:', queryParams);
         
         // Extract status from URL
         const status = queryParams.status;
-        const orderId = queryParams.orderId || queryParams.O;
+        const orderId = queryParams.orderId || queryParams.O || queryParams.basket_id;
         const transactionId = queryParams.transactionId || queryParams.TID;
         const amount = queryParams.amount;
-        const responseCode = queryParams.responseCode || queryParams.code;
-        const message = queryParams.message;
+        const responseCode = queryParams.responseCode || queryParams.code || queryParams.RC;
+        const message = queryParams.message || queryParams.response_message;
 
         if (!orderId) {
           setPaymentResult({
@@ -33,10 +37,13 @@ const PaymentReturn = () => {
           return;
         }
 
-        // Set result based on status
-        const isSuccess = status === 'success';
-        
-        setPaymentResult({
+        // Set initial result based on URL parameters
+        const isSuccess = status === 'success' || 
+                         responseCode === '00' || 
+                         responseCode === '000' ||
+                         queryParams.transaction_status === 'success';
+
+        const initialResult = {
           success: isSuccess,
           order: {
             orderId: orderId,
@@ -48,15 +55,37 @@ const PaymentReturn = () => {
             transaction_id: transactionId,
             transaction_status: status,
             responseCode: responseCode,
-            message: message
+            message: decodeURIComponent(message || '')
           }
-        });
+        };
+
+        setPaymentResult(initialResult);
         
-        console.log('[PaymentReturn] Payment result set:', {
-          success: isSuccess,
-          orderId,
-          status
-        });
+        // Fetch detailed order information
+        try {
+          console.log('[PaymentReturn] Fetching order details for:', orderId);
+          const orderData = await fetchOrderDetails(orderId, true); // Force refresh
+          setOrderDetails(orderData);
+          
+          // Also check payment status for verification
+          const paymentStatus = await checkOrderPaymentStatus(orderId, true);
+          console.log('[PaymentReturn] Payment status:', paymentStatus);
+          
+          // Update result with actual order data
+          if (orderData) {
+            setPaymentResult(prev => ({
+              ...prev,
+              order: {
+                ...prev.order,
+                ...orderData,
+                totalAmount: orderData.totalAmount || prev.order.totalAmount
+              }
+            }));
+          }
+        } catch (fetchError) {
+          console.warn('[PaymentReturn] Could not fetch order details:', fetchError);
+          // Continue with basic info from URL params
+        }
         
       } catch (err) {
         console.error('[PaymentReturn] Error:', err);
@@ -70,7 +99,33 @@ const PaymentReturn = () => {
     };
 
     processPaymentReturn();
-  }, [location.search]);
+  }, [location.search, fetchOrderDetails, checkOrderPaymentStatus]);
+
+  const handleSyncPayment = async () => {
+    if (!paymentResult?.order?.orderId) return;
+    
+    setSyncingPayment(true);
+    try {
+      const result = await syncPaymentStatus(paymentResult.order.orderId);
+      console.log('[PaymentReturn] Sync result:', result);
+      
+      // Refresh order details after sync
+      const updatedOrder = await fetchOrderDetails(paymentResult.order.orderId, true);
+      setOrderDetails(updatedOrder);
+      
+      // Update payment result
+      setPaymentResult(prev => ({
+        ...prev,
+        success: updatedOrder?.paymentStatus === 'completed',
+        order: updatedOrder || prev.order
+      }));
+      
+    } catch (error) {
+      console.error('[PaymentReturn] Sync error:', error);
+    } finally {
+      setSyncingPayment(false);
+    }
+  };
 
   const copyOrderId = () => {
     if (paymentResult?.order?.orderId) {
@@ -80,11 +135,39 @@ const PaymentReturn = () => {
     }
   };
 
+  const getOrderStatusInfo = (status) => {
+    const statusInfo = {
+      pending: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending', icon: Clock },
+      confirmed: { color: 'bg-blue-100 text-blue-800', label: 'Confirmed', icon: ShoppingBag },
+      processing: { color: 'bg-purple-100 text-purple-800', label: 'Processing', icon: Package },
+      shipped: { color: 'bg-indigo-100 text-indigo-800', label: 'Shipped', icon: Truck },
+      delivered: { color: 'bg-green-100 text-green-800', label: 'Delivered', icon: CheckCircle },
+      cancelled: { color: 'bg-red-100 text-red-800', label: 'Cancelled', icon: XCircle },
+      payment_failed: { color: 'bg-red-100 text-red-800', label: 'Payment Failed', icon: XCircle }
+    };
+    
+    return statusInfo[status] || statusInfo.pending;
+  };
+
+  const getPaymentStatusInfo = (status) => {
+    const statusInfo = {
+      pending: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
+      completed: { color: 'bg-green-100 text-green-800', label: 'Completed' },
+      failed: { color: 'bg-red-100 text-red-800', label: 'Failed' },
+      not_required: { color: 'bg-gray-100 text-gray-800', label: 'Not Required' }
+    };
+    
+    return statusInfo[status] || statusInfo.pending;
+  };
+
   const isPaymentSuccessful = paymentResult?.success && 
-                             (paymentResult?.paymentDetails?.transaction_status === 'success' ||
-                              paymentResult?.order?.paymentStatus === 'completed');
+                             (paymentResult?.order?.paymentStatus === 'completed' ||
+                              paymentResult?.paymentDetails?.transaction_status === 'success' ||
+                              paymentResult?.paymentDetails?.responseCode === '00');
 
   const orderId = paymentResult?.order?.orderId || 'N/A';
+  const orderStatusInfo = getOrderStatusInfo(paymentResult?.order?.status);
+  const paymentStatusInfo = getPaymentStatusInfo(paymentResult?.order?.paymentStatus);
 
   if (loading) {
     return (
@@ -147,7 +230,7 @@ const PaymentReturn = () => {
               <p className="text-gray-600">
                 {isPaymentSuccessful 
                   ? 'Thank you for your payment. Your order has been confirmed.'
-                  : decodeURIComponent(paymentResult?.paymentDetails?.message || paymentResult?.error || 'Your payment could not be processed.')
+                  : paymentResult?.paymentDetails?.message || paymentResult?.error || 'Your payment could not be processed.'
                 }
               </p>
             </div>
@@ -186,36 +269,57 @@ const PaymentReturn = () => {
                   </span>
                 </div>
 
+                {/* Items Count */}
+                {orderDetails?.items && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Items:</span>
+                    <span className="font-medium text-gray-900">
+                      {orderDetails.items.length} item{orderDetails.items.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                )}
+
+                {/* Order Date */}
+                {orderDetails?.createdAt && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Order Date:</span>
+                    <span className="font-medium text-gray-900">
+                      {new Date(orderDetails.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
+
                 {/* Payment Status */}
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-gray-600">Payment Status:</span>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    isPaymentSuccessful 
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {isPaymentSuccessful ? 'Completed' : 'Failed'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${paymentStatusInfo.color}`}>
+                      {paymentStatusInfo.label}
+                    </span>
+                    {!isPaymentSuccessful && (
+                      <button
+                        onClick={handleSyncPayment}
+                        disabled={syncingPayment}
+                        className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                      >
+                        {syncingPayment ? 'Syncing...' : 'Sync Status'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Order Status */}
                 {paymentResult?.order?.status && (
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-600">Order Status:</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      paymentResult.order.status === 'confirmed' || paymentResult.order.status === 'processing'
-                        ? 'bg-blue-100 text-blue-800'
-                        : paymentResult.order.status === 'completed'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {paymentResult.order.status.charAt(0).toUpperCase() + paymentResult.order.status.slice(1).replace('_', ' ')}
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${orderStatusInfo.color}`}>
+                      {orderStatusInfo.label}
                     </span>
                   </div>
                 )}
 
                 {/* Transaction ID */}
-                {paymentResult?.paymentDetails?.transaction_id && (
+                {paymentResult?.paymentDetails?.transaction_id && paymentResult.paymentDetails.transaction_id !== 'N/A' && (
                   <div className="flex justify-between">
                     <span className="text-gray-600">Transaction ID:</span>
                     <span className="font-medium text-gray-900 text-xs">
@@ -225,16 +329,42 @@ const PaymentReturn = () => {
                 )}
 
                 {/* Response Code */}
-                {paymentResult?.paymentDetails?.responseCode && (
+                {paymentResult?.paymentDetails?.responseCode && paymentResult.paymentDetails.responseCode !== 'N/A' && (
                   <div className="flex justify-between">
                     <span className="text-gray-600">Response Code:</span>
-                    <span className="font-medium text-gray-900 text-xs">
+                    <span className={`font-medium text-xs ${
+                      paymentResult.paymentDetails.responseCode === '00' ? 'text-green-600' : 'text-red-600'
+                    }`}>
                       {paymentResult.paymentDetails.responseCode}
                     </span>
                   </div>
                 )}
               </div>
             </div>
+
+            {/* Order Items Preview */}
+            {orderDetails?.items && orderDetails.items.length > 0 && (
+              <div className="bg-gray-50 rounded-xl p-4 mb-6">
+                <h3 className="font-semibold text-gray-900 mb-3">Order Items</h3>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {orderDetails.items.slice(0, 3).map((item, index) => (
+                    <div key={index} className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 truncate flex-1">
+                        {item.itemName || `Item ${index + 1}`}
+                      </span>
+                      <span className="text-gray-900 font-medium ml-2">
+                        Qty: {item.quantity || 1}
+                      </span>
+                    </div>
+                  ))}
+                  {orderDetails.items.length > 3 && (
+                    <div className="text-xs text-gray-500 text-center pt-2 border-t">
+                      +{orderDetails.items.length - 3} more items
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="space-y-3">
@@ -307,7 +437,7 @@ const PaymentReturn = () => {
                       <div>
                         <h4 className="font-medium text-gray-900">Retry Payment</h4>
                         <p className="text-sm text-gray-600 mt-1">
-                          You can try the payment again with the same order.
+                          You can try the payment again from your order history.
                         </p>
                       </div>
                     </div>
@@ -316,9 +446,9 @@ const PaymentReturn = () => {
                         <span className="text-blue-600 font-semibold text-sm">2</span>
                       </div>
                       <div>
-                        <h4 className="font-medium text-gray-900">Contact Support</h4>
+                        <h4 className="font-medium text-gray-900">Sync Payment Status</h4>
                         <p className="text-sm text-gray-600 mt-1">
-                          If the issue persists, contact our support team for assistance.
+                          Use the sync button to check if your payment was processed.
                         </p>
                       </div>
                     </div>
@@ -327,9 +457,9 @@ const PaymentReturn = () => {
                         <span className="text-gray-600 font-semibold text-sm">3</span>
                       </div>
                       <div>
-                        <h4 className="font-medium text-gray-900">Check Payment Method</h4>
+                        <h4 className="font-medium text-gray-900">Contact Support</h4>
                         <p className="text-sm text-gray-600 mt-1">
-                          Ensure your payment method has sufficient funds and is valid.
+                          If the issue persists, contact our support team for assistance.
                         </p>
                       </div>
                     </div>
