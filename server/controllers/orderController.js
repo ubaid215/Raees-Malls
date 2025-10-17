@@ -21,15 +21,15 @@ const generateQR = async (text, options) => {
 const ALFA_CONFIG = {
   MERCHANT_ID: process.env.ALFA_MERCHANT_ID || '32892',
   STORE_ID: process.env.ALFA_STORE_ID || '221340',
-  MERCHANT_USERNAME: process.env.ALFA_MERCHANT_USERNAME || 'lycixi',
-  MERCHANT_PASSWORD: process.env.ALFA_MERCHANT_PASSWORD || 'Nda8tI9ib4tvFzk4yqF7CA==',
-  MERCHANT_HASH: process.env.ALFA_MERCHANT_HASH_KEY || 'OUU362MB1urjt7KPP4CIHFLpyWkhnEJyWM+XCFLfdDDgfJ0w/q3C5MVwUTLJj8PxhpJ+MYhr2++NmOWncQkNYQ==',
+  MERCHANT_USERNAME: process.env.ALFA_MERCHANT_USERNAME || 'yvebyg',
+  MERCHANT_PASSWORD: process.env.ALFA_MERCHANT_PASSWORD || 'ZV5nStIOaIpvFzk4yqF7CA==',
+  MERCHANT_HASH: process.env.ALFA_MERCHANT_HASH_KEY || 'OUU362MB1urjt7KPP4CIHFLpyWkhnEJyWM+XCFLfdDDgfJ0w/q3C5MVwUTLJj8PxWnraQMdi41rl/Nqd8fzVKg==',
 
   // ✅ CORRECTED ENCRYPTION KEYS
-  ENCRYPTION_KEY1: process.env.ALFA_ENCRYPTION_KEY1 || 'dM3R6sKzrWn6d6aQ',
-  ENCRYPTION_KEY2: process.env.ALFA_ENCRYPTION_KEY2 || '1299316423257449',
+  ENCRYPTION_KEY1: process.env.ALFA_ENCRYPTION_KEY1 || 'jER4KHU8tXvkagBZ',
+  ENCRYPTION_KEY2: process.env.ALFA_ENCRYPTION_KEY2 || '4592696966857297',
 
-  RETURN_URL: process.env.ALFA_RETURN_URL || `${process.env.FRONTEND_URL}/api/orders/payment/return`,
+  RETURN_URL: process.env.ALFA_RETURN_URL || `${process.env.BACKEND_URL}/api/orders/payment/return`,
   LISTENER_URL: process.env.ALFA_LISTENER_URL || `${process.env.BACKEND_URL}/api/orders/payment/ipn`,
 
   HANDSHAKE_URL: process.env.ALFA_HANDSHAKE_URL || 'https://sandbox.bankalfalah.com/HS/HS/HS',
@@ -1120,135 +1120,150 @@ exports.handlePaymentIPN = async (req, res, next) => {
   }
 };
 
-// FIXED: Enhanced Payment Return Handler
+// ✅ ENHANCED: Better parameter handling for Bank Alfalah response
 exports.handlePaymentReturn = async (req, res, next) => {
   try {
-    console.log('[PAYMENT_RETURN] User returned from payment gateway');
-    console.log('[PAYMENT_RETURN] Query params:', req.query);
+    console.log('[PAYMENT_RETURN] ========== START ==========');
+    console.log('[PAYMENT_RETURN] Full URL:', req.originalUrl);
+    console.log('[PAYMENT_RETURN] Query params:', JSON.stringify(req.query, null, 2));
+    console.log('[PAYMENT_RETURN] Body params:', JSON.stringify(req.body, null, 2));
 
-    // Bank Alfalah returns these parameters
-    const { 
-      RC: responseCode,           // Response Code
-      RD: responseDescription,    // Response Description  
-      TS: transactionStatus,      // Transaction Status
-      O: orderId,                 // Order ID (your reference number)
-      TID: transactionId,         // Transaction ID (Bank's ID)
-      AuthToken,                  // Auth Token
-      basket_id,                  // Basket ID (fallback)
-      transaction_id              // Transaction ID (fallback)
-    } = req.query;
+    // ✅ Bank Alfalah can send params in query OR body
+    const params = { ...req.query, ...req.body };
+    
+    console.log('[PAYMENT_RETURN] Merged params:', JSON.stringify(params, null, 2));
 
-    console.log('[PAYMENT_RETURN] Parsed params:', {
+    // ✅ Extract all possible parameter variations Bank Alfalah might send
+    const responseCode = params.RC || params.response_code || params.ResponseCode;
+    const responseDescription = params.RD || params.response_description || params.ResponseDescription || params.message;
+    const transactionStatus = params.TS || params.transaction_status || params.TransactionStatus;
+    const orderId = params.O || params.order_id || params.OrderId || params.basket_id || params.TransactionReferenceNumber;
+    const transactionId = params.TID || params.transaction_id || params.TransactionId;
+    const authToken = params.AuthToken || params.auth_token;
+    const transactionAmount = params.TA || params.transaction_amount || params.TransactionAmount;
+
+    console.log('[PAYMENT_RETURN] Extracted values:', {
       responseCode,
       responseDescription,
       transactionStatus,
       orderId,
       transactionId,
-      basket_id,
-      transaction_id
+      authToken: authToken ? 'present' : 'missing',
+      transactionAmount
     });
 
-    // Use fallback order ID if main one is not available
-    const finalOrderId = orderId || basket_id;
-    if (!finalOrderId) {
-      console.error('[PAYMENT_RETURN] No order ID in return parameters');
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=missing_order_id`);
+    // ✅ Validate order ID
+    if (!orderId) {
+      console.error('[PAYMENT_RETURN] ❌ No order ID found in any parameter');
+      console.error('[PAYMENT_RETURN] Available params:', Object.keys(params));
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/payment/return?status=error&error=missing_order_id&message=${encodeURIComponent('Order ID not found in payment response')}`
+      );
     }
 
-    // Find order
-    const order = await Order.findOne({ orderId: finalOrderId })
+    // ✅ Find order
+    console.log('[PAYMENT_RETURN] Searching for order:', orderId);
+    const order = await Order.findOne({ orderId: orderId })
       .populate('userId', 'name email');
 
     if (!order) {
-      console.error('[PAYMENT_RETURN] Order not found', { finalOrderId });
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=order_not_found&orderId=${finalOrderId}`);
+      console.error('[PAYMENT_RETURN] ❌ Order not found:', orderId);
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/payment/return?status=error&error=order_not_found&orderId=${orderId}`
+      );
     }
 
-    console.log('[PAYMENT_RETURN] Order found:', {
+    console.log('[PAYMENT_RETURN] ✅ Order found:', {
       orderId: order.orderId,
       currentStatus: order.status,
-      paymentStatus: order.paymentStatus
+      paymentStatus: order.paymentStatus,
+      totalAmount: order.totalAmount
     });
 
-    // ENHANCED: More robust payment success detection
-    const isSuccess = (
-      responseCode === '00' || 
-      transactionStatus === 'S' || 
-      transactionStatus === 'success' ||
-      (responseDescription && responseDescription.toLowerCase().includes('success')) ||
-      (responseDescription && responseDescription.toLowerCase().includes('approved'))
-    );
+    // ✅ ENHANCED: Multiple success indicators
+    const successIndicators = [
+      responseCode === '00',
+      responseCode === '000',
+      transactionStatus === 'S',
+      transactionStatus === 'success',
+      transactionStatus === 'Success',
+      transactionStatus === 'SUCCESS',
+      responseDescription && responseDescription.toLowerCase().includes('success'),
+      responseDescription && responseDescription.toLowerCase().includes('approved'),
+      responseDescription && responseDescription.toLowerCase().includes('completed')
+    ];
 
-    console.log('[PAYMENT_RETURN] Payment success analysis:', {
+    const isSuccess = successIndicators.some(indicator => indicator === true);
+
+    console.log('[PAYMENT_RETURN] Success analysis:', {
       responseCode,
       transactionStatus,
       responseDescription,
-      isSuccess
+      successIndicators,
+      finalDecision: isSuccess ? 'SUCCESS' : 'FAILED'
     });
 
-    // Update order status
+    // ✅ Update order based on payment result
     if (isSuccess) {
-      console.log('[PAYMENT_RETURN] ✅ Payment successful, updating order...');
+      console.log('[PAYMENT_RETURN] ✅ Processing successful payment...');
       
-      order.paymentStatus = 'completed';
-      order.status = 'confirmed';
-      
-      // Update stock for successful payment
-      await updateOrderStock(order);
-      
-      console.log('[PAYMENT_RETURN] ✅ Order updated successfully');
+      // Only update if not already completed
+      if (order.paymentStatus !== 'completed') {
+        order.paymentStatus = 'completed';
+        order.status = 'confirmed';
+        
+        // Update stock
+        console.log('[PAYMENT_RETURN] Updating stock...');
+        await updateOrderStock(order);
+        console.log('[PAYMENT_RETURN] ✅ Stock updated');
+      } else {
+        console.log('[PAYMENT_RETURN] ℹ️ Order already marked as completed');
+      }
       
     } else {
-      console.log('[PAYMENT_RETURN] ❌ Payment failed', {
-        responseCode,
-        responseDescription,
-        transactionStatus
-      });
-      
+      console.log('[PAYMENT_RETURN] ❌ Processing failed payment...');
       order.paymentStatus = 'failed';
       order.status = 'payment_failed';
     }
 
-    // Save payment attempt details with enhanced logging
-    if (!order.alfaPayment) {
-      order.alfaPayment = {};
-    }
-    
-    if (!order.alfaPayment.paymentAttempts) {
-      order.alfaPayment.paymentAttempts = [];
-    }
+    // ✅ Save payment attempt with ALL parameters for debugging
+    if (!order.alfaPayment) order.alfaPayment = {};
+    if (!order.alfaPayment.paymentAttempts) order.alfaPayment.paymentAttempts = [];
 
     const paymentAttempt = {
       attemptDate: new Date(),
       status: isSuccess ? 'success' : 'failed',
-      responseCode: responseCode,
-      responseMessage: responseDescription,
-      transactionId: transactionId || transaction_id || order.alfaPayment?.transactionId,
-      transactionStatus: transactionStatus,
-      gatewayParams: req.query // Store all gateway parameters for debugging
+      responseCode: responseCode || 'N/A',
+      responseMessage: responseDescription || 'No message',
+      transactionId: transactionId || 'N/A',
+      transactionStatus: transactionStatus || 'N/A',
+      transactionAmount: transactionAmount,
+      authToken: authToken ? 'present' : 'missing',
+      gatewayParams: params, // Store ALL params for debugging
+      rawUrl: req.originalUrl
     };
 
     order.alfaPayment.paymentAttempts.push(paymentAttempt);
 
-    // Save the most recent transaction details
+    // Update latest transaction
     order.alfaPayment.latestTransaction = {
-      transactionId: transactionId || transaction_id,
+      transactionId: transactionId || 'N/A',
       transactionDate: new Date(),
-      amount: order.totalAmount,
+      amount: transactionAmount || order.totalAmount,
       status: isSuccess ? 'success' : 'failed',
-      responseCode: responseCode,
-      responseMessage: responseDescription
+      responseCode: responseCode || 'N/A',
+      responseMessage: responseDescription || 'No message'
     };
 
     await order.save();
-    console.log('[PAYMENT_RETURN] Order saved with payment details');
+    console.log('[PAYMENT_RETURN] ✅ Order saved with payment details');
 
-    // Send socket notification for successful payment
+    // ✅ Send notifications for successful payment
     if (isSuccess) {
       const io = req.app.get('socketio');
       if (io) {
         const notificationData = {
-          id: uuidv4(),
+          id: require('uuid').v4(),
           title: '✅ Payment Successful!',
           message: `${order.userId?.name || 'Customer'} completed payment for order #${order.orderId}`,
           type: 'payment',
@@ -1262,31 +1277,45 @@ exports.handlePaymentReturn = async (req, res, next) => {
 
         io.emit('orderNotification', notificationData);
         io.to('adminRoom').emit('newOrder', { order, notification: notificationData });
-        io.to(`user_${order.userId._id}`).emit('paymentSuccess', { order });
+        if (order.userId?._id) {
+          io.to(`user_${order.userId._id}`).emit('paymentSuccess', { order });
+        }
         
-        console.log('[PAYMENT_RETURN] ✅ Notifications sent for successful payment');
+        console.log('[PAYMENT_RETURN] ✅ Notifications sent');
       }
     }
 
-    // Redirect to frontend with enhanced result parameters
+    // ✅ Redirect to frontend with proper parameters
+    const redirectUrl = new URL(`${process.env.FRONTEND_URL}/payment/return`);
+    
     if (isSuccess) {
-      return res.redirect(
-        `${process.env.FRONTEND_URL}/payment/return?status=success&orderId=${finalOrderId}&transactionId=${transactionId || transaction_id}&amount=${order.totalAmount}`
-      );
+      redirectUrl.searchParams.set('status', 'success');
+      redirectUrl.searchParams.set('orderId', orderId);
+      redirectUrl.searchParams.set('transactionId', transactionId || 'N/A');
+      redirectUrl.searchParams.set('amount', order.totalAmount);
+      redirectUrl.searchParams.set('responseCode', responseCode || '00');
     } else {
-      return res.redirect(
-        `${process.env.FRONTEND_URL}/payment/return?status=failed&orderId=${finalOrderId}&code=${responseCode}&message=${encodeURIComponent(responseDescription || 'Payment failed')}`
-      );
+      redirectUrl.searchParams.set('status', 'failed');
+      redirectUrl.searchParams.set('orderId', orderId);
+      redirectUrl.searchParams.set('code', responseCode || 'ERROR');
+      redirectUrl.searchParams.set('message', encodeURIComponent(responseDescription || 'Payment failed'));
     }
 
+    console.log('[PAYMENT_RETURN] Redirecting to:', redirectUrl.toString());
+    console.log('[PAYMENT_RETURN] ========== END ==========');
+    
+    return res.redirect(redirectUrl.toString());
+
   } catch (error) {
-    console.error('[PAYMENT_RETURN] Error processing payment return', {
+    console.error('[PAYMENT_RETURN] ❌ Exception:', {
       message: error.message,
       stack: error.stack,
-      query: req.query
+      query: req.query,
+      body: req.body
     });
+    
     return res.redirect(
-      `${process.env.FRONTEND_URL}/payment/return?status=error&message=${encodeURIComponent('Payment processing error')}&orderId=${req.query.O || req.query.basket_id}`
+      `${process.env.FRONTEND_URL}/payment/return?status=error&message=${encodeURIComponent(error.message || 'Payment processing error')}`
     );
   }
 };

@@ -1,38 +1,76 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useOrder } from '../context/OrderContext';
-import { useAuth } from '../context/AuthContext';
 import { CheckCircle, XCircle, Clock, ArrowLeft, ExternalLink, Copy } from 'lucide-react';
 
 const PaymentReturn = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { handlePaymentReturnFromGateway } = useOrder();
-  const { isAuthenticated } = useAuth();
   const [loading, setLoading] = useState(true);
   const [paymentResult, setPaymentResult] = useState(null);
-  const [error, setError] = useState('');
   const [copiedOrderId, setCopiedOrderId] = useState(false);
 
   useEffect(() => {
-    const processPaymentReturn = async () => {
+    // ✅ Parse URL parameters directly - no API call needed
+    const processPaymentReturn = () => {
       try {
         const queryParams = Object.fromEntries(new URLSearchParams(location.search));
-        console.log('[PaymentReturn] Processing payment return with params:', queryParams);
+        console.log('[PaymentReturn] URL params:', queryParams);
         
-        const result = await handlePaymentReturnFromGateway(queryParams);
-        console.log('[PaymentReturn] Payment result:', result);
-        setPaymentResult(result);
+        // Extract status from URL
+        const status = queryParams.status;
+        const orderId = queryParams.orderId || queryParams.O;
+        const transactionId = queryParams.transactionId || queryParams.TID;
+        const amount = queryParams.amount;
+        const responseCode = queryParams.responseCode || queryParams.code;
+        const message = queryParams.message;
+
+        if (!orderId) {
+          setPaymentResult({
+            success: false,
+            error: 'Order ID not found in payment response'
+          });
+          setLoading(false);
+          return;
+        }
+
+        // Set result based on status
+        const isSuccess = status === 'success';
+        
+        setPaymentResult({
+          success: isSuccess,
+          order: {
+            orderId: orderId,
+            totalAmount: parseFloat(amount) || 0,
+            paymentStatus: isSuccess ? 'completed' : 'failed',
+            status: isSuccess ? 'confirmed' : 'payment_failed'
+          },
+          paymentDetails: {
+            transaction_id: transactionId,
+            transaction_status: status,
+            responseCode: responseCode,
+            message: message
+          }
+        });
+        
+        console.log('[PaymentReturn] Payment result set:', {
+          success: isSuccess,
+          orderId,
+          status
+        });
+        
       } catch (err) {
-        console.error('[PaymentReturn] Error processing payment:', err);
-        setError(err.message || 'Failed to process payment return');
+        console.error('[PaymentReturn] Error:', err);
+        setPaymentResult({
+          success: false,
+          error: err.message || 'Failed to process payment return'
+        });
       } finally {
         setLoading(false);
       }
     };
 
     processPaymentReturn();
-  }, [location.search, handlePaymentReturnFromGateway]);
+  }, [location.search]);
 
   const copyOrderId = () => {
     if (paymentResult?.order?.orderId) {
@@ -42,21 +80,11 @@ const PaymentReturn = () => {
     }
   };
 
-  // Extract order ID from URL parameters as fallback
-  const getOrderIdFromUrl = () => {
-    const queryParams = new URLSearchParams(location.search);
-    return queryParams.get('orderId') || queryParams.get('O');
-  };
+  const isPaymentSuccessful = paymentResult?.success && 
+                             (paymentResult?.paymentDetails?.transaction_status === 'success' ||
+                              paymentResult?.order?.paymentStatus === 'completed');
 
-  const isPaymentSuccessful = paymentResult?.paymentDetails?.responseCode === '00' || 
-                             paymentResult?.paymentDetails?.transaction_status === 'success' ||
-                             paymentResult?.order?.paymentStatus === 'completed';
-
-  // Get the order ID with fallbacks
-  const orderId = paymentResult?.order?.orderId || 
-                  getOrderIdFromUrl() || 
-                  paymentResult?.paymentDetails?.basket_id ||
-                  'N/A';
+  const orderId = paymentResult?.order?.orderId || 'N/A';
 
   if (loading) {
     return (
@@ -119,7 +147,7 @@ const PaymentReturn = () => {
               <p className="text-gray-600">
                 {isPaymentSuccessful 
                   ? 'Thank you for your payment. Your order has been confirmed.'
-                  : error || paymentResult?.paymentDetails?.message || 'Your payment could not be processed.'
+                  : decodeURIComponent(paymentResult?.paymentDetails?.message || paymentResult?.error || 'Your payment could not be processed.')
                 }
               </p>
             </div>
@@ -154,9 +182,7 @@ const PaymentReturn = () => {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Amount:</span>
                   <span className="font-medium text-green-600">
-                    PKR {paymentResult?.order?.totalAmount?.toLocaleString() || 
-                         paymentResult?.paymentDetails?.transaction_amount?.toLocaleString() || 
-                         'N/A'}
+                    PKR {paymentResult?.order?.totalAmount?.toLocaleString() || 'N/A'}
                   </span>
                 </div>
 
@@ -183,7 +209,7 @@ const PaymentReturn = () => {
                         ? 'bg-green-100 text-green-800'
                         : 'bg-yellow-100 text-yellow-800'
                     }`}>
-                      {paymentResult.order.status.charAt(0).toUpperCase() + paymentResult.order.status.slice(1)}
+                      {paymentResult.order.status.charAt(0).toUpperCase() + paymentResult.order.status.slice(1).replace('_', ' ')}
                     </span>
                   </div>
                 )}
@@ -198,12 +224,12 @@ const PaymentReturn = () => {
                   </div>
                 )}
 
-                {/* Payment Method */}
-                {paymentResult?.order?.paymentMethod && (
+                {/* Response Code */}
+                {paymentResult?.paymentDetails?.responseCode && (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Payment Method:</span>
-                    <span className="font-medium text-gray-900 capitalize">
-                      {paymentResult.order.paymentMethod.replace(/_/g, ' ')}
+                    <span className="text-gray-600">Response Code:</span>
+                    <span className="font-medium text-gray-900 text-xs">
+                      {paymentResult.paymentDetails.responseCode}
                     </span>
                   </div>
                 )}
@@ -225,16 +251,6 @@ const PaymentReturn = () => {
               >
                 Continue Shopping
               </button>
-              
-              {/* Download Invoice Button */}
-              {isPaymentSuccessful && paymentResult?.order?.orderId && (
-                <button
-                  onClick={() => navigate(`/invoice/${paymentResult.order.orderId}`)}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
-                >
-                  Download Invoice
-                </button>
-              )}
             </div>
           </div>
 
@@ -353,10 +369,10 @@ const PaymentReturn = () => {
             </p>
             <div className="flex gap-4 justify-center">
               <button
-                onClick={() => navigate('/checkout')}
+                onClick={() => navigate('/account/orders')}
                 className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
               >
-                Try Payment Again
+                View My Orders
               </button>
               <button
                 onClick={() => navigate('/contact')}
