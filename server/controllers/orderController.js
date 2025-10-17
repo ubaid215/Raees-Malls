@@ -1120,7 +1120,7 @@ exports.handlePaymentIPN = async (req, res, next) => {
   }
 };
 
-// In your orderController.js - Update handlePaymentReturn
+// FIXED: Enhanced Payment Return Handler
 exports.handlePaymentReturn = async (req, res, next) => {
   try {
     console.log('[PAYMENT_RETURN] User returned from payment gateway');
@@ -1133,7 +1133,9 @@ exports.handlePaymentReturn = async (req, res, next) => {
       TS: transactionStatus,      // Transaction Status
       O: orderId,                 // Order ID (your reference number)
       TID: transactionId,         // Transaction ID (Bank's ID)
-      AuthToken                   // Auth Token
+      AuthToken,                  // Auth Token
+      basket_id,                  // Basket ID (fallback)
+      transaction_id              // Transaction ID (fallback)
     } = req.query;
 
     console.log('[PAYMENT_RETURN] Parsed params:', {
@@ -1141,21 +1143,25 @@ exports.handlePaymentReturn = async (req, res, next) => {
       responseDescription,
       transactionStatus,
       orderId,
-      transactionId
+      transactionId,
+      basket_id,
+      transaction_id
     });
 
-    if (!orderId) {
+    // Use fallback order ID if main one is not available
+    const finalOrderId = orderId || basket_id;
+    if (!finalOrderId) {
       console.error('[PAYMENT_RETURN] No order ID in return parameters');
       return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=missing_order_id`);
     }
 
     // Find order
-    const order = await Order.findOne({ orderId })
+    const order = await Order.findOne({ orderId: finalOrderId })
       .populate('userId', 'name email');
 
     if (!order) {
-      console.error('[PAYMENT_RETURN] Order not found', { orderId });
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=order_not_found&orderId=${orderId}`);
+      console.error('[PAYMENT_RETURN] Order not found', { finalOrderId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?error=order_not_found&orderId=${finalOrderId}`);
     }
 
     console.log('[PAYMENT_RETURN] Order found:', {
@@ -1164,30 +1170,46 @@ exports.handlePaymentReturn = async (req, res, next) => {
       paymentStatus: order.paymentStatus
     });
 
-    // Determine if payment was successful
-    const isSuccess = responseCode === '00' && transactionStatus === 'S';
-    
+    // ENHANCED: More robust payment success detection
+    const isSuccess = (
+      responseCode === '00' || 
+      transactionStatus === 'S' || 
+      transactionStatus === 'success' ||
+      (responseDescription && responseDescription.toLowerCase().includes('success')) ||
+      (responseDescription && responseDescription.toLowerCase().includes('approved'))
+    );
+
+    console.log('[PAYMENT_RETURN] Payment success analysis:', {
+      responseCode,
+      transactionStatus,
+      responseDescription,
+      isSuccess
+    });
+
     // Update order status
     if (isSuccess) {
+      console.log('[PAYMENT_RETURN] ✅ Payment successful, updating order...');
+      
       order.paymentStatus = 'completed';
       order.status = 'confirmed';
-      
-      console.log('[PAYMENT_RETURN] ✅ Payment successful, updating stock');
       
       // Update stock for successful payment
       await updateOrderStock(order);
       
-    } else {
-      order.paymentStatus = 'failed';
-      order.status = 'payment_failed';
+      console.log('[PAYMENT_RETURN] ✅ Order updated successfully');
       
+    } else {
       console.log('[PAYMENT_RETURN] ❌ Payment failed', {
         responseCode,
-        responseDescription
+        responseDescription,
+        transactionStatus
       });
+      
+      order.paymentStatus = 'failed';
+      order.status = 'payment_failed';
     }
 
-    // Save payment attempt details
+    // Save payment attempt details with enhanced logging
     if (!order.alfaPayment) {
       order.alfaPayment = {};
     }
@@ -1196,16 +1218,30 @@ exports.handlePaymentReturn = async (req, res, next) => {
       order.alfaPayment.paymentAttempts = [];
     }
 
-    order.alfaPayment.paymentAttempts.push({
+    const paymentAttempt = {
       attemptDate: new Date(),
       status: isSuccess ? 'success' : 'failed',
       responseCode: responseCode,
       responseMessage: responseDescription,
-      transactionId: transactionId || order.alfaPayment.transactionId,
-      transactionStatus: transactionStatus
-    });
+      transactionId: transactionId || transaction_id || order.alfaPayment?.transactionId,
+      transactionStatus: transactionStatus,
+      gatewayParams: req.query // Store all gateway parameters for debugging
+    };
+
+    order.alfaPayment.paymentAttempts.push(paymentAttempt);
+
+    // Save the most recent transaction details
+    order.alfaPayment.latestTransaction = {
+      transactionId: transactionId || transaction_id,
+      transactionDate: new Date(),
+      amount: order.totalAmount,
+      status: isSuccess ? 'success' : 'failed',
+      responseCode: responseCode,
+      responseMessage: responseDescription
+    };
 
     await order.save();
+    console.log('[PAYMENT_RETURN] Order saved with payment details');
 
     // Send socket notification for successful payment
     if (isSuccess) {
@@ -1227,19 +1263,31 @@ exports.handlePaymentReturn = async (req, res, next) => {
         io.emit('orderNotification', notificationData);
         io.to('adminRoom').emit('newOrder', { order, notification: notificationData });
         io.to(`user_${order.userId._id}`).emit('paymentSuccess', { order });
+        
+        console.log('[PAYMENT_RETURN] ✅ Notifications sent for successful payment');
       }
     }
 
-    // Redirect to frontend with result
+    // Redirect to frontend with enhanced result parameters
     if (isSuccess) {
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/return?status=success&orderId=${orderId}`);
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/payment/return?status=success&orderId=${finalOrderId}&transactionId=${transactionId || transaction_id}&amount=${order.totalAmount}`
+      );
     } else {
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/return?status=failed&orderId=${orderId}&code=${responseCode}&message=${encodeURIComponent(responseDescription || 'Payment failed')}`);
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/payment/return?status=failed&orderId=${finalOrderId}&code=${responseCode}&message=${encodeURIComponent(responseDescription || 'Payment failed')}`
+      );
     }
 
   } catch (error) {
-    console.error('[PAYMENT_RETURN] Error processing payment return', error);
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/return?status=error&message=${encodeURIComponent('Payment processing error')}`);
+    console.error('[PAYMENT_RETURN] Error processing payment return', {
+      message: error.message,
+      stack: error.stack,
+      query: req.query
+    });
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/payment/return?status=error&message=${encodeURIComponent('Payment processing error')}&orderId=${req.query.O || req.query.basket_id}`
+    );
   }
 };
 
@@ -1305,6 +1353,312 @@ const updateOrderStock = async (order) => {
   } catch (error) {
     console.error('[UPDATE_STOCK] Error updating stock:', error);
     throw error;
+  }
+};
+
+// NEW: Sync Payment Status - Fixes payment status mismatch
+exports.syncPaymentStatus = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user?.userId;
+    const userRole = req.user?.role;
+
+    console.log('[SYNC_PAYMENT] Starting payment sync', { 
+      orderId, 
+      userId, 
+      userRole 
+    });
+
+    // Find order with proper authorization
+    let order;
+    if (userRole === 'admin') {
+      // Admin can sync any order
+      order = await Order.findOne({ orderId })
+        .populate('userId', 'name email');
+    } else {
+      // Users can only sync their own orders
+      order = await Order.findOne({ orderId, userId })
+        .populate('userId', 'name email');
+    }
+
+    if (!order) {
+      console.error('[SYNC_PAYMENT] Order not found or unauthorized', { orderId, userId });
+      throw new ApiError(404, 'Order not found or you do not have permission to sync this order');
+    }
+
+    console.log('[SYNC_PAYMENT] Order found', {
+      orderId: order.orderId,
+      currentPaymentStatus: order.paymentStatus,
+      currentOrderStatus: order.status,
+      paymentMethod: order.paymentMethod
+    });
+
+    // Check if we have successful payment attempts but failed status
+    const successfulAttempt = order.alfaPayment?.paymentAttempts?.find(
+      attempt => 
+        attempt.status === 'success' || 
+        attempt.responseCode === '00' ||
+        (attempt.responseMessage && attempt.responseMessage.toLowerCase().includes('success')) ||
+        (attempt.transactionStatus && attempt.transactionStatus.toLowerCase().includes('success'))
+    );
+
+    const failedAttempt = order.alfaPayment?.paymentAttempts?.find(
+      attempt => 
+        attempt.status === 'failed' || 
+        (attempt.responseCode && attempt.responseCode !== '00' && attempt.responseCode !== '') ||
+        (attempt.responseMessage && attempt.responseMessage.toLowerCase().includes('fail'))
+    );
+
+    console.log('[SYNC_PAYMENT] Payment analysis:', {
+      hasSuccessfulAttempt: !!successfulAttempt,
+      hasFailedAttempt: !!failedAttempt,
+      successfulAttempt: successfulAttempt ? {
+        responseCode: successfulAttempt.responseCode,
+        responseMessage: successfulAttempt.responseMessage,
+        transactionStatus: successfulAttempt.transactionStatus
+      } : null,
+      failedAttempt: failedAttempt ? {
+        responseCode: failedAttempt.responseCode,
+        responseMessage: failedAttempt.responseMessage
+      } : null
+    });
+
+    let syncPerformed = false;
+    let syncMessage = 'No sync required';
+
+    // CASE 1: Found successful payment attempt but order shows failed
+    if (successfulAttempt && order.paymentStatus === 'failed') {
+      console.log('[SYNC_PAYMENT] ✅ Found successful payment attempt, updating status to completed');
+      
+      order.paymentStatus = 'completed';
+      order.status = 'confirmed';
+      syncPerformed = true;
+      syncMessage = 'Payment status synced successfully - payment confirmed';
+
+      // Update stock for successful payment
+      await updateOrderStock(order);
+      
+      console.log('[SYNC_PAYMENT] ✅ Order status updated and stock reduced');
+
+    } 
+    // CASE 2: Found failed payment attempt but order shows completed (shouldn't happen but handle it)
+    else if (failedAttempt && order.paymentStatus === 'completed') {
+      console.log('[SYNC_PAYMENT] ⚠️ Found failed payment attempt but order shows completed, reverting status');
+      
+      order.paymentStatus = 'failed';
+      order.status = 'payment_failed';
+      syncPerformed = true;
+      syncMessage = 'Payment status corrected - payment failed';
+
+      // Restore stock since payment actually failed
+      await restoreOrderStock(order);
+      
+      console.log('[SYNC_PAYMENT] ⚠️ Order status reverted and stock restored');
+    }
+    // CASE 3: Check latest transaction details for success indicators
+    else if (order.alfaPayment?.latestTransaction) {
+      const latestTx = order.alfaPayment.latestTransaction;
+      const isLatestSuccess = 
+        latestTx.status === 'success' || 
+        latestTx.responseCode === '00' ||
+        (latestTx.responseMessage && latestTx.responseMessage.toLowerCase().includes('success'));
+
+      if (isLatestSuccess && order.paymentStatus !== 'completed') {
+        console.log('[SYNC_PAYMENT] ✅ Latest transaction shows success, updating status');
+        
+        order.paymentStatus = 'completed';
+        order.status = 'confirmed';
+        syncPerformed = true;
+        syncMessage = 'Payment status synced from latest transaction';
+
+        await updateOrderStock(order);
+      }
+    }
+
+    // Add sync attempt record
+    if (!order.alfaPayment) {
+      order.alfaPayment = {};
+    }
+    
+    if (!order.alfaPayment.syncAttempts) {
+      order.alfaPayment.syncAttempts = [];
+    }
+
+    order.alfaPayment.syncAttempts.push({
+      syncDate: new Date(),
+      performed: syncPerformed,
+      message: syncMessage,
+      previousPaymentStatus: order.paymentStatus,
+      newPaymentStatus: syncPerformed ? order.paymentStatus : undefined,
+      triggeredBy: {
+        userId: userId,
+        userRole: userRole
+      }
+    });
+
+    // Update last synced timestamp
+    order.alfaPayment.lastSyncedAt = new Date();
+
+    await order.save();
+    console.log('[SYNC_PAYMENT] Order saved with sync details');
+
+    // Send notifications if sync was performed
+    if (syncPerformed) {
+      const io = req.app.get('socketio');
+      if (io) {
+        if (order.paymentStatus === 'completed') {
+          const notificationData = {
+            id: uuidv4(),
+            title: '✅ Payment Synced Successfully!',
+            message: `Payment for order #${order.orderId} has been confirmed via sync`,
+            type: 'payment_sync',
+            orderId: order.orderId,
+            orderTotal: order.totalAmount,
+            timestamp: new Date().toISOString(),
+            customerName: order.userId?.name || 'Customer',
+            customerEmail: order.userId?.email
+          };
+
+          io.emit('orderNotification', notificationData);
+          io.to('adminRoom').emit('orderStatusUpdated', { order, notification: notificationData });
+          io.to(`user_${order.userId._id}`).emit('paymentSuccess', { order });
+          
+          console.log('[SYNC_PAYMENT] ✅ Notifications sent for successful sync');
+        }
+      }
+    }
+
+    console.log('[SYNC_PAYMENT] Sync completed', {
+      orderId: order.orderId,
+      syncPerformed,
+      syncMessage,
+      finalPaymentStatus: order.paymentStatus,
+      finalOrderStatus: order.status
+    });
+
+    return ApiResponse.success(res, 200, syncMessage, {
+      order: {
+        orderId: order.orderId,
+        paymentStatus: order.paymentStatus,
+        status: order.status,
+        syncPerformed,
+        syncMessage
+      },
+      analysis: {
+        hasSuccessfulAttempt: !!successfulAttempt,
+        hasFailedAttempt: !!failedAttempt,
+        successfulAttempt: successfulAttempt ? {
+          responseCode: successfulAttempt.responseCode,
+          responseMessage: successfulAttempt.responseMessage
+        } : null
+      }
+    });
+
+  } catch (error) {
+    console.error('[SYNC_PAYMENT] Error syncing payment status', {
+      message: error.message,
+      stack: error.stack,
+      orderId: req.params.orderId,
+      userId: req.user?.userId
+    });
+    next(error);
+  }
+};
+
+// Helper function to restore stock (for case when payment actually failed but stock was reduced)
+const restoreOrderStock = async (order) => {
+  try {
+    console.log('[RESTORE_STOCK] Restoring stock for order:', order.orderId);
+
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        console.warn(`[RESTORE_STOCK] Product not found: ${item.productId}`);
+        continue;
+      }
+
+      switch (item.variantType) {
+        case 'simple':
+          await Product.findByIdAndUpdate(product._id, { 
+            $inc: { stock: item.simpleProduct.quantity } 
+          });
+          console.log('[RESTORE_STOCK] Simple product stock restored');
+          break;
+
+        case 'color':
+          await Product.updateOne(
+            { _id: product._id, 'variants._id': item.colorVariant.variantId },
+            { $inc: { 'variants.$.stock': item.colorVariant.quantity } }
+          );
+          console.log('[RESTORE_STOCK] Color variant stock restored');
+          break;
+
+        case 'storage':
+          await Product.updateOne(
+            { _id: product._id },
+            { $inc: { 'variants.$[v].storageOptions.$[s].stock': item.storageVariant.quantity } },
+            { 
+              arrayFilters: [
+                { 'v._id': item.storageVariant.variantId }, 
+                { 's._id': item.storageVariant.storageOption._id }
+              ] 
+            }
+          );
+          console.log('[RESTORE_STOCK] Storage variant stock restored');
+          break;
+
+        case 'size':
+          await Product.updateOne(
+            { _id: product._id },
+            { $inc: { 'variants.$[v].sizeOptions.$[s].stock': item.sizeVariant.quantity } },
+            { 
+              arrayFilters: [
+                { 'v._id': item.sizeVariant.variantId }, 
+                { 's._id': item.sizeVariant.sizeOption._id }
+              ] 
+            }
+          );
+          console.log('[RESTORE_STOCK] Size variant stock restored');
+          break;
+      }
+    }
+
+    console.log('[RESTORE_STOCK] ✅ Stock restoration completed');
+  } catch (error) {
+    console.error('[RESTORE_STOCK] Error restoring stock:', error);
+    throw error;
+  }
+};
+
+// NEW: Get payment sync history
+exports.getPaymentSyncHistory = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user?.userId;
+    const userRole = req.user?.role;
+
+    let order;
+    if (userRole === 'admin') {
+      order = await Order.findOne({ orderId });
+    } else {
+      order = await Order.findOne({ orderId, userId });
+    }
+
+    if (!order) {
+      throw new ApiError(404, 'Order not found');
+    }
+
+    const syncHistory = order.alfaPayment?.syncAttempts || [];
+
+    ApiResponse.success(res, 200, 'Payment sync history retrieved', {
+      orderId: order.orderId,
+      syncHistory,
+      lastSyncedAt: order.alfaPayment?.lastSyncedAt
+    });
+
+  } catch (error) {
+    console.error('[SYNC_HISTORY] Error retrieving sync history:', error);
+    next(error);
   }
 };
 

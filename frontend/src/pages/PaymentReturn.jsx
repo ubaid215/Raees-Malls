@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useOrder } from '../context/OrderContext';
 import { useAuth } from '../context/AuthContext';
-import { CheckCircle, XCircle, Clock, ArrowLeft, ExternalLink } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, ArrowLeft, ExternalLink, Copy } from 'lucide-react';
 
 const PaymentReturn = () => {
   const location = useLocation();
@@ -12,14 +12,19 @@ const PaymentReturn = () => {
   const [loading, setLoading] = useState(true);
   const [paymentResult, setPaymentResult] = useState(null);
   const [error, setError] = useState('');
+  const [copiedOrderId, setCopiedOrderId] = useState(false);
 
   useEffect(() => {
     const processPaymentReturn = async () => {
       try {
         const queryParams = Object.fromEntries(new URLSearchParams(location.search));
+        console.log('[PaymentReturn] Processing payment return with params:', queryParams);
+        
         const result = await handlePaymentReturnFromGateway(queryParams);
+        console.log('[PaymentReturn] Payment result:', result);
         setPaymentResult(result);
       } catch (err) {
+        console.error('[PaymentReturn] Error processing payment:', err);
         setError(err.message || 'Failed to process payment return');
       } finally {
         setLoading(false);
@@ -29,8 +34,29 @@ const PaymentReturn = () => {
     processPaymentReturn();
   }, [location.search, handlePaymentReturnFromGateway]);
 
+  const copyOrderId = () => {
+    if (paymentResult?.order?.orderId) {
+      navigator.clipboard.writeText(paymentResult.order.orderId);
+      setCopiedOrderId(true);
+      setTimeout(() => setCopiedOrderId(false), 2000);
+    }
+  };
+
+  // Extract order ID from URL parameters as fallback
+  const getOrderIdFromUrl = () => {
+    const queryParams = new URLSearchParams(location.search);
+    return queryParams.get('orderId') || queryParams.get('O');
+  };
+
   const isPaymentSuccessful = paymentResult?.paymentDetails?.responseCode === '00' || 
-                             paymentResult?.paymentDetails?.transaction_status === 'success';
+                             paymentResult?.paymentDetails?.transaction_status === 'success' ||
+                             paymentResult?.order?.paymentStatus === 'completed';
+
+  // Get the order ID with fallbacks
+  const orderId = paymentResult?.order?.orderId || 
+                  getOrderIdFromUrl() || 
+                  paymentResult?.paymentDetails?.basket_id ||
+                  'N/A';
 
   if (loading) {
     return (
@@ -98,40 +124,100 @@ const PaymentReturn = () => {
               </p>
             </div>
 
-            {paymentResult?.order && (
-              <div className="bg-gray-50 rounded-xl p-4 mb-6">
-                <h3 className="font-semibold text-gray-900 mb-3">Order Details</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Order ID:</span>
-                    <span className="font-medium text-gray-900">{paymentResult.order.orderId}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Amount:</span>
-                    <span className="font-medium text-green-600">
-                      PKR {paymentResult.order.totalAmount?.toLocaleString()}
+            {/* Order Details Section */}
+            <div className="bg-gray-50 rounded-xl p-4 mb-6">
+              <h3 className="font-semibold text-gray-900 mb-3">Order Details</h3>
+              <div className="space-y-3 text-sm">
+                {/* Order ID with Copy Functionality */}
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">Order ID:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900 bg-white px-2 py-1 rounded border">
+                      {orderId}
                     </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Status:</span>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      paymentResult.order.status === 'processing' 
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {paymentResult.order.status}
-                    </span>
+                    <button
+                      onClick={copyOrderId}
+                      className="p-1 text-gray-500 hover:text-blue-600 transition-colors"
+                      title="Copy Order ID"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
-              </div>
-            )}
+                {copiedOrderId && (
+                  <div className="text-xs text-green-600 text-right animate-pulse">
+                    Copied to clipboard!
+                  </div>
+                )}
 
+                {/* Amount */}
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Amount:</span>
+                  <span className="font-medium text-green-600">
+                    PKR {paymentResult?.order?.totalAmount?.toLocaleString() || 
+                         paymentResult?.paymentDetails?.transaction_amount?.toLocaleString() || 
+                         'N/A'}
+                  </span>
+                </div>
+
+                {/* Payment Status */}
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Payment Status:</span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    isPaymentSuccessful 
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {isPaymentSuccessful ? 'Completed' : 'Failed'}
+                  </span>
+                </div>
+
+                {/* Order Status */}
+                {paymentResult?.order?.status && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Order Status:</span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      paymentResult.order.status === 'confirmed' || paymentResult.order.status === 'processing'
+                        ? 'bg-blue-100 text-blue-800'
+                        : paymentResult.order.status === 'completed'
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {paymentResult.order.status.charAt(0).toUpperCase() + paymentResult.order.status.slice(1)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Transaction ID */}
+                {paymentResult?.paymentDetails?.transaction_id && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Transaction ID:</span>
+                    <span className="font-medium text-gray-900 text-xs">
+                      {paymentResult.paymentDetails.transaction_id}
+                    </span>
+                  </div>
+                )}
+
+                {/* Payment Method */}
+                {paymentResult?.order?.paymentMethod && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Payment Method:</span>
+                    <span className="font-medium text-gray-900 capitalize">
+                      {paymentResult.order.paymentMethod.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
             <div className="space-y-3">
               <button
-                onClick={() => navigate('/orders')}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
+                onClick={() => navigate('/account/orders')}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2"
               >
-                View My Orders
+                View Order Details
+                <ExternalLink className="h-4 w-4" />
               </button>
               <button
                 onClick={() => navigate('/')}
@@ -139,6 +225,16 @@ const PaymentReturn = () => {
               >
                 Continue Shopping
               </button>
+              
+              {/* Download Invoice Button */}
+              {isPaymentSuccessful && paymentResult?.order?.orderId && (
+                <button
+                  onClick={() => navigate(`/invoice/${paymentResult.order.orderId}`)}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
+                >
+                  Download Invoice
+                </button>
+              )}
             </div>
           </div>
 
@@ -146,41 +242,83 @@ const PaymentReturn = () => {
           <div className="space-y-6">
             {/* Next Steps */}
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
-              <h3 className="font-semibold text-gray-900 mb-4">What's Next?</h3>
+              <h3 className="font-semibold text-gray-900 mb-4">
+                {isPaymentSuccessful ? "What's Next?" : "What to Do Next?"}
+              </h3>
               <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <span className="text-blue-600 font-semibold text-sm">1</span>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900">Order Confirmation</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      You'll receive an email confirmation with your order details.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <span className="text-green-600 font-semibold text-sm">2</span>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900">Order Processing</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      We'll start preparing your order for shipment.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <span className="text-purple-600 font-semibold text-sm">3</span>
-                  </div>
-                  <div>
-                    <h4 className="font-medium text-gray-900">Shipping Updates</h4>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Track your order with real-time shipping updates.
-                    </p>
-                  </div>
-                </div>
+                {isPaymentSuccessful ? (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-blue-600 font-semibold text-sm">1</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">Order Confirmation</h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          You'll receive an email confirmation with your order details and receipt.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-green-600 font-semibold text-sm">2</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">Order Processing</h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          We'll start preparing your order for shipment within 24 hours.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-purple-600 font-semibold text-sm">3</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">Shipping Updates</h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Track your order with real-time shipping updates in your account.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-yellow-600 font-semibold text-sm">1</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">Retry Payment</h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          You can try the payment again with the same order.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-blue-600 font-semibold text-sm">2</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">Contact Support</h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          If the issue persists, contact our support team for assistance.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-gray-600 font-semibold text-sm">3</span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">Check Payment Method</h4>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Ensure your payment method has sufficient funds and is valid.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -199,19 +337,34 @@ const PaymentReturn = () => {
                   <span className="text-blue-200">Phone:</span>
                   <span>+92 300 6530063</span>
                 </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-blue-200">Reference:</span>
+                  <span className="font-mono">Order: {orderId}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
         {!isPaymentSuccessful && (
-          <div className="mt-8 text-center">
-            <button
-              onClick={() => navigate('/checkout')}
-              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
-            >
-              Try Payment Again
-            </button>
+          <div className="mt-8 text-center space-y-4">
+            <p className="text-gray-600">
+              Having trouble with your payment? You can try again or contact support.
+            </p>
+            <div className="flex gap-4 justify-center">
+              <button
+                onClick={() => navigate('/checkout')}
+                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
+              >
+                Try Payment Again
+              </button>
+              <button
+                onClick={() => navigate('/contact')}
+                className="bg-gray-600 hover:bg-gray-700 text-white py-3 px-6 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
+              >
+                Contact Support
+              </button>
+            </div>
           </div>
         )}
       </div>

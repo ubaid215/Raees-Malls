@@ -9,18 +9,20 @@ import {
   ArrowLeft,
   CreditCard,
   Package,
-  Truck
+  Truck,
+  AlertTriangle
 } from 'lucide-react';
 
 const PaymentStatus = () => {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const { checkOrderPaymentStatus, retryOrderPayment, fetchOrderDetails } = useOrder();
+  const { checkOrderPaymentStatus, retryOrderPayment, fetchOrderDetails, syncPaymentStatus } = useOrder();
   const [paymentStatus, setPaymentStatus] = useState(null);
   const [orderDetails, setOrderDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [syncInProgress, setSyncInProgress] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -30,9 +32,18 @@ const PaymentStatus = () => {
           checkOrderPaymentStatus(orderId, true),
           fetchOrderDetails(orderId, true)
         ]);
+        
+        console.log('[PaymentStatus] Fetched data:', { statusData, orderData });
+        
         setPaymentStatus(statusData);
         setOrderDetails(orderData);
+
+        // If payment shows failed but user believes it succeeded, show sync option
+        if (orderData?.paymentStatus === 'failed') {
+          console.log('[PaymentStatus] Payment shows failed, enabling sync option');
+        }
       } catch (err) {
+        console.error('[PaymentStatus] Error fetching data:', err);
         setError(err.message || 'Failed to fetch payment status');
       } finally {
         setLoading(false);
@@ -44,10 +55,47 @@ const PaymentStatus = () => {
     }
   }, [orderId, checkOrderPaymentStatus, fetchOrderDetails]);
 
+  const handleSyncPayment = async () => {
+    try {
+      setSyncInProgress(true);
+      console.log('[PaymentStatus] Syncing payment status for order:', orderId);
+      
+      const result = await syncPaymentStatus(orderId);
+      console.log('[PaymentStatus] Sync result:', result);
+      
+      if (result.success) {
+        // Refresh the data
+        const [statusData, orderData] = await Promise.all([
+          checkOrderPaymentStatus(orderId, true),
+          fetchOrderDetails(orderId, true)
+        ]);
+        
+        setPaymentStatus(statusData);
+        setOrderDetails(orderData);
+        
+        setError(''); // Clear any previous errors
+      } else {
+        setError(result.message || 'Failed to sync payment status');
+      }
+    } catch (err) {
+      console.error('[PaymentStatus] Sync error:', err);
+      setError(err.message || 'Failed to sync payment status');
+    } finally {
+      setSyncInProgress(false);
+    }
+  };
+
   const handleRetryPayment = async () => {
     try {
       setRefreshing(true);
       await retryOrderPayment(orderId);
+      // Refresh data after retry
+      const [statusData, orderData] = await Promise.all([
+        checkOrderPaymentStatus(orderId, true),
+        fetchOrderDetails(orderId, true)
+      ]);
+      setPaymentStatus(statusData);
+      setOrderDetails(orderData);
     } catch (err) {
       setError(err.message || 'Failed to retry payment');
     } finally {
@@ -64,6 +112,7 @@ const PaymentStatus = () => {
       ]);
       setPaymentStatus(statusData);
       setOrderDetails(orderData);
+      setError(''); // Clear errors on refresh
     } catch (err) {
       setError(err.message || 'Failed to refresh');
     } finally {
@@ -109,6 +158,10 @@ const PaymentStatus = () => {
     return configs[status] || configs.pending;
   };
 
+  // Check if there's a mismatch between user expectation and actual status
+  const hasStatusMismatch = orderDetails?.paymentStatus === 'failed' && 
+                           paymentStatus?.responseCode === '00';
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4 py-8">
@@ -141,14 +194,16 @@ const PaymentStatus = () => {
             <ArrowLeft className="h-4 w-4" />
             Back
           </button>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="inline-flex items-center gap-2 bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-xl font-medium transition-all duration-200 hover:shadow-md disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 bg-white border border-gray-300 hover:border-gray-400 text-gray-700 px-4 py-2 rounded-xl font-medium transition-all duration-200 hover:shadow-md disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="text-center mb-8">
@@ -157,6 +212,31 @@ const PaymentStatus = () => {
           </h1>
           <p className="text-gray-600">Track your payment and order details</p>
         </div>
+
+        {/* Status Mismatch Alert */}
+        {hasStatusMismatch && (
+          <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-2xl p-6">
+            <div className="flex items-start gap-4">
+              <AlertTriangle className="h-6 w-6 text-yellow-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-yellow-900 mb-2">
+                  Payment Status Mismatch Detected
+                </h3>
+                <p className="text-yellow-800 mb-4">
+                  We've detected that your payment was successful at the bank, but there might be a sync issue with our system. 
+                  Please try syncing your payment status.
+                </p>
+                <button
+                  onClick={handleSyncPayment}
+                  disabled={syncInProgress}
+                  className="bg-yellow-600 hover:bg-yellow-700 text-white py-2 px-4 rounded-xl font-medium transition-all duration-200 disabled:opacity-50"
+                >
+                  {syncInProgress ? 'Syncing...' : 'Sync Payment Status'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Main Status Card */}
@@ -174,6 +254,11 @@ const PaymentStatus = () => {
                   <p className="text-gray-600">
                     Order #{orderId}
                   </p>
+                  {hasStatusMismatch && (
+                    <p className="text-sm text-yellow-600 mt-1">
+                      💡 Bank shows successful, but system shows failed
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -199,10 +284,12 @@ const PaymentStatus = () => {
                   
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 ${
-                      orderDetails?.paymentStatus === 'completed' ? 'bg-green-100' : 'bg-gray-100'
+                      orderDetails?.paymentStatus === 'completed' ? 'bg-green-100' : 
+                      orderDetails?.paymentStatus === 'failed' ? 'bg-red-100' : 'bg-gray-100'
                     } rounded-full flex items-center justify-center flex-shrink-0`}>
                       <CreditCard className={`h-4 w-4 ${
-                        orderDetails?.paymentStatus === 'completed' ? 'text-green-600' : 'text-gray-400'
+                        orderDetails?.paymentStatus === 'completed' ? 'text-green-600' : 
+                        orderDetails?.paymentStatus === 'failed' ? 'text-red-600' : 'text-gray-400'
                       }`} />
                     </div>
                     <div className="flex-1">
@@ -210,6 +297,8 @@ const PaymentStatus = () => {
                       <p className="text-sm text-gray-600">
                         {orderDetails?.paymentStatus === 'completed' 
                           ? 'Payment completed successfully'
+                          : orderDetails?.paymentStatus === 'failed'
+                          ? 'Payment failed or pending confirmation'
                           : 'Waiting for payment confirmation'
                         }
                       </p>
@@ -217,12 +306,21 @@ const PaymentStatus = () => {
                   </div>
                   
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Package className="h-4 w-4 text-gray-400" />
+                    <div className={`w-8 h-8 ${
+                      orderDetails?.paymentStatus === 'completed' ? 'bg-blue-100' : 'bg-gray-100'
+                    } rounded-full flex items-center justify-center flex-shrink-0`}>
+                      <Package className={`h-4 w-4 ${
+                        orderDetails?.paymentStatus === 'completed' ? 'text-blue-600' : 'text-gray-400'
+                      }`} />
                     </div>
                     <div className="flex-1">
                       <p className="font-medium text-gray-900">Order Processing</p>
-                      <p className="text-sm text-gray-600">Preparing your items for shipment</p>
+                      <p className="text-sm text-gray-600">
+                        {orderDetails?.paymentStatus === 'completed' 
+                          ? 'Preparing your items for shipment'
+                          : 'Will start after payment confirmation'
+                        }
+                      </p>
                     </div>
                   </div>
                   
@@ -246,11 +344,16 @@ const PaymentStatus = () => {
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="bg-gray-50 rounded-xl p-4">
                     <p className="text-sm text-gray-600 mb-1">Transaction ID</p>
-                    <p className="font-medium text-gray-900">{paymentStatus.transactionId}</p>
+                    <p className="font-medium text-gray-900">{paymentStatus.transactionId || 'N/A'}</p>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4">
                     <p className="text-sm text-gray-600 mb-1">Response Code</p>
-                    <p className="font-medium text-gray-900">{paymentStatus.responseCode || 'N/A'}</p>
+                    <p className={`font-medium ${
+                      paymentStatus.responseCode === '00' ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {paymentStatus.responseCode || 'N/A'}
+                      {paymentStatus.responseCode === '00' && ' (Success)'}
+                    </p>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4">
                     <p className="text-sm text-gray-600 mb-1">Message</p>
@@ -263,6 +366,16 @@ const PaymentStatus = () => {
                     </p>
                   </div>
                 </div>
+                
+                {/* Show gateway response if available */}
+                {paymentStatus.gatewayResponse && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-xl">
+                    <p className="text-sm text-blue-600 mb-2">Gateway Response:</p>
+                    <pre className="text-xs text-blue-800 overflow-auto">
+                      {JSON.stringify(paymentStatus.gatewayResponse, null, 2)}
+                    </pre>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -281,7 +394,7 @@ const PaymentStatus = () => {
                   <div className="flex justify-between">
                     <span className="text-gray-600">Payment Method</span>
                     <span className="font-medium text-gray-900 capitalize">
-                      {orderDetails.paymentMethod?.replace('_', ' ')}
+                      {orderDetails.paymentMethod?.replace(/_/g, ' ')}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -310,13 +423,13 @@ const PaymentStatus = () => {
             <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-6">
               <div className="space-y-3">
                 <button
-                  onClick={() => navigate('/orders')}
+                  onClick={() => navigate('/account/orders')}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-medium transition-all duration-200 transform hover:scale-105 shadow-lg"
                 >
                   View All Orders
                 </button>
                 
-                {orderDetails?.paymentStatus === 'failed' && (
+                {orderDetails?.paymentStatus === 'failed' && !hasStatusMismatch && (
                   <button
                     onClick={handleRetryPayment}
                     disabled={refreshing}
@@ -344,6 +457,11 @@ const PaymentStatus = () => {
               <div className="space-y-2 text-sm">
                 <div>📧 support@raeesmalls.com</div>
                 <div>📞 +92 300 6530063</div>
+                {orderId && (
+                  <div className="mt-2 text-blue-200">
+                    Reference: #{orderId}
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -15,6 +15,12 @@ export const getUserOrders = async (page = 1, limit = 10, status = '') => {
   return response.data;
 };
 
+// Add to your orderService.js
+export const syncPaymentStatus = async (orderId) => {
+  const response = await api.post(`/orders/${orderId}/sync-payment`);
+  return response;
+};
+
 export const getAllOrders = async (page = 1, limit = 10, status = '', userId = '') => {
   const params = { page, limit };
   if (status && status.trim() !== '') {

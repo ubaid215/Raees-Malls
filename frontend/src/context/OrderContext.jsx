@@ -17,7 +17,8 @@ import {
   handlePaymentReturn,
   getOrderDetails,
   submitPaymentForm,
-  validatePaymentData
+  validatePaymentData,
+  syncPaymentStatus // Add this import
 } from '../services/orderService';
 import socketService from '../services/socketService';
 import { useToast } from './ToastContext';
@@ -42,10 +43,53 @@ export const OrderProvider = ({ children }) => {
   const lastAdminFetch = useRef(0);
   const lastUserFetch = useRef(0);
   const initializationRef = useRef(false);
+  const toastTimeouts = useRef(new Map()); // Track toast timeouts for cleanup
 
   const isAdmin = isAdminAuthenticated && admin && (admin.role === 'admin' || admin.role === 'administrator');
   const isRegularUser = isAuthenticated && user && user.role === 'user';
   const userRole = isAdmin ? admin.role : (isRegularUser ? user.role : null);
+
+  // Enhanced toast management with auto-removal
+  const showToast = useCallback((type, message, options = {}) => {
+    const { autoClose = 5000, position = "top-right", ...restOptions } = options;
+    
+    // Clear any existing toast for the same message to prevent duplicates
+    const existingTimeout = toastTimeouts.current.get(message);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      toastTimeouts.current.delete(message);
+    }
+
+    // Show the toast
+    const toastFunction = {
+      success: toastSuccess,
+      error: toastError,
+      warning: toastWarn,
+      info: toastInfo
+    }[type];
+
+    if (toastFunction) {
+      toastFunction(message, { position, autoClose, ...restOptions });
+    }
+
+    // Auto-remove from context state after delay
+    if (autoClose && type === 'error') {
+      const timeoutId = setTimeout(() => {
+        setError(prev => prev === message ? '' : prev);
+        toastTimeouts.current.delete(message);
+      }, autoClose);
+      
+      toastTimeouts.current.set(message, timeoutId);
+    }
+  }, [toastSuccess, toastError, toastWarn, toastInfo]);
+
+  // Clear all toast timeouts on unmount
+  useEffect(() => {
+    return () => {
+      toastTimeouts.current.forEach(timeout => clearTimeout(timeout));
+      toastTimeouts.current.clear();
+    };
+  }, []);
 
   // Cache key generation
   const generateCacheKey = useCallback((type, userId, page, limit, status, extraParams = '') => {
@@ -119,6 +163,52 @@ export const OrderProvider = ({ children }) => {
       });
     }
   }, [user?._id]);
+
+  // NEW: Sync payment status function
+  const syncOrderPaymentStatus = useCallback(async (orderId) => {
+    if (!orderId) {
+      throw new Error('Order ID is required for payment sync');
+    }
+
+    try {
+      console.log('[OrderContext] Syncing payment status for order:', orderId);
+      const response = await syncPaymentStatus(orderId);
+      
+      // Clear relevant caches
+      clearUserOrdersCache();
+      localStorage.removeItem(`payment_status_${orderId}`);
+      localStorage.removeItem(`order_details_${orderId}`);
+      
+      if (response.data?.order?.paymentStatus === 'completed') {
+        showToast('success', 'Payment status synced successfully! Order confirmed.', { autoClose: 5000 });
+        
+        // Update local state
+        setOrders(prev => prev.map(order => 
+          order.orderId === orderId 
+            ? { ...order, paymentStatus: 'completed', status: 'confirmed' }
+            : order
+        ));
+        
+        setPaymentStatus(prev => ({
+          ...prev,
+          [orderId]: { ...prev[orderId], paymentStatus: 'completed' }
+        }));
+        
+        if (currentOrder && currentOrder.orderId === orderId) {
+          setCurrentOrder(prev => ({ ...prev, paymentStatus: 'completed', status: 'confirmed' }));
+        }
+      } else {
+        showToast('info', 'Payment status is already up to date.', { autoClose: 3000 });
+      }
+      
+      return response.data;
+    } catch (err) {
+      console.error('[OrderContext] Sync payment error:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to sync payment status';
+      showToast('error', errorMessage, { autoClose: 5000 });
+      throw err;
+    }
+  }, [clearUserOrdersCache, currentOrder, showToast]);
 
   // Fetch order details
   const fetchOrderDetails = useCallback(async (orderId, forceRefresh = false) => {
@@ -204,7 +294,7 @@ export const OrderProvider = ({ children }) => {
     if (!isRegularUser) {
       const errorMessage = 'Unauthorized: Only users can retry payments';
       setError(errorMessage);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
@@ -218,7 +308,7 @@ export const OrderProvider = ({ children }) => {
       localStorage.removeItem(`payment_status_${orderId}`);
       localStorage.removeItem(`payment_status_${orderId}_timestamp`);
 
-      toastSuccess('Payment retry initiated', { position: "top-right", autoClose: 3000 });
+      showToast('success', 'Payment retry initiated', { autoClose: 3000 });
 
       if (payment) {
         if (payment.requiresFormSubmission) {
@@ -248,10 +338,9 @@ export const OrderProvider = ({ children }) => {
       localStorage.removeItem(`order_details_${order.orderId}`);
       
       if (paymentDetails.responseCode === '00' || paymentDetails.transaction_status === 'success') {
-        toastSuccess('Payment completed successfully!', { position: "top-right", autoClose: 5000 });
+        showToast('success', 'Payment completed successfully!', { autoClose: 5000 });
       } else {
-        toastError(`Payment failed: ${paymentDetails.message || paymentDetails.response_message}`, { 
-          position: "top-right", 
+        showToast('error', `Payment failed: ${paymentDetails.message || paymentDetails.response_message}`, { 
           autoClose: 5000 
         });
       }
@@ -259,7 +348,7 @@ export const OrderProvider = ({ children }) => {
       return response.data;
     } catch (err) {
       console.error('handlePaymentReturnFromGateway error:', err);
-      toastError('Error processing payment return', { position: "top-right", autoClose: 5000 });
+      showToast('error', 'Error processing payment return', { autoClose: 5000 });
       throw err;
     }
   };
@@ -277,7 +366,7 @@ export const OrderProvider = ({ children }) => {
       return { success: true, message: 'Payment form submitted successfully' };
     } catch (error) {
       console.error('submitBankAlfalahPayment error:', error);
-      toastError(`Payment submission failed: ${error.message}`, { position: "top-right", autoClose: 5000 });
+      showToast('error', `Payment submission failed: ${error.message}`, { autoClose: 5000 });
       throw error;
     }
   };
@@ -316,8 +405,7 @@ export const OrderProvider = ({ children }) => {
         localStorage.removeItem(`order_details_${order.orderId}`);
         clearUserOrdersCache();
 
-        toastSuccess(`Payment completed for order ${order.orderId}`, {
-          position: "top-right",
+        showToast('success', `Payment completed for order ${order.orderId}`, {
           autoClose: 5000,
         });
       });
@@ -339,13 +427,12 @@ export const OrderProvider = ({ children }) => {
           setCurrentOrder(prev => ({ ...prev, paymentStatus: 'failed' }));
         }
 
-        toastError(`Payment failed: ${message}`, {
-          position: "top-right",
+        showToast('error', `Payment failed: ${message}`, {
           autoClose: 5000,
         });
       });
     }
-  }, [isRegularUser, user?._id, clearUserOrdersCache, currentOrder]);
+  }, [isRegularUser, user?._id, clearUserOrdersCache, currentOrder, showToast]);
 
   // Fetch functions
   const fetchUserOrders = useCallback(async (page = 1, limit = 10, status = '', forceRefresh = false) => {
@@ -572,6 +659,33 @@ export const OrderProvider = ({ children }) => {
     [fetchAllOrders]
   );
 
+  // Enhanced error handler with auto-clear
+  const handleOrderError = async (err, isUser, retryFn) => {
+    console.error('Order error:', {
+      message: err.message,
+      status: err.response?.status,
+      data: err.response?.data,
+    });
+    
+    const errorMessage = err.response?.data?.message || err.message || 'An error occurred while processing the request';
+    
+    if (err.response && err.response.status === 401) {
+      try {
+        await (isUser ? refreshToken() : refreshAdminToken());
+        await retryFn();
+      } catch (refreshErr) {
+        const authErrorMessage = isUser ? 'Session expired. Please log in again.' : 'Admin session expired. Please log in again.';
+        setError(authErrorMessage);
+        showToast('error', authErrorMessage, { autoClose: 5000 });
+        throw new Error('Token refresh failed: ' + refreshErr.message);
+      }
+    } else {
+      setError(errorMessage);
+      showToast('error', errorMessage, { autoClose: 5000 });
+      throw err;
+    }
+  };
+
   // Main useEffect
   useEffect(() => {
     if (!userRole || initializationRef.current) return;
@@ -608,6 +722,8 @@ export const OrderProvider = ({ children }) => {
       const handleSocketError = (error) => {
         console.error('Socket error:', error);
         setError('Connection issues detected. Using backup sync.');
+        showToast('warning', 'Connection issues detected. Using backup sync.', { autoClose: 3000 });
+        
         if (!pollingInterval) {
           pollingInterval = setInterval(() => {
             if (!socketService.getConnectionState()) {
@@ -631,8 +747,7 @@ export const OrderProvider = ({ children }) => {
         fetchRevenueStats('month', '', '', true);
         fetchProductStats(10, '', '', true);
         
-        toastSuccess(`New order received: ${data.order?.orderId}`, {
-          position: "top-right",
+        showToast('success', `New order received: ${data.order?.orderId}`, {
           autoClose: 5000,
         });
       });
@@ -677,8 +792,7 @@ export const OrderProvider = ({ children }) => {
             order.orderId === updatedOrder.orderId ? { ...order, ...updatedOrder } : order
           ));
           
-          toastInfo(`Order ${updatedOrder.orderId} status updated to: ${updatedOrder.status}`, {
-            position: "top-right",
+          showToast('info', `Order ${updatedOrder.orderId} status updated to: ${updatedOrder.status}`, {
             autoClose: 4000,
           });
         }
@@ -702,30 +816,7 @@ export const OrderProvider = ({ children }) => {
       debouncedFetchAllOrders.cancel();
       initializationRef.current = false;
     };
-  }, [userRole, admin?._id, user?._id, pagination.page, pagination.limit, setupPaymentSocketHandlers]);
-
-  const handleOrderError = async (err, isUser, retryFn) => {
-    console.error('Order error:', {
-      message: err.message,
-      status: err.response?.status,
-      data: err.response?.data,
-    });
-    
-    if (err.response && err.response.status === 401) {
-      try {
-        await (isUser ? refreshToken() : refreshAdminToken());
-        await retryFn();
-      } catch (refreshErr) {
-        setError(isUser ? 'Session expired. Please log in again.' : 'Admin session expired. Please log in again.');
-        throw new Error('Token refresh failed: ' + refreshErr.message);
-      }
-    } else {
-      const errorMessage = err.response?.data?.message || err.message || 'An error occurred while processing the request';
-      setError(errorMessage);
-      toastError(errorMessage, { position: "top-right", autoClose: 5000 });
-      throw err;
-    }
-  };
+  }, [userRole, admin?._id, user?._id, pagination.page, pagination.limit, setupPaymentSocketHandlers, showToast]);
 
   const placeNewOrder = async (orderData) => {
     setLoading(true);
@@ -736,7 +827,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = validationErrors.join(', ');
       setError(errorMessage);
       setLoading(false);
-      toastError(errorMessage, { position: "top-right", autoClose: 5000 });
+      showToast('error', errorMessage, { autoClose: 5000 });
       throw new Error(errorMessage);
     }
 
@@ -744,7 +835,7 @@ export const OrderProvider = ({ children }) => {
       const response = await placeOrder(orderData);
       const { order, payment } = response.data;
 
-      toastSuccess('Order placed successfully!', { position: "top-right", autoClose: 3000 });
+      showToast('success', 'Order placed successfully!', { autoClose: 3000 });
       
       clearAllOrdersCache();
       
@@ -780,7 +871,7 @@ export const OrderProvider = ({ children }) => {
     if (!isAdmin) {
       const errorMessage = 'Unauthorized: Only admins can update order status';
       setError(errorMessage);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
     
@@ -792,7 +883,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid status value';
       setError(errorMessage);
       setLoading(false);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
     
@@ -800,13 +891,13 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid order ID';
       setError(errorMessage);
       setLoading(false);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
     try {
       const order = await updateOrderStatus(orderId, status);
-      toastSuccess(`Order status updated to: ${status}`, { position: "top-right", autoClose: 3000 });
+      showToast('success', `Order status updated to: ${status}`, { autoClose: 3000 });
       
       clearAllOrdersCache();
       await debouncedFetchAllOrders(pagination.page || 1, pagination.limit || 10, '', '', true);
@@ -825,7 +916,7 @@ export const OrderProvider = ({ children }) => {
     if (!isRegularUser) {
       const errorMessage = 'Unauthorized: Only users can cancel their own orders';
       setError(errorMessage);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
@@ -836,7 +927,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid order ID';
       setError(errorMessage);
       setLoading(false);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
@@ -844,7 +935,7 @@ export const OrderProvider = ({ children }) => {
       const order = await apiCancelOrder(orderId);
       clearUserOrdersCache();
       await debouncedFetchUserOrders(pagination.page || 1, pagination.limit || 10, '', true);
-      toastSuccess('Order cancelled successfully', { position: "top-right", autoClose: 3000 });
+      showToast('success', 'Order cancelled successfully', { autoClose: 3000 });
       return order;
     } catch (err) {
       console.error('Cancel order error:', {
@@ -864,7 +955,7 @@ export const OrderProvider = ({ children }) => {
     if (!isAdmin && !isRegularUser) {
       const errorMessage = 'Unauthorized: Please log in to download invoices';
       setError(errorMessage);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
     
@@ -875,7 +966,7 @@ export const OrderProvider = ({ children }) => {
       const errorMessage = 'Invalid order ID';
       setError(errorMessage);
       setLoading(false);
-      toastError(errorMessage, { position: "top-right", autoClose: 3000 });
+      showToast('error', errorMessage, { autoClose: 3000 });
       throw new Error(errorMessage);
     }
 
@@ -890,7 +981,7 @@ export const OrderProvider = ({ children }) => {
       link.parentNode.removeChild(link);
       window.URL.revokeObjectURL(url);
       
-      toastSuccess('Invoice downloaded successfully', { position: "top-right", autoClose: 3000 });
+      showToast('success', 'Invoice downloaded successfully', { autoClose: 3000 });
       return response;
     } catch (err) {
       await handleOrderError(err, isRegularUser || isAdmin, () => downloadOrderInvoice(orderId));
@@ -911,6 +1002,11 @@ export const OrderProvider = ({ children }) => {
       debouncedFetchUserOrders(1, 10, '', true);
     }
   }, [isAdmin, isRegularUser, debouncedFetchAllOrders, debouncedFetchUserOrders, fetchNotifications, fetchRevenueStats, fetchProductStats]);
+
+  // Clear error manually
+  const clearError = useCallback(() => {
+    setError('');
+  }, []);
 
   const value = {
     orders,
@@ -933,12 +1029,14 @@ export const OrderProvider = ({ children }) => {
     retryOrderPayment,
     handlePaymentReturnFromGateway,
     submitBankAlfalahPayment,
+    syncPaymentStatus: syncOrderPaymentStatus, // NEW: Added sync function
     updateStatus,
     cancelOrder: cancelUserOrder,
     downloadOrderInvoice,
     forceRefreshOrders,
     clearAllOrdersCache,
     clearUserOrdersCache,
+    clearError, // NEW: Added clear error function
     handleSocketReconnect,
     isAdmin,
     isRegularUser

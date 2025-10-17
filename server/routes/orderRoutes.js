@@ -84,6 +84,24 @@ router.post(
   orderController.retryPayment
 );
 
+// Sync payment status
+router.post(
+  '/:orderId/payment/sync',
+  authenticateJWT,
+  authorizeRoles('user', 'admin'),
+  checkPaymentStatusValidator,
+  orderController.syncPaymentStatus
+);
+
+// Get payment sync history
+router.get(
+  '/:orderId/payment/sync-history',
+  authenticateJWT,
+  authorizeRoles('user', 'admin'),
+  checkPaymentStatusValidator,
+  orderController.getPaymentSyncHistory
+);
+
 // =============================================
 // NOTIFICATION ROUTES (Mixed Access)
 // =============================================
