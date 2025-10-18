@@ -355,7 +355,8 @@ const calculateItemDetails = (item) => {
     itemTotal: quantity * finalUnitPrice
   };
 };
-// Updated placeOrder function with address saving and cart clearing for ALL payment methods
+
+
 exports.placeOrder = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
@@ -700,12 +701,14 @@ exports.placeOrder = async (req, res, next) => {
     order.userId = user;
 
     // --- ADDRESS SAVING FOR ALL PAYMENT METHODS ---
+    // MOVED THIS BEFORE PAYMENT PROCESSING TO ENSURE IT RUNS FOR ALL METHODS
     if (saveAddress && !useExistingAddress) {
       console.log(`[ORDER] Processing address save request for ${paymentMethod}`, { userId });
       await saveUserAddress(userId, finalShippingAddress);
     }
 
     // --- CART CLEARING FOR ALL PAYMENT METHODS ---
+    // MOVED THIS BEFORE PAYMENT PROCESSING TO ENSURE IT RUNS FOR ALL METHODS
     try {
       console.log(`[ORDER] Clearing cart for ${paymentMethod} order`, { userId });
       await clearUserCart(userId);
