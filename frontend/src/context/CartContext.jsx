@@ -38,6 +38,32 @@ const CartProvider = ({ children }) => {
     }
   }, [user]);
 
+  // NEW: Function to clear cart after successful order placement
+  const clearCartAfterOrder = useCallback(() => {
+    return new Promise((resolve) => {
+      try {
+        console.log('[CART_CONTEXT] Clearing cart after order placement');
+        
+        // Clear local state
+        setCart({
+          items: [],
+          totalPrice: 0,
+          totalShippingCost: 0,
+          itemCount: 0,
+        });
+        
+        // Clear cache
+        clearCartCache();
+        
+        console.log('[CART_CONTEXT] Cart cleared successfully after order');
+        resolve({ success: true });
+      } catch (error) {
+        console.error('[CART_CONTEXT] Error clearing cart after order:', error);
+        resolve({ success: false, message: error.message });
+      }
+    });
+  }, [clearCartCache]);
+
   const fetchCartInternal = useCallback(async () => {
     if (!user) {
       setCart(null);
@@ -201,7 +227,7 @@ const CartProvider = ({ children }) => {
         pendingOperations.current.delete(operationKey);
       }
     },
-    [user, navigate, debouncedFetchCart, clearCartCache]
+    [user, navigate, debouncedFetchCart, clearCartCache, toastSuccess, toastError]
   );
 
   // Updated cart operations with new variant options structure
@@ -294,6 +320,7 @@ const CartProvider = ({ children }) => {
     });
   }, [performCartOperation]);
 
+  // UPDATED: Modified to use clearCartAfterOrder instead of debouncedFetchCart
   const placeOrderFromCart = useCallback(
     (shippingAddress) => {
       return new Promise((resolve, reject) => {
@@ -322,15 +349,8 @@ const CartProvider = ({ children }) => {
             if (result.success) {
               clearCartCache(); // Invalidate cache
 
-              // Refresh cart after order placement
-              setTimeout(() => {
-                debouncedFetchCart().catch((err) => {
-                  console.error(
-                    "Failed to refresh cart after order placement",
-                    err
-                  );
-                });
-              }, 100);
+              // NEW: Use clearCartAfterOrder instead of debouncedFetchCart
+              await clearCartAfterOrder();
 
               toastSuccess("Order placed successfully");
               resolve({ success: true, order: result.order });
@@ -350,7 +370,7 @@ const CartProvider = ({ children }) => {
         debouncedFn();
       });
     },
-    [user, navigate, debouncedFetchCart, clearCartCache,  toastSuccess, toastError]
+    [user, navigate, clearCartCache, clearCartAfterOrder, toastSuccess, toastError]
   );
 
   // Helper functions for variant options
@@ -400,23 +420,23 @@ const CartProvider = ({ children }) => {
   );
 
   // Effect to fetch cart when user changes
- useEffect(() => {
-  if (user && !isFetching.current) {
-    debouncedFetchCart().catch((err) => {
-      console.error("Initial fetchCart error:", err);
-      toastError("Failed to load cart: " + (err.message || "Unknown error"));
-    });
-  } else if (!user) {
-    setCart(null);
-    setError(null);
-  }
+  useEffect(() => {
+    if (user && !isFetching.current) {
+      debouncedFetchCart().catch((err) => {
+        console.error("Initial fetchCart error:", err);
+        toastError("Failed to load cart: " + (err.message || "Unknown error"));
+      });
+    } else if (!user) {
+      setCart(null);
+      setError(null);
+    }
 
-  return () => {
-    isFetching.current = false;
-    isUpdating.current = false;
-    pendingOperations.current.clear();
-  };
-}, [user, toastError]); // ← Only depend on user
+    return () => {
+      isFetching.current = false;
+      isUpdating.current = false;
+      pendingOperations.current.clear();
+    };
+  }, [user, toastError]); // ← Only depend on user
 
   const contextValue = useMemo(
     () => ({
@@ -434,6 +454,9 @@ const CartProvider = ({ children }) => {
       clearCart,
       placeOrderFromCart,
       createVariantOptions,
+
+      // NEW: Function to clear cart after order placement
+      clearCartAfterOrder,
 
       // Legacy functions for backward compatibility
       addItemToCartLegacy,
@@ -472,6 +495,7 @@ const CartProvider = ({ children }) => {
       clearCart,
       placeOrderFromCart,
       createVariantOptions,
+      clearCartAfterOrder, // NEW: Added to dependencies
       addItemToCartLegacy,
       updateQuantityLegacy,
       removeFromCartLegacy,

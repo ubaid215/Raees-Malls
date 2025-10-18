@@ -355,8 +355,7 @@ const calculateItemDetails = (item) => {
     itemTotal: quantity * finalUnitPrice
   };
 };
-
-// Updated placeOrder function with page redirection support
+// Updated placeOrder function with address saving and cart clearing for ALL payment methods
 exports.placeOrder = async (req, res, next) => {
   try {
     const userId = req.user?.userId;
@@ -700,118 +699,133 @@ exports.placeOrder = async (req, res, next) => {
     // Attach user email to order for payment processing
     order.userId = user;
 
-// --- PAYMENT PROCESSING ---
-let paymentResponse = null;
-
-if (paymentMethod !== 'cash_on_delivery') {
-  console.log(`[ORDER] Processing online payment`, { paymentMethod, orderId: order.orderId });
-
-  // Use page redirection for ALL Bank Alfalah payment methods
-  if (['alfa_wallet', 'alfalah_bank', 'credit_card', 'debit_card'].includes(paymentMethod)) {
-    
-    // STEP 1: Perform handshake to get AuthToken
-    console.log(`🟡 [ALFA] Starting handshake process`, { orderId: order.orderId });
-    
-    try {
-      console.log(`🪵 [ALFA DEBUG] Calling performHandshake()`);
-      const handshakeResult = await performHandshake(order.orderId);
-
-      console.log(`🪵 [ALFA DEBUG] Handshake response:`, handshakeResult);
-
-      if (!handshakeResult.success) {
-        console.error(`🔴 [ALFA] Handshake failed`, { error: handshakeResult.error });
-        throw new ApiError(500, `Payment handshake failed: ${handshakeResult.error}`);
-      }
-
-      console.log(`🟢 [ALFA] Handshake successful`, {
-        hasAuthToken: !!handshakeResult.authToken,
-        authTokenLength: handshakeResult.authToken?.length,
-        orderId: order.orderId
-      });
-
-      // STEP 2: Generate payment form with AuthToken
-      console.log(`🟡 [ALFA] Generating payment form`, {
-        orderId: order.orderId,
-        authToken: handshakeResult.authToken?.substring(0, 10) + '...'
-      });
-
-      const paymentFormStart = Date.now();
-      paymentResponse = await generateAlfaPaymentForm(order, paymentMethod, handshakeResult.authToken);
-
-      const paymentFormTime = Date.now() - paymentFormStart;
-
-      console.log(`🪵 [ALFA DEBUG] Payment form response time: ${paymentFormTime}ms`);
-      console.log(`🪵 [ALFA DEBUG] Payment form response:`, paymentResponse);
-
-      if (!paymentResponse.success) {
-        console.error(`🔴 [ALFA] Payment initiation failed`, { error: paymentResponse.error });
-        throw new ApiError(500, `Payment initiation failed: ${paymentResponse.error}`);
-      }
-
-      // Save transaction details including AuthToken
-      order.alfaPayment = {
-        transactionId: paymentResponse.transactionId,
-        transactionDate: new Date(),
-        merchantId: ALFA_CONFIG.MERCHANT_ID,
-        storeId: ALFA_CONFIG.STORE_ID,
-        paymentChannel: paymentMethod,
-        basketId: order.orderId,
-        authToken: handshakeResult.authToken,
-        formData: paymentResponse.formData
-      };
-
-      console.log(`🟢 [ALFA] Payment initiation completed`, {
-        transactionId: paymentResponse.transactionId,
-        orderId: order.orderId,
-        actionUrl: paymentResponse.actionUrl
-      });
-
-    } catch (err) {
-      console.error(`🔴 [ALFA ERROR] Payment flow failed`, {
-        message: err.message,
-        stack: err.stack,
-        response: err.response?.data,
-        status: err.response?.status,
-        url: err.config?.url
-      });
-      throw err;
+    // --- ADDRESS SAVING FOR ALL PAYMENT METHODS ---
+    if (saveAddress && !useExistingAddress) {
+      console.log(`[ORDER] Processing address save request for ${paymentMethod}`, { userId });
+      await saveUserAddress(userId, finalShippingAddress);
     }
 
-  } else {
-    // Invalid payment method
-    console.error(`🔴 [ORDER] Invalid payment method`, { paymentMethod });
-    throw new ApiError(400, `Invalid payment method: ${paymentMethod}`);
-  }
+    // --- CART CLEARING FOR ALL PAYMENT METHODS ---
+    try {
+      console.log(`[ORDER] Clearing cart for ${paymentMethod} order`, { userId });
+      await clearUserCart(userId);
+      console.log(`[ORDER] Cart cleared successfully for ${paymentMethod}`);
+    } catch (cartError) {
+      console.error(`[ORDER] Failed to clear cart for ${paymentMethod}`, { error: cartError.message });
+      // Don't throw error, just log it - order should still proceed
+    }
 
-  // Save order with pending payment status (don't reduce stock yet)
-  await order.save();
-  console.log(`[ORDER] Order created with pending payment`, { orderId: order.orderId });
+    // --- PAYMENT PROCESSING ---
+    let paymentResponse = null;
 
-  // Return payment initiation details for page redirection
-  return ApiResponse.success(res, 201, 'Payment required to complete order', {
-    order: {
-      orderId: order.orderId,
-      totalAmount: order.totalAmount,
-      paymentStatus: order.paymentStatus,
-      status: order.status,
-      paymentMethod: order.paymentMethod
-    },
-    payment: {
-      method: paymentMethod,
-      transactionId: paymentResponse.transactionId,
-      requiresFormSubmission: true,
-      formData: paymentResponse.formData,
-      actionUrl: paymentResponse.actionUrl,
-      encryptionKeys: {
-        key1: ALFA_CONFIG.ENCRYPTION_KEY1,
-        key2: ALFA_CONFIG.ENCRYPTION_KEY2
+    if (paymentMethod !== 'cash_on_delivery') {
+      console.log(`[ORDER] Processing online payment`, { paymentMethod, orderId: order.orderId });
+
+      // Use page redirection for ALL Bank Alfalah payment methods
+      if (['alfa_wallet', 'alfalah_bank', 'credit_card', 'debit_card'].includes(paymentMethod)) {
+        
+        // STEP 1: Perform handshake to get AuthToken
+        console.log(`🟡 [ALFA] Starting handshake process`, { orderId: order.orderId });
+        
+        try {
+          console.log(`🪵 [ALFA DEBUG] Calling performHandshake()`);
+          const handshakeResult = await performHandshake(order.orderId);
+
+          console.log(`🪵 [ALFA DEBUG] Handshake response:`, handshakeResult);
+
+          if (!handshakeResult.success) {
+            console.error(`🔴 [ALFA] Handshake failed`, { error: handshakeResult.error });
+            throw new ApiError(500, `Payment handshake failed: ${handshakeResult.error}`);
+          }
+
+          console.log(`🟢 [ALFA] Handshake successful`, {
+            hasAuthToken: !!handshakeResult.authToken,
+            authTokenLength: handshakeResult.authToken?.length,
+            orderId: order.orderId
+          });
+
+          // STEP 2: Generate payment form with AuthToken
+          console.log(`🟡 [ALFA] Generating payment form`, {
+            orderId: order.orderId,
+            authToken: handshakeResult.authToken?.substring(0, 10) + '...'
+          });
+
+          const paymentFormStart = Date.now();
+          paymentResponse = await generateAlfaPaymentForm(order, paymentMethod, handshakeResult.authToken);
+
+          const paymentFormTime = Date.now() - paymentFormStart;
+
+          console.log(`🪵 [ALFA DEBUG] Payment form response time: ${paymentFormTime}ms`);
+          console.log(`🪵 [ALFA DEBUG] Payment form response:`, paymentResponse);
+
+          if (!paymentResponse.success) {
+            console.error(`🔴 [ALFA] Payment initiation failed`, { error: paymentResponse.error });
+            throw new ApiError(500, `Payment initiation failed: ${paymentResponse.error}`);
+          }
+
+          // Save transaction details including AuthToken
+          order.alfaPayment = {
+            transactionId: paymentResponse.transactionId,
+            transactionDate: new Date(),
+            merchantId: ALFA_CONFIG.MERCHANT_ID,
+            storeId: ALFA_CONFIG.STORE_ID,
+            paymentChannel: paymentMethod,
+            basketId: order.orderId,
+            authToken: handshakeResult.authToken,
+            formData: paymentResponse.formData
+          };
+
+          console.log(`🟢 [ALFA] Payment initiation completed`, {
+            transactionId: paymentResponse.transactionId,
+            orderId: order.orderId,
+            actionUrl: paymentResponse.actionUrl
+          });
+
+        } catch (err) {
+          console.error(`🔴 [ALFA ERROR] Payment flow failed`, {
+            message: err.message,
+            stack: err.stack,
+            response: err.response?.data,
+            status: err.response?.status,
+            url: err.config?.url
+          });
+          throw err;
+        }
+
+      } else {
+        // Invalid payment method
+        console.error(`🔴 [ORDER] Invalid payment method`, { paymentMethod });
+        throw new ApiError(400, `Invalid payment method: ${paymentMethod}`);
       }
-    },
-    requiresPayment: true,
-    message: "Please complete payment to confirm your order"
-  });
-}
 
+      // Save order with pending payment status (don't reduce stock yet for online payments)
+      await order.save();
+      console.log(`[ORDER] Order created with pending payment`, { orderId: order.orderId });
+
+      // Return payment initiation details for page redirection
+      return ApiResponse.success(res, 201, 'Payment required to complete order', {
+        order: {
+          orderId: order.orderId,
+          totalAmount: order.totalAmount,
+          paymentStatus: order.paymentStatus,
+          status: order.status,
+          paymentMethod: order.paymentMethod
+        },
+        payment: {
+          method: paymentMethod,
+          transactionId: paymentResponse.transactionId,
+          requiresFormSubmission: true,
+          formData: paymentResponse.formData,
+          actionUrl: paymentResponse.actionUrl,
+          encryptionKeys: {
+            key1: ALFA_CONFIG.ENCRYPTION_KEY1,
+            key2: ALFA_CONFIG.ENCRYPTION_KEY2
+          }
+        },
+        requiresPayment: true,
+        message: "Please complete payment to confirm your order"
+      });
+    }
 
     // --- COD ORDERS: Process immediately ---
     await order.save();
@@ -839,75 +853,6 @@ if (paymentMethod !== 'cash_on_delivery') {
         }
       } catch (stockError) {
         console.error(`[ORDER] Failed to update stock`, { update, error: stockError.message });
-      }
-    }
-
-    // --- Address Saving Logic (only for COD) ---
-    if (saveAddress && !useExistingAddress) {
-      console.log(`[ORDER] Processing address save request`, { userId });
-
-      const userForAddress = await User.findById(userId);
-      if (!userForAddress) {
-        console.warn(`[ORDER] User not found for address saving`, { userId });
-      } else {
-        const normalizeAddress = (addr) => {
-          return {
-            fullName: addr.fullName?.toLowerCase().trim().replace(/\s+/g, ' '),
-            addressLine1: addr.addressLine1?.toLowerCase().trim().replace(/\s+/g, ' '),
-            addressLine2: addr.addressLine2?.toLowerCase().trim().replace(/\s+/g, ' ') || '',
-            city: addr.city?.toLowerCase().trim(),
-            state: addr.state?.toLowerCase().trim(),
-            postalCode: addr.postalCode?.toLowerCase().trim().replace(/\s+/g, ''),
-            country: addr.country?.toLowerCase().trim(),
-            phone: addr.phone?.replace(/\D/g, '')
-          };
-        };
-
-        const newAddressNormalized = normalizeAddress(finalShippingAddress);
-
-        const addressExists = userForAddress.addresses.some(addr => {
-          const existingAddrNormalized = normalizeAddress(addr);
-          return (
-            existingAddrNormalized.fullName === newAddressNormalized.fullName &&
-            existingAddrNormalized.addressLine1 === newAddressNormalized.addressLine1 &&
-            existingAddrNormalized.city === newAddressNormalized.city &&
-            existingAddrNormalized.state === newAddressNormalized.state &&
-            existingAddrNormalized.postalCode === newAddressNormalized.postalCode &&
-            existingAddrNormalized.country === newAddressNormalized.country &&
-            existingAddrNormalized.phone === newAddressNormalized.phone
-          );
-        });
-
-        if (addressExists) {
-          console.log(`[ORDER] Address already exists, skipping save`, { userId });
-        } else {
-          console.log(`[ORDER] Saving new address`, { userId });
-
-          const newAddress = {
-            fullName: finalShippingAddress.fullName.trim(),
-            addressLine1: finalShippingAddress.addressLine1.trim(),
-            addressLine2: finalShippingAddress.addressLine2?.trim() || '',
-            city: finalShippingAddress.city.trim(),
-            state: finalShippingAddress.state.trim(),
-            postalCode: finalShippingAddress.postalCode.trim(),
-            country: finalShippingAddress.country.trim(),
-            phone: finalShippingAddress.phone.trim(),
-            isDefault: userForAddress.addresses.length === 0
-          };
-
-          const hasDefaultAddress = userForAddress.addresses.some(addr => addr.isDefault);
-          if (!hasDefaultAddress) {
-            newAddress.isDefault = true;
-          }
-
-          try {
-            userForAddress.addresses.push(newAddress);
-            await userForAddress.save();
-            console.log(`[ORDER] Address saved successfully`, { userId, isDefault: newAddress.isDefault });
-          } catch (addressError) {
-            console.error(`[ORDER] Failed to save address`, { userId, error: addressError.message });
-          }
-        }
       }
     }
 
@@ -953,7 +898,103 @@ if (paymentMethod !== 'cash_on_delivery') {
   }
 };
 
-// NEW: Handle Alfa Payment IPN (Instant Payment Notification)
+// Helper function to save user address
+const saveUserAddress = async (userId, shippingAddress) => {
+  try {
+    console.log(`[SAVE_ADDRESS] Processing address save request`, { userId });
+
+    const userForAddress = await User.findById(userId);
+    if (!userForAddress) {
+      console.warn(`[SAVE_ADDRESS] User not found for address saving`, { userId });
+      return;
+    }
+
+    const normalizeAddress = (addr) => {
+      return {
+        fullName: addr.fullName?.toLowerCase().trim().replace(/\s+/g, ' '),
+        addressLine1: addr.addressLine1?.toLowerCase().trim().replace(/\s+/g, ' '),
+        addressLine2: addr.addressLine2?.toLowerCase().trim().replace(/\s+/g, ' ') || '',
+        city: addr.city?.toLowerCase().trim(),
+        state: addr.state?.toLowerCase().trim(),
+        postalCode: addr.postalCode?.toLowerCase().trim().replace(/\s+/g, ''),
+        country: addr.country?.toLowerCase().trim(),
+        phone: addr.phone?.replace(/\D/g, '')
+      };
+    };
+
+    const newAddressNormalized = normalizeAddress(shippingAddress);
+
+    const addressExists = userForAddress.addresses.some(addr => {
+      const existingAddrNormalized = normalizeAddress(addr);
+      return (
+        existingAddrNormalized.fullName === newAddressNormalized.fullName &&
+        existingAddrNormalized.addressLine1 === newAddressNormalized.addressLine1 &&
+        existingAddrNormalized.city === newAddressNormalized.city &&
+        existingAddrNormalized.state === newAddressNormalized.state &&
+        existingAddrNormalized.postalCode === newAddressNormalized.postalCode &&
+        existingAddrNormalized.country === newAddressNormalized.country &&
+        existingAddrNormalized.phone === newAddressNormalized.phone
+      );
+    });
+
+    if (addressExists) {
+      console.log(`[SAVE_ADDRESS] Address already exists, skipping save`, { userId });
+      return;
+    }
+
+    console.log(`[SAVE_ADDRESS] Saving new address`, { userId });
+
+    const newAddress = {
+      fullName: shippingAddress.fullName.trim(),
+      addressLine1: shippingAddress.addressLine1.trim(),
+      addressLine2: shippingAddress.addressLine2?.trim() || '',
+      city: shippingAddress.city.trim(),
+      state: shippingAddress.state.trim(),
+      postalCode: shippingAddress.postalCode.trim(),
+      country: shippingAddress.country.trim(),
+      phone: shippingAddress.phone.trim(),
+      isDefault: userForAddress.addresses.length === 0
+    };
+
+    const hasDefaultAddress = userForAddress.addresses.some(addr => addr.isDefault);
+    if (!hasDefaultAddress) {
+      newAddress.isDefault = true;
+    }
+
+    try {
+      userForAddress.addresses.push(newAddress);
+      await userForAddress.save();
+      console.log(`[SAVE_ADDRESS] Address saved successfully`, { userId, isDefault: newAddress.isDefault });
+    } catch (addressError) {
+      console.error(`[SAVE_ADDRESS] Failed to save address`, { userId, error: addressError.message });
+    }
+  } catch (error) {
+    console.error(`[SAVE_ADDRESS] Error saving address`, { userId, error: error.message });
+  }
+};
+
+const clearUserCart = async (userId) => {
+  try {
+    console.log(`[CLEAR_CART] Clearing cart for user`, { userId });
+    
+    const Cart = require('../models/Cart');
+    const cart = await Cart.findOne({ userId });
+    
+    if (!cart) {
+      console.log(`[CLEAR_CART] No cart found for user`, { userId });
+      return;
+    }
+
+    cart.items = [];
+    await cart.save();
+    console.log(`[CLEAR_CART] Cart cleared successfully`, { userId });
+  } catch (error) {
+    console.error(`[CLEAR_CART] Error clearing cart`, { userId, error: error.message });
+    throw error;
+  }
+};
+
+// Updated IPN handler to ensure cart is cleared for successful online payments
 exports.handlePaymentIPN = async (req, res, next) => {
   try {
     console.log('[PAYMENT_IPN] Received IPN notification', req.body);

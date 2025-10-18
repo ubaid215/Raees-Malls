@@ -507,7 +507,7 @@ Sent via Raees Malls Contact Form`;
 
                 {/* TikTok */}
                 <a
-                  href="https://www.tiktok.com/@raeesmalls"
+                  href="https://www.tiktok.com/@raeesmalls.com?_t=ZM-90eCxzLhtoe&_r=1"
                   target="blank"
                   className="text-gray-600 hover:text-red-600 transition-colors"
                 >
@@ -531,7 +531,7 @@ Sent via Raees Malls Contact Form`;
 
                 {/* YouTube */}
                 <a
-                  href="https://www.youtube.com/@raeesmalls"
+                  href="https://youtube.com/@raeesmalls?si=HdW1xmEMCSfUncaP"
                   target="blank"
                   className="text-gray-600 hover:text-red-600 transition-colors"
                 >
