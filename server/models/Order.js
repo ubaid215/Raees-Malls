@@ -149,9 +149,17 @@ const orderSchema = new Schema({
   discountAmount: {
     type: Number,
     min: 0,
-    default: 0
+    default: 0,
+    description: 'Total discount amount (includes promo code + online payment discount)'
   },
-  // Payment fields with Alfa Payment Gateway integration - UPDATED
+  // ✅ NEW: Track online payment discount separately for transparency
+  onlinePaymentDiscount: {
+    type: Number,
+    min: 0,
+    default: 0,
+    description: 'Automatic discount applied for online payment methods (100 PKR)'
+  },
+  // Payment fields with Alfa Payment Gateway integration
   paymentMethod: {
     type: String,
     enum: ['credit_card', 'debit_card', 'alfa_wallet', 'alfalah_bank', 'cash_on_delivery'],
@@ -162,7 +170,7 @@ const orderSchema = new Schema({
     enum: ['pending', 'processing', 'completed', 'failed', 'refunded', 'not_required'],
     default: 'pending'
   },
-  // Alfa Payment Gateway Integration Fields - UPDATED for Page Redirection
+  // Alfa Payment Gateway Integration Fields
   alfaPayment: {
     transactionId: {
       type: String,
@@ -183,7 +191,7 @@ const orderSchema = new Schema({
     authToken: String,
     sessionId: String,
     // Form data for page redirection
-    formData: Schema.Types.Mixed, // Stores complete form data for payment
+    formData: Schema.Types.Mixed,
     // Response fields
     responseCode: String,
     responseMessage: String,
@@ -207,7 +215,7 @@ const orderSchema = new Schema({
       channel_id: String,
       currency: String
     },
-    // For tracking payment attempts
+    // For tracking payment attempts - ENHANCED
     paymentAttempts: [{
       attemptDate: {
         type: Date,
@@ -217,20 +225,51 @@ const orderSchema = new Schema({
       responseCode: String,
       responseMessage: String,
       transactionId: String,
+      transactionStatus: String,
+      transactionAmount: Number,
+      authToken: String,
+      gatewayParams: Schema.Types.Mixed,
+      rawUrl: String,
       paymentMethod: String
     }],
+    // ✅ NEW: Track payment sync attempts
+    syncAttempts: [{
+      syncDate: {
+        type: Date,
+        default: Date.now
+      },
+      performed: Boolean,
+      message: String,
+      previousPaymentStatus: String,
+      newPaymentStatus: String,
+      triggeredBy: {
+        userId: Schema.Types.ObjectId,
+        userRole: String
+      }
+    }],
+    // ✅ NEW: Latest transaction details
+    latestTransaction: {
+      transactionId: String,
+      transactionDate: Date,
+      amount: Number,
+      status: String,
+      responseCode: String,
+      responseMessage: String
+    },
+    // ✅ NEW: Last synced timestamp
+    lastSyncedAt: Date,
     // Additional fields for Bank Alfalah page redirection
     handshakeCompleted: {
       type: Boolean,
       default: false
     },
-    handshakeData: Schema.Types.Mixed, // Stores handshake response data
-    returnUrl: String, // URL to redirect after payment
-    merchantResponseUrl: String // IPN listener URL
+    handshakeData: Schema.Types.Mixed,
+    returnUrl: String,
+    merchantResponseUrl: String
   },
   status: {
     type: String,
-    enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned', 'payment_failed'],
+    enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'returned', 'payment_failed', 'confirmed'],
     default: 'pending'
   },
   shippingAddress: {
@@ -242,7 +281,7 @@ const orderSchema = new Schema({
     postalCode: { type: String, required: true },
     country: { type: String, required: true },
     phone: { type: String, required: true },
-    email: { type: String } // Added email for payment processing
+    email: { type: String }
   },
   billingAddress: {
     sameAsShipping: { type: Boolean, default: true },
@@ -263,7 +302,6 @@ const orderSchema = new Schema({
     customer: String,
     admin: String
   },
-  // Additional fields for payment processing
   requiresPayment: {
     type: Boolean,
     default: false
@@ -271,7 +309,6 @@ const orderSchema = new Schema({
   paymentExpiry: {
     type: Date,
     default: function() {
-      // Payment expires in 24 hours for online payments
       return this.paymentMethod !== 'cash_on_delivery' ? 
         new Date(Date.now() + 24 * 60 * 60 * 1000) : null;
     }
@@ -286,14 +323,14 @@ const orderSchema = new Schema({
   }
 });
 
-// Indexes for better query performance - UPDATED
+// Indexes for better query performance
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ 'alfaPayment.transactionId': 1 });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ status: 1 });
 orderSchema.index({ 'alfaPayment.paymentAttempts.attemptDate': -1 });
-orderSchema.index({ paymentExpiry: 1 }, { expireAfterSeconds: 0 }); // TTL index for expired payments
-orderSchema.index({ orderId: 1 }); // For quick order lookup
+orderSchema.index({ paymentExpiry: 1 }, { expireAfterSeconds: 0 });
+orderSchema.index({ orderId: 1 });
 
 // Validation to ensure each item has the proper structure based on variantType
 orderItemSchema.pre('validate', function(next) {
@@ -333,16 +370,14 @@ orderItemSchema.pre('validate', function(next) {
   next();
 });
 
-// Update timestamps on save - ENHANCED
+// Update timestamps on save
 orderSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   
-  // Set default payment method to COD if not specified
   if (!this.paymentMethod) {
     this.paymentMethod = 'cash_on_delivery';
   }
   
-  // Set payment status based on payment method
   if (this.paymentMethod === 'cash_on_delivery') {
     this.paymentStatus = 'not_required';
     this.requiresPayment = false;
@@ -353,12 +388,10 @@ orderSchema.pre('save', function(next) {
     }
   }
   
-  // Set payment expiry for online payments
   if (this.paymentMethod !== 'cash_on_delivery' && !this.paymentExpiry) {
-    this.paymentExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    this.paymentExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
   }
   
-  // Initialize alfaPayment object if not exists
   if (!this.alfaPayment) {
     this.alfaPayment = {};
   }
@@ -366,7 +399,7 @@ orderSchema.pre('save', function(next) {
   next();
 });
 
-// Calculate totals before saving
+// Calculate totals before saving - ENHANCED to include online payment discount
 orderSchema.pre('save', function(next) {
   this.subtotal = this.items.reduce((total, item) => {
     let itemPrice = 0;
@@ -396,14 +429,15 @@ orderSchema.pre('save', function(next) {
     return total + (itemPrice * itemQuantity);
   }, 0);
   
-  this.totalAmount = this.subtotal + this.totalShippingCost - this.discountAmount;
+  // ✅ UPDATED: Total discount includes both promo code and online payment discount
+  const totalDiscount = (this.discountAmount || 0);
+  this.totalAmount = this.subtotal + this.totalShippingCost - totalDiscount;
   
   next();
 });
 
-// Instance methods - ENHANCED
+// Instance methods
 
-// Check if order can be processed (payment completed or COD)
 orderSchema.methods.canProcess = function() {
   if (this.paymentMethod === 'cash_on_delivery') {
     return true;
@@ -411,7 +445,6 @@ orderSchema.methods.canProcess = function() {
   return this.paymentStatus === 'completed';
 };
 
-// Check if payment is expired
 orderSchema.methods.isPaymentExpired = function() {
   if (this.paymentMethod === 'cash_on_delivery' || !this.paymentExpiry) {
     return false;
@@ -419,7 +452,6 @@ orderSchema.methods.isPaymentExpired = function() {
   return new Date() > this.paymentExpiry;
 };
 
-// Update payment status from IPN - ENHANCED
 orderSchema.methods.updatePaymentFromIPN = function(ipnData) {
   this.alfaPayment.ipnReceived = true;
   this.alfaPayment.ipnData = {
@@ -436,10 +468,9 @@ orderSchema.methods.updatePaymentFromIPN = function(ipnData) {
     currency: ipnData.currency
   };
   
-  // Update payment status based on IPN response
   if (ipnData.response_code === '00' || ipnData.transaction_status === 'success') {
     this.paymentStatus = 'completed';
-    this.status = 'processing';
+    this.status = 'confirmed';
     this.alfaPayment.responseCode = ipnData.response_code;
     this.alfaPayment.responseMessage = ipnData.response_message;
   } else {
@@ -452,7 +483,6 @@ orderSchema.methods.updatePaymentFromIPN = function(ipnData) {
   return this.save();
 };
 
-// Add payment attempt record - ENHANCED
 orderSchema.methods.addPaymentAttempt = function(status, responseCode, responseMessage, transactionId = null, paymentMethod = null) {
   if (!this.alfaPayment.paymentAttempts) {
     this.alfaPayment.paymentAttempts = [];
@@ -467,7 +497,6 @@ orderSchema.methods.addPaymentAttempt = function(status, responseCode, responseM
     paymentMethod: paymentMethod || this.paymentMethod
   });
   
-  // Update main payment status if this is a failure
   if (status === 'failed') {
     this.paymentStatus = 'failed';
     this.status = 'payment_failed';
@@ -476,7 +505,6 @@ orderSchema.methods.addPaymentAttempt = function(status, responseCode, responseM
   return this.save();
 };
 
-// Initialize Alfa Payment data
 orderSchema.methods.initializeAlfaPayment = function(paymentData) {
   this.alfaPayment = {
     ...this.alfaPayment,
@@ -498,7 +526,6 @@ orderSchema.methods.initializeAlfaPayment = function(paymentData) {
   return this.save();
 };
 
-// Mark handshake as completed
 orderSchema.methods.markHandshakeCompleted = function(handshakeData) {
   this.alfaPayment.handshakeCompleted = true;
   this.alfaPayment.handshakeData = handshakeData;
@@ -508,14 +535,12 @@ orderSchema.methods.markHandshakeCompleted = function(handshakeData) {
   return this.save();
 };
 
-// Static methods - ENHANCED
+// Static methods
 
-// Find orders by payment status
 orderSchema.statics.findByPaymentStatus = function(paymentStatus) {
   return this.find({ paymentStatus });
 };
 
-// Find pending payments
 orderSchema.statics.findPendingPayments = function() {
   return this.find({ 
     paymentStatus: 'pending',
@@ -523,7 +548,6 @@ orderSchema.statics.findPendingPayments = function() {
   });
 };
 
-// Find expired payments
 orderSchema.statics.findExpiredPayments = function() {
   return this.find({
     paymentStatus: 'pending',
@@ -532,21 +556,28 @@ orderSchema.statics.findExpiredPayments = function() {
   });
 };
 
-// Find orders by transaction ID
 orderSchema.statics.findByTransactionId = function(transactionId) {
   return this.findOne({ 'alfaPayment.transactionId': transactionId });
 };
 
-// Find orders that need payment retry
 orderSchema.statics.findFailedPayments = function() {
   return this.find({
     paymentStatus: 'failed',
     paymentMethod: { $ne: 'cash_on_delivery' },
-    createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // Last 7 days
+    createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
   });
 };
 
-// Virtual for payment status description
+// ✅ NEW: Virtual for total savings (code discount + online payment discount)
+orderSchema.virtual('totalSavings').get(function() {
+  const promoDiscount = this.discountAmount - (this.onlinePaymentDiscount || 0);
+  return {
+    promoCodeDiscount: promoDiscount > 0 ? promoDiscount : 0,
+    onlinePaymentDiscount: this.onlinePaymentDiscount || 0,
+    totalDiscount: this.discountAmount || 0
+  };
+});
+
 orderSchema.virtual('paymentStatusDescription').get(function() {
   const statusMap = {
     'pending': 'Payment Pending',
@@ -559,11 +590,11 @@ orderSchema.virtual('paymentStatusDescription').get(function() {
   return statusMap[this.paymentStatus] || 'Unknown Status';
 });
 
-// Virtual for order status description
 orderSchema.virtual('orderStatusDescription').get(function() {
   const statusMap = {
     'pending': 'Order Pending',
     'processing': 'Processing Order',
+    'confirmed': 'Order Confirmed',
     'shipped': 'Order Shipped',
     'delivered': 'Order Delivered',
     'cancelled': 'Order Cancelled',
@@ -573,7 +604,6 @@ orderSchema.virtual('orderStatusDescription').get(function() {
   return statusMap[this.status] || 'Unknown Status';
 });
 
-// Ensure virtual fields are serialized
 orderSchema.set('toJSON', { virtuals: true });
 orderSchema.set('toObject', { virtuals: true });
 

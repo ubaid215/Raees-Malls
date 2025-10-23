@@ -367,7 +367,7 @@ exports.placeOrder = async (req, res, next) => {
       throw new ApiError(401, 'User not authenticated');
     }
 
-    // Extract all possible parameters from request body
+    // Extract all parameters from request body
     const {
       items,
       shippingAddress,
@@ -386,9 +386,10 @@ exports.placeOrder = async (req, res, next) => {
       saveAddress,
       useExistingAddress,
       existingAddressId,
-      shippingAddress
+      hasShippingAddress: !!shippingAddress
     });
 
+    // Validate items
     if (!items || items.length === 0) {
       console.warn(`[ORDER] Empty items in order | userId=${userId}`);
       throw new ApiError(400, 'Order must contain at least one item');
@@ -396,7 +397,7 @@ exports.placeOrder = async (req, res, next) => {
 
     let finalShippingAddress = shippingAddress;
 
-    // If user wants to use an existing address
+    // Handle existing address selection
     if (useExistingAddress && existingAddressId) {
       console.log(`[ORDER] Using existing address`, { existingAddressId });
 
@@ -411,9 +412,12 @@ exports.placeOrder = async (req, res, next) => {
       }
 
       finalShippingAddress = existingAddress.toObject();
-      console.log(`[ORDER] Using existing address`, finalShippingAddress);
+      console.log(`[ORDER] Loaded existing address:`, {
+        fullName: finalShippingAddress.fullName,
+        city: finalShippingAddress.city
+      });
     }
-    // Validate shipping address if not using existing one
+    // Validate new shipping address if not using existing one
     else if (!useExistingAddress) {
       if (!shippingAddress || typeof shippingAddress !== 'object') {
         console.warn(`[ORDER] Invalid shipping address | userId=${userId}`);
@@ -428,16 +432,21 @@ exports.placeOrder = async (req, res, next) => {
       }
 
       finalShippingAddress = shippingAddress;
+      console.log(`[ORDER] Using new shipping address:`, {
+        fullName: finalShippingAddress.fullName,
+        city: finalShippingAddress.city
+      });
     } else {
       throw new ApiError(400, 'Existing address ID is required when useExistingAddress is true');
     }
 
+    // Process items and calculate totals
     let subtotal = 0;
     let totalShippingCost = 0;
     const orderItems = [];
     const productsToUpdate = [];
 
-    console.log(`[ORDER] Processing items...`);
+    console.log(`[ORDER] Processing ${items.length} items...`);
 
     for (const item of items) {
       if (!item.productId) {
@@ -653,30 +662,70 @@ exports.placeOrder = async (req, res, next) => {
       orderItems.push(itemDetails);
       productsToUpdate.push(stockToReduce);
 
-      console.log(`[ORDER] Item processed`, { productId: product._id, quantity: item.quantity });
+      console.log(`[ORDER] Item processed`, { 
+        productId: product._id, 
+        quantity: item.quantity,
+        itemPrice
+      });
     }
 
+    console.log(`[ORDER] All items processed`, {
+      totalItems: orderItems.length,
+      subtotal,
+      totalShippingCost
+    });
+
     // --- Discount Handling ---
-    let discountAmount = 0;
+    let promoCodeDiscount = 0;
+    let onlinePaymentDiscount = 0;
     let discountId = null;
+
+    // ✅ NEW: Apply 100 PKR discount for online payment methods
+    const isOnlinePayment = ['alfa_wallet', 'alfalah_bank', 'credit_card', 'debit_card'].includes(paymentMethod);
+    if (isOnlinePayment) {
+      onlinePaymentDiscount = 100;
+      console.log(`[ORDER] 🎁 Online payment discount applied: PKR ${onlinePaymentDiscount}`);
+    }
+
+    // Apply promo code discount if provided
     if (discountCode) {
-      console.log(`[ORDER] Checking discount`, { discountCode });
+      console.log(`[ORDER] Checking discount code`, { discountCode });
       const discount = await Discount.findOne({
         code: discountCode,
         isActive: true,
         startDate: { $lte: new Date() },
         endDate: { $gte: new Date() },
       });
+      
       if (discount) {
-        console.log(`[ORDER] Discount applied`, { discountCode, discountType: discount.type, discountValue: discount.value });
-        discountAmount = discount.type === 'percentage' ? (discount.value / 100) * subtotal : Math.min(discount.value, subtotal);
+        console.log(`[ORDER] Promo code applied`, { 
+          discountCode, 
+          discountType: discount.type, 
+          discountValue: discount.value 
+        });
+        
+        promoCodeDiscount = discount.type === 'percentage' 
+          ? (discount.value / 100) * subtotal 
+          : Math.min(discount.value, subtotal);
+        
         discountId = discount._id;
         discount.usedCount += 1;
         await discount.save();
+        
+        console.log(`[ORDER] Promo discount calculated: PKR ${promoCodeDiscount.toFixed(2)}`);
       } else {
-        console.warn(`[ORDER] Discount not valid`, { discountCode });
+        console.warn(`[ORDER] Discount code not valid`, { discountCode });
       }
     }
+
+    // Calculate total discount (promo code + online payment discount)
+    const totalDiscount = promoCodeDiscount + onlinePaymentDiscount;
+    
+    console.log(`[ORDER] Discount breakdown:`, {
+      promoCodeDiscount: promoCodeDiscount.toFixed(2),
+      onlinePaymentDiscount: onlinePaymentDiscount.toFixed(2),
+      totalDiscount: totalDiscount.toFixed(2)
+    });
 
     // Get user details for payment
     const user = await User.findById(userId, 'name email');
@@ -689,40 +738,83 @@ exports.placeOrder = async (req, res, next) => {
       subtotal,
       totalShippingCost,
       discountId,
-      discountAmount,
-      totalAmount: subtotal + totalShippingCost - discountAmount,
+      discountAmount: totalDiscount, // Combined discount
+      onlinePaymentDiscount: onlinePaymentDiscount, // Store separately for transparency
+      totalAmount: subtotal + totalShippingCost - totalDiscount,
       paymentMethod,
       paymentStatus: paymentMethod === 'cash_on_delivery' ? 'not_required' : 'pending',
       status: 'pending',
       shippingAddress: finalShippingAddress
     });
 
-    // Attach user email to order for payment processing
+    // Attach user to order for payment processing
     order.userId = user;
 
-    // --- ADDRESS SAVING FOR ALL PAYMENT METHODS ---
-    // MOVED THIS BEFORE PAYMENT PROCESSING TO ENSURE IT RUNS FOR ALL METHODS
-    if (saveAddress && !useExistingAddress) {
-      console.log(`[ORDER] Processing address save request for ${paymentMethod}`, { userId });
-      await saveUserAddress(userId, finalShippingAddress);
+    console.log(`[ORDER] Order object created`, {
+      orderId: order.orderId,
+      subtotal: order.subtotal,
+      totalShippingCost: order.totalShippingCost,
+      discountAmount: order.discountAmount,
+      onlinePaymentDiscount: order.onlinePaymentDiscount,
+      totalAmount: order.totalAmount,
+      paymentMethod: order.paymentMethod
+    });
+
+    // ✅ CRITICAL FIX: Save address BEFORE payment processing for ALL methods
+    if (saveAddress && !useExistingAddress && finalShippingAddress) {
+      console.log(`[ORDER] 💾 Saving new address for ${paymentMethod}`, { 
+        userId,
+        hasFullName: !!finalShippingAddress.fullName,
+        hasAddressLine1: !!finalShippingAddress.addressLine1,
+        hasCity: !!finalShippingAddress.city
+      });
+      
+      try {
+        await saveUserAddress(userId, finalShippingAddress);
+        console.log(`[ORDER] ✅ Address saved successfully for ${paymentMethod}`);
+      } catch (addressError) {
+        console.error(`[ORDER] ⚠️ Failed to save address for ${paymentMethod}`, { 
+          error: addressError.message,
+          stack: addressError.stack,
+          userId,
+          addressData: {
+            fullName: finalShippingAddress.fullName,
+            city: finalShippingAddress.city
+          }
+        });
+        // Don't throw error - continue with order placement
+      }
+    } else {
+      console.log(`[ORDER] ℹ️ Address save skipped`, {
+        saveAddress,
+        useExistingAddress,
+        hasShippingAddress: !!finalShippingAddress,
+        paymentMethod
+      });
     }
 
-    // --- CART CLEARING FOR ALL PAYMENT METHODS ---
-    // MOVED THIS BEFORE PAYMENT PROCESSING TO ENSURE IT RUNS FOR ALL METHODS
+    // ✅ CRITICAL FIX: Clear cart BEFORE payment processing for ALL methods
     try {
-      console.log(`[ORDER] Clearing cart for ${paymentMethod} order`, { userId });
+      console.log(`[ORDER] 🗑️ Clearing cart for ${paymentMethod} order`, { userId });
       await clearUserCart(userId);
-      console.log(`[ORDER] Cart cleared successfully for ${paymentMethod}`);
+      console.log(`[ORDER] ✅ Cart cleared successfully for ${paymentMethod}`);
     } catch (cartError) {
-      console.error(`[ORDER] Failed to clear cart for ${paymentMethod}`, { error: cartError.message });
-      // Don't throw error, just log it - order should still proceed
+      console.error(`[ORDER] ⚠️ Failed to clear cart for ${paymentMethod}`, { 
+        error: cartError.message 
+      });
+      // Don't throw error - continue with order placement
     }
 
     // --- PAYMENT PROCESSING ---
     let paymentResponse = null;
 
     if (paymentMethod !== 'cash_on_delivery') {
-      console.log(`[ORDER] Processing online payment`, { paymentMethod, orderId: order.orderId });
+      console.log(`[ORDER] 💳 Processing online payment`, { 
+        paymentMethod, 
+        orderId: order.orderId,
+        totalAmount: order.totalAmount,
+        onlineDiscount: onlinePaymentDiscount
+      });
 
       // Use page redirection for ALL Bank Alfalah payment methods
       if (['alfa_wallet', 'alfalah_bank', 'credit_card', 'debit_card'].includes(paymentMethod)) {
@@ -803,16 +895,34 @@ exports.placeOrder = async (req, res, next) => {
 
       // Save order with pending payment status (don't reduce stock yet for online payments)
       await order.save();
-      console.log(`[ORDER] Order created with pending payment`, { orderId: order.orderId });
+      console.log(`[ORDER] Order created with pending payment`, { 
+        orderId: order.orderId,
+        onlineDiscount: onlinePaymentDiscount,
+        totalSavings: totalDiscount
+      });
 
       // Return payment initiation details for page redirection
+      const successMessage = onlinePaymentDiscount > 0 
+        ? `You saved PKR ${onlinePaymentDiscount} by choosing online payment! ${promoCodeDiscount > 0 ? `Plus PKR ${promoCodeDiscount.toFixed(2)} from promo code.` : ''} Please complete payment to confirm your order.`
+        : "Please complete payment to confirm your order";
+
       return ApiResponse.success(res, 201, 'Payment required to complete order', {
         order: {
           orderId: order.orderId,
           totalAmount: order.totalAmount,
+          subtotal: order.subtotal,
+          totalShippingCost: order.totalShippingCost,
+          discountAmount: order.discountAmount,
+          onlinePaymentDiscount: order.onlinePaymentDiscount,
+          savings: {
+            promoCodeDiscount: promoCodeDiscount.toFixed(2),
+            onlinePaymentDiscount: onlinePaymentDiscount.toFixed(2),
+            totalSavings: totalDiscount.toFixed(2)
+          },
           paymentStatus: order.paymentStatus,
           status: order.status,
-          paymentMethod: order.paymentMethod
+          paymentMethod: order.paymentMethod,
+          itemCount: order.items.length
         },
         payment: {
           method: paymentMethod,
@@ -826,7 +936,7 @@ exports.placeOrder = async (req, res, next) => {
           }
         },
         requiresPayment: true,
-        message: "Please complete payment to confirm your order"
+        message: successMessage
       });
     }
 
@@ -875,10 +985,14 @@ exports.placeOrder = async (req, res, next) => {
     };
 
     const io = req.app.get('socketio');
-    io.emit('orderNotification', notificationData);
-    io.to('adminRoom').emit('newOrder', { order, notification: notificationData });
+    if (io) {
+      io.emit('orderNotification', notificationData);
+      io.to('adminRoom').emit('newOrder', { order, notification: notificationData });
+    }
 
-    const populatedOrder = await Order.findById(order._id).populate('userId', 'name email').populate('discountId', 'code value type');
+    const populatedOrder = await Order.findById(order._id)
+      .populate('userId', 'name email')
+      .populate('discountId', 'code value type');
 
     console.log(`[ORDER] Order flow completed successfully`, { orderId: order.orderId });
 
@@ -901,35 +1015,70 @@ exports.placeOrder = async (req, res, next) => {
   }
 };
 
-// Helper function to save user address
+// ✅ FIXED: Enhanced helper function to save user address with better error handling
 const saveUserAddress = async (userId, shippingAddress) => {
   try {
-    console.log(`[SAVE_ADDRESS] Processing address save request`, { userId });
+    console.log(`[SAVE_ADDRESS] Processing address save request`, { 
+      userId,
+      hasShippingAddress: !!shippingAddress,
+      addressDetails: shippingAddress ? {
+        fullName: shippingAddress.fullName,
+        city: shippingAddress.city,
+        phone: shippingAddress.phone
+      } : null
+    });
 
-    const userForAddress = await User.findById(userId);
-    if (!userForAddress) {
-      console.warn(`[SAVE_ADDRESS] User not found for address saving`, { userId });
+    if (!shippingAddress) {
+      console.warn(`[SAVE_ADDRESS] No shipping address provided`);
       return;
     }
 
+    // Validate required fields
+    const requiredFields = ['fullName', 'addressLine1', 'city', 'state', 'postalCode', 'country', 'phone'];
+    const missingFields = requiredFields.filter(field => !shippingAddress[field]);
+    
+    if (missingFields.length > 0) {
+      console.warn(`[SAVE_ADDRESS] Missing required fields:`, missingFields);
+      throw new Error(`Missing required address fields: ${missingFields.join(', ')}`);
+    }
+
+    const userForAddress = await User.findById(userId);
+    if (!userForAddress) {
+      console.warn(`[SAVE_ADDRESS] User not found`, { userId });
+      throw new Error('User not found');
+    }
+
+    console.log(`[SAVE_ADDRESS] User found, current addresses count:`, userForAddress.addresses.length);
+
     const normalizeAddress = (addr) => {
+      if (!addr) return null;
       return {
-        fullName: addr.fullName?.toLowerCase().trim().replace(/\s+/g, ' '),
-        addressLine1: addr.addressLine1?.toLowerCase().trim().replace(/\s+/g, ' '),
+        fullName: addr.fullName?.toLowerCase().trim().replace(/\s+/g, ' ') || '',
+        addressLine1: addr.addressLine1?.toLowerCase().trim().replace(/\s+/g, ' ') || '',
         addressLine2: addr.addressLine2?.toLowerCase().trim().replace(/\s+/g, ' ') || '',
-        city: addr.city?.toLowerCase().trim(),
-        state: addr.state?.toLowerCase().trim(),
-        postalCode: addr.postalCode?.toLowerCase().trim().replace(/\s+/g, ''),
-        country: addr.country?.toLowerCase().trim(),
-        phone: addr.phone?.replace(/\D/g, '')
+        city: addr.city?.toLowerCase().trim() || '',
+        state: addr.state?.toLowerCase().trim() || '',
+        postalCode: addr.postalCode?.toLowerCase().trim().replace(/\s+/g, '') || '',
+        country: addr.country?.toLowerCase().trim() || '',
+        phone: addr.phone?.replace(/\D/g, '') || ''
       };
     };
 
     const newAddressNormalized = normalizeAddress(shippingAddress);
+    
+    if (!newAddressNormalized) {
+      console.warn(`[SAVE_ADDRESS] Failed to normalize address`);
+      throw new Error('Failed to normalize address');
+    }
 
+    console.log(`[SAVE_ADDRESS] Normalized address:`, newAddressNormalized);
+
+    // Check if address already exists
     const addressExists = userForAddress.addresses.some(addr => {
       const existingAddrNormalized = normalizeAddress(addr);
-      return (
+      if (!existingAddrNormalized) return false;
+      
+      const isMatch = (
         existingAddrNormalized.fullName === newAddressNormalized.fullName &&
         existingAddrNormalized.addressLine1 === newAddressNormalized.addressLine1 &&
         existingAddrNormalized.city === newAddressNormalized.city &&
@@ -938,6 +1087,8 @@ const saveUserAddress = async (userId, shippingAddress) => {
         existingAddrNormalized.country === newAddressNormalized.country &&
         existingAddrNormalized.phone === newAddressNormalized.phone
       );
+      
+      return isMatch;
     });
 
     if (addressExists) {
@@ -947,6 +1098,7 @@ const saveUserAddress = async (userId, shippingAddress) => {
 
     console.log(`[SAVE_ADDRESS] Saving new address`, { userId });
 
+    // Create new address object
     const newAddress = {
       fullName: shippingAddress.fullName.trim(),
       addressLine1: shippingAddress.addressLine1.trim(),
@@ -955,27 +1107,37 @@ const saveUserAddress = async (userId, shippingAddress) => {
       state: shippingAddress.state.trim(),
       postalCode: shippingAddress.postalCode.trim(),
       country: shippingAddress.country.trim(),
-      phone: shippingAddress.phone.trim(),
-      isDefault: userForAddress.addresses.length === 0
+      phone: shippingAddress.phone.trim()
     };
 
+    // Set as default if it's the first address
     const hasDefaultAddress = userForAddress.addresses.some(addr => addr.isDefault);
-    if (!hasDefaultAddress) {
+    if (!hasDefaultAddress || userForAddress.addresses.length === 0) {
       newAddress.isDefault = true;
+      console.log(`[SAVE_ADDRESS] Setting as default address (first address)`);
     }
 
-    try {
-      userForAddress.addresses.push(newAddress);
-      await userForAddress.save();
-      console.log(`[SAVE_ADDRESS] Address saved successfully`, { userId, isDefault: newAddress.isDefault });
-    } catch (addressError) {
-      console.error(`[SAVE_ADDRESS] Failed to save address`, { userId, error: addressError.message });
-    }
+    userForAddress.addresses.push(newAddress);
+    await userForAddress.save();
+    
+    console.log(`[SAVE_ADDRESS] ✅ Address saved successfully`, { 
+      userId, 
+      isDefault: newAddress.isDefault,
+      totalAddresses: userForAddress.addresses.length,
+      newAddressId: userForAddress.addresses[userForAddress.addresses.length - 1]._id
+    });
+
   } catch (error) {
-    console.error(`[SAVE_ADDRESS] Error saving address`, { userId, error: error.message });
+    console.error(`[SAVE_ADDRESS] ❌ Error saving address`, { 
+      userId, 
+      error: error.message,
+      stack: error.stack
+    });
+    throw error; // Re-throw to be caught by caller
   }
 };
 
+// Helper function to clear user cart
 const clearUserCart = async (userId) => {
   try {
     console.log(`[CLEAR_CART] Clearing cart for user`, { userId });
@@ -990,9 +1152,16 @@ const clearUserCart = async (userId) => {
 
     cart.items = [];
     await cart.save();
-    console.log(`[CLEAR_CART] Cart cleared successfully`, { userId });
+    console.log(`[CLEAR_CART] ✅ Cart cleared successfully`, { 
+      userId,
+      previousItemCount: cart.items.length 
+    });
   } catch (error) {
-    console.error(`[CLEAR_CART] Error clearing cart`, { userId, error: error.message });
+    console.error(`[CLEAR_CART] ❌ Error clearing cart`, { 
+      userId, 
+      error: error.message,
+      stack: error.stack 
+    });
     throw error;
   }
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { FiCheckCircle, FiCreditCard, FiLock, FiTruck, FiMapPin } from "react-icons/fi";
+import { FiCheckCircle, FiCreditCard, FiLock, FiTruck, FiMapPin, FiTag } from "react-icons/fi";
 import { useForm } from "react-hook-form";
 import { toast } from "react-toastify";
 import { useLocation } from "react-router-dom";
@@ -29,6 +29,47 @@ const CheckoutPage = () => {
   const [orderCounts, setOrderCounts] = useState({});
   const [useExistingAddress, setUseExistingAddress] = useState(false);
   const [selectedAddressId, setSelectedAddressId] = useState("");
+
+  // Payment methods configuration with enhanced styling and discount info
+  const paymentMethods = [
+    {
+      id: "cash_on_delivery",
+      name: "Cash on Delivery",
+      description: "Pay when you receive your order",
+      icon: <FiTruck className="h-5 w-5" />,
+      available: true,
+      color: "emerald",
+      discount: 0
+    },
+    {
+      id: "credit_card",
+      name: "Credit/Debit Card",
+      description: "Pay securely with your card",
+      icon: <CreditCard className="h-5 w-5" />,
+      available: true,
+      color: "blue",
+      discount: 100
+    },
+    {
+      id: "alfa_wallet",
+      name: "Alfa Wallet",
+      description: "Pay using your Alfa Wallet",
+      icon: <Wallet className="h-5 w-5" />,
+      available: true,
+      color: "purple",
+      discount: 100
+    },
+    {
+      id: "alfalah_bank",
+      name: "Alfalah Bank",
+      description: "Pay via Alfalah Bank Account",
+      icon: <Banknote className="h-5 w-5" />,
+      available: true,
+      color: "green",
+      discount: 100
+    }
+  ];
+
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("cash_on_delivery");
 
   // Use passed cart data or fallback to context
@@ -58,47 +99,6 @@ const CheckoutPage = () => {
       billingSameAsShipping: true,
     },
   });
-
-  // Payment methods configuration with enhanced styling
-  const paymentMethods = [
-    {
-      id: "cash_on_delivery",
-      name: "Cash on Delivery",
-      description: "Pay when you receive your order",
-      icon: <FiTruck className="h-5 w-5" />,
-      available: true,
-      color: "emerald"
-    },
-    {
-      id: "credit_card",
-      name: "Credit/Debit Card",
-      description: "Pay securely with your card",
-      icon: <CreditCard className="h-5 w-5" />,
-      available: true,
-      color: "blue"
-    },
-    {
-      id: "alfa_wallet",
-      name: "Alfa Wallet",
-      description: "Pay using your Alfa Wallet",
-      icon: <Wallet className="h-5 w-5" />,
-      available: true,
-      color: "purple"
-    },
-    {
-      id: "alfalah_bank",
-      name: "Alfalah Bank",
-      description: "Pay via Alfalah Bank Account",
-      icon: <Banknote className="h-5 w-5" />,
-      available: true,
-      color: "green"
-    }
-  ];
-
-  const getPaymentMethodColor = (methodId) => {
-    const method = paymentMethods.find(m => m.id === methodId);
-    return method?.color || "gray";
-  };
 
   // Initialize form when user data loads
   useEffect(() => {
@@ -309,8 +309,8 @@ const CheckoutPage = () => {
     };
   };
 
-  // Memoized calculation of order totals
-  const { subtotal, shipping, total } = useMemo(() => {
+  // Memoized calculation of order totals with online payment discount
+  const { subtotal, shipping, onlinePaymentDiscount, total } = useMemo(() => {
     const subtotal = effectiveTotalPrice || 0;
     let shipping = effectiveShippingCost || 0;
     
@@ -325,13 +325,17 @@ const CheckoutPage = () => {
       });
     }
 
+    // Calculate online payment discount
+    const isOnlinePayment = ['credit_card', 'debit_card', 'alfa_wallet', 'alfalah_bank'].includes(selectedPaymentMethod);
+    const onlinePaymentDiscount = isOnlinePayment ? 100 : 0;
+
     return {
       subtotal,
       shipping,
-      tax: 0,
-      total: subtotal + shipping,
+      onlinePaymentDiscount,
+      total: Math.max(0, subtotal + shipping - onlinePaymentDiscount),
     };
-  }, [effectiveTotalPrice, effectiveShippingCost, effectiveCartItems]);
+  }, [effectiveTotalPrice, effectiveShippingCost, effectiveCartItems, selectedPaymentMethod]);
 
   // Modified onSubmit to handle payment methods
   const onSubmit = async (data) => {
@@ -346,14 +350,15 @@ const CheckoutPage = () => {
       // Prepare order items with proper variant handling
       const items = effectiveCartItems.map(mapCartItemToOrderItem);
 
-      // Prepare order data based on address selection
+      // Prepare order data with online payment discount
       const orderData = {
         items,
         paymentMethod: selectedPaymentMethod,
         orderNotes: data.orderNotes?.trim() || "",
         totalShippingCost: shipping,
         subtotal,
-        total
+        total,
+        onlinePaymentDiscount // This will be used by backend
       };
 
       // Handle address selection
@@ -524,6 +529,9 @@ const CheckoutPage = () => {
     }).format(price);
   };
 
+  // Get current payment method details
+  const currentPaymentMethod = paymentMethods.find(method => method.id === selectedPaymentMethod);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -575,6 +583,24 @@ const CheckoutPage = () => {
                     Payment Method
                   </h2>
                 </div>
+                
+                {/* Online Payment Discount Banner */}
+                {currentPaymentMethod?.discount > 0 && (
+                  <div className="mb-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <FiTag className="h-5 w-5 text-green-600" />
+                      <div>
+                        <p className="font-semibold text-green-800 text-sm">
+                          🎁 Online Payment Discount Applied!
+                        </p>
+                        <p className="text-green-700 text-sm mt-1">
+                          You're saving PKR {currentPaymentMethod.discount} by choosing online payment
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
                 <div className="grid gap-3">
                   {paymentMethods.map((method) => (
                     <div
@@ -598,6 +624,12 @@ const CheckoutPage = () => {
                             <p className="text-sm text-gray-600">
                               {method.description}
                             </p>
+                            {/* Show discount badge */}
+                            {method.discount > 0 && (
+                              <span className="inline-block mt-1 px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                                Save PKR {method.discount}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center">
@@ -1003,6 +1035,18 @@ const CheckoutPage = () => {
                   <span className="text-gray-600">Shipping</span>
                   <span className="font-medium text-gray-900">{shipping === 0 ? "FREE" : formatPrice(shipping)}</span>
                 </div>
+                
+                {/* Online Payment Discount Line */}
+                {onlinePaymentDiscount > 0 && (
+                  <div className="flex justify-between items-center bg-green-50 p-2 rounded-lg">
+                    <span className="text-green-700 font-medium flex items-center gap-2">
+                      <FiTag className="h-4 w-4" />
+                      Online Payment Discount
+                    </span>
+                    <span className="font-bold text-green-700">-{formatPrice(onlinePaymentDiscount)}</span>
+                  </div>
+                )}
+                
                 <div className="flex justify-between items-center pt-3 border-t border-gray-200">
                   <span className="text-lg font-bold text-gray-900">Total</span>
                   <span className="text-lg font-bold text-blue-600">{formatPrice(total)}</span>
@@ -1015,6 +1059,11 @@ const CheckoutPage = () => {
                   <strong className="text-gray-900">Payment Method:</strong> {
                     paymentMethods.find(m => m.id === selectedPaymentMethod)?.name
                   }
+                  {onlinePaymentDiscount > 0 && (
+                    <span className="text-green-600 font-medium ml-2">
+                      (Save PKR {onlinePaymentDiscount})
+                    </span>
+                  )}
                 </p>
               </div>
 

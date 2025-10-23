@@ -818,54 +818,72 @@ export const OrderProvider = ({ children }) => {
     };
   }, [userRole, admin?._id, user?._id, pagination.page, pagination.limit, setupPaymentSocketHandlers, showToast]);
 
-  const placeNewOrder = async (orderData) => {
-    setLoading(true);
-    setError('');
+  // In the placeNewOrder function, update the order data preparation:
+const placeNewOrder = async (orderData) => {
+  setLoading(true);
+  setError('');
+  
+  const validationErrors = validateOrderData(orderData);
+  if (validationErrors.length > 0) {
+    const errorMessage = validationErrors.join(', ');
+    setError(errorMessage);
+    setLoading(false);
+    showToast('error', errorMessage, { autoClose: 5000 });
+    throw new Error(errorMessage);
+  }
+
+  try {
+    // ✅ NEW: Calculate online payment discount
+    const isOnlinePayment = ['credit_card', 'debit_card', 'alfa_wallet', 'alfalah_bank'].includes(orderData.paymentMethod);
+    const onlinePaymentDiscount = isOnlinePayment ? 100 : 0;
     
-    const validationErrors = validateOrderData(orderData);
-    if (validationErrors.length > 0) {
-      const errorMessage = validationErrors.join(', ');
-      setError(errorMessage);
-      setLoading(false);
-      showToast('error', errorMessage, { autoClose: 5000 });
-      throw new Error(errorMessage);
-    }
+    // ✅ Update order data with discount information
+    const enhancedOrderData = {
+      ...orderData,
+      onlinePaymentDiscount // This will be used by the backend
+    };
 
-    try {
-      const response = await placeOrder(orderData);
-      const { order, payment } = response.data;
+    const response = await placeOrder(enhancedOrderData);
+    const { order, payment, savings } = response.data;
 
+    // ✅ NEW: Show discount message if applicable
+    if (isOnlinePayment && onlinePaymentDiscount > 0) {
+      showToast('success', `Order placed successfully! You saved PKR ${onlinePaymentDiscount} with online payment.`, { 
+        autoClose: 5000 
+      });
+    } else {
       showToast('success', 'Order placed successfully!', { autoClose: 3000 });
-      
-      clearAllOrdersCache();
-      
-      if (order.paymentMethod !== 'cash_on_delivery' && payment) {
-        if (payment.requiresFormSubmission) {
-          await submitPaymentForm(payment.formData, payment.actionUrl);
-        } else {
-          window.location.href = payment.paymentUrl;
-        }
-        
-        return { order, payment };
-      }
-      
-      if (isAdmin) {
-        await debouncedFetchAllOrders(1, 10, '', '', true);
-        fetchNotifications(5, true);
-        fetchRevenueStats('month', '', '', true);
-        fetchProductStats(10, '', '', true);
-      } else if (isRegularUser) {
-        await debouncedFetchUserOrders(1, 10, '', true);
-      }
-      
-      return { order, payment: null };
-    } catch (err) {
-      await handleOrderError(err, isRegularUser || isAdmin, () => placeNewOrder(orderData));
-      throw err;
-    } finally {
-      setLoading(false);
     }
-  };
+    
+    clearAllOrdersCache();
+    
+    if (order.paymentMethod !== 'cash_on_delivery' && payment) {
+      if (payment.requiresFormSubmission) {
+        await submitPaymentForm(payment.formData, payment.actionUrl);
+      } else {
+        window.location.href = payment.paymentUrl;
+      }
+      
+      return { order, payment, savings };
+    }
+    
+    if (isAdmin) {
+      await debouncedFetchAllOrders(1, 10, '', '', true);
+      fetchNotifications(5, true);
+      fetchRevenueStats('month', '', '', true);
+      fetchProductStats(10, '', '', true);
+    } else if (isRegularUser) {
+      await debouncedFetchUserOrders(1, 10, '', true);
+    }
+    
+    return { order, payment: null, savings };
+  } catch (err) {
+    await handleOrderError(err, isRegularUser || isAdmin, () => placeNewOrder(orderData));
+    throw err;
+  } finally {
+    setLoading(false);
+  }
+};
 
   const updateStatus = async (orderId, status) => {
     if (!isAdmin) {
