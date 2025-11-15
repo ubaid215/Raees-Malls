@@ -52,10 +52,10 @@ function HeroSection() {
 
   return (
     <section className="lg:px-4 md:px-2 sm:px-0 mb-3 pb-5 pt-7 w-full">
-      {/* Main Slider - Maintains 1280x560 aspect ratio (2.29:1) */}
+      {/* Main Slider - Maintains 1248x832 aspect ratio (1.5:1) */}
       <div className="w-full relative rounded-none md:rounded-md lg:rounded-xl overflow-hidden">
-        {/* Aspect ratio container: 560/1280 = 0.4375 = 43.75% */}
-        <div className="relative w-full" style={{ paddingBottom: '43.75%' }}>
+        {/* Aspect ratio container: 832/1248 = 0.6667 = 66.67% */}
+        <div className="relative w-full" style={{ paddingBottom: '66.67%' }}>
           <div className="absolute inset-0">
             {bannersLoading ? (
               <div className="w-full h-full flex items-center justify-center bg-gray-200">
